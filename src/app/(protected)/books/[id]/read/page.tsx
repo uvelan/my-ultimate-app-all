@@ -66,6 +66,13 @@ export default function ReadBookPage() {
     useEffect(() => {
         const loadVoices = () => {
             const available = window.speechSynthesis.getVoices();
+            // Sort: Local service (offline) first, then alphabetical
+            available.sort((a, b) => {
+                if (a.localService === b.localService) {
+                    return a.name.localeCompare(b.name);
+                }
+                return a.localService ? -1 : 1;
+            });
             console.log("Voices loaded:", available.length);
             setVoices(available);
         };
@@ -772,7 +779,7 @@ export default function ReadBookPage() {
                                                 {voices.length > 0 ? (
                                                     voices.map((voice) => (
                                                         <option key={voice.name} value={voice.name}>
-                                                            {voice.name} ({voice.lang})
+                                                            {voice.name} ({voice.lang}) {voice.localService ? '[Offline]' : '[Online]'}
                                                         </option>
                                                     ))
                                                 ) : (
