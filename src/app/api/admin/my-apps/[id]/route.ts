@@ -4,7 +4,7 @@ import { verifyAuth } from '@/lib/auth-server';
 
 export async function PATCH(
     req: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const auth = await verifyAuth();
@@ -13,7 +13,7 @@ export async function PATCH(
         }
 
         const body = await req.json();
-        const { id } = params;
+        const { id } = await params;
 
         const app = await prisma.myApp.update({
             where: { id },
@@ -34,7 +34,7 @@ export async function PATCH(
 
 export async function DELETE(
     req: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const auth = await verifyAuth();
@@ -42,7 +42,7 @@ export async function DELETE(
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const { id } = params;
+        const { id } = await params;
 
         await prisma.myApp.delete({
             where: { id },
