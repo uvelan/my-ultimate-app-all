@@ -14,6 +14,7 @@ import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { saveBookToCache, getBookFromCache, deleteBookFromCache, Book as DBBook } from '@/lib/book-db';
 
 interface Chapter {
     id: string;
@@ -150,6 +151,19 @@ export default function ReadBookPage() {
             }
         }
     }, [currentParagraphIndex]);
+
+    // Scroll TOC to active chapter when sidebar opens
+    useEffect(() => {
+        if (sidebarOpen) {
+            // Small timeout to allow transition/render
+            setTimeout(() => {
+                const activeChapterEl = document.getElementById(`toc-chapter-${currentChapterIndex}`);
+                if (activeChapterEl) {
+                    activeChapterEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
+        }
+    }, [sidebarOpen, currentChapterIndex]);
 
     // Main TTS Drive Effect
     useEffect(() => {
@@ -342,12 +356,54 @@ export default function ReadBookPage() {
     // It also saves on Play (isPlaying goes true), which is redundant but harmless.
     // It saves on Chapter Change.
 
+
+    // ... (existing imports)
+
+    // ... (inside ReadBookPage)
+
     const fetchBook = async (id: string) => {
+        try {
+            // Try loading from cache first
+            const cachedBook = await getBookFromCache(id);
+            if (cachedBook) {
+                console.log('Loaded book from cache');
+                setBook(cachedBook as Book);
+                setLoading(false);
+
+                // Initialize Progress from DB/Local even if cached (metadata update)
+                // We might want to fetch fresh metadata in background, but strict offline first for now.
+                if (typeof cachedBook.chapterId === 'number') {
+                    setCurrentChapterIndex(cachedBook.chapterId);
+                }
+                if (typeof cachedBook.sentenceId === 'number') {
+                    setCurrentParagraphIndex(cachedBook.sentenceId);
+                } else {
+                    setCurrentParagraphIndex(0);
+                }
+
+                // Optional: Trigger background update
+                fetchBookNetwork(id);
+                return;
+            }
+
+            await fetchBookNetwork(id);
+        } catch (error) {
+            console.error('Error in fetchBook:', error);
+            toast.error('Error loading book');
+            setLoading(false);
+        }
+    };
+
+    const fetchBookNetwork = async (id: string) => {
         try {
             const res = await fetch(`/api/books/${id}`);
             if (res.ok) {
                 const data = await res.json();
                 setBook(data);
+
+                // Save to cache
+                saveBookToCache(data).catch(err => console.error("Failed to cache book:", err));
+
                 // Reset TTS state when a new book is loaded
                 window.speechSynthesis.cancel();
                 setIsPlaying(false);
@@ -362,13 +418,26 @@ export default function ReadBookPage() {
                     setCurrentParagraphIndex(0);
                 }
             } else {
-                toast.error('Failed to load book');
-                router.push('/books');
+                if (!book) { // Only show error if we don't have book (cached or otherwise)
+                    toast.error('Failed to load book from network');
+                    // router.push('/books'); // Don't redirect immediately, maybe offline?
+                }
             }
         } catch (error) {
-            toast.error('Error loading book');
+            if (!book) toast.error('Error loading book from network');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteCache = async () => {
+        if (!book?.id) return;
+        try {
+            await deleteBookFromCache(book.id);
+            toast.success('Book cache deleted');
+        } catch (error) {
+            console.error('Failed to delete cache:', error);
+            toast.error('Failed to delete cache');
         }
     };
 
@@ -509,10 +578,10 @@ export default function ReadBookPage() {
             <div className="flex flex-col h-screen bg-[#f3eacb] text-[#3e2b22] font-serif overflow-hidden">
 
                 {/* Top Control Bar - Redesigned */}
-                <header className="bg-[#dccbb3] border-b border-[#bfae95] px-4 py-3 shadow-sm shrink-0 z-20 flex items-center justify-between">
+                <header className="bg-[#dccbb3] border-b border-[#bfae95] px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between">
 
                     {/* Left: Navigation & Context */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 md:gap-3">
                         <Link href="/books" className={iconBtnStyle} title="Back to Library">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                         </Link>
@@ -521,57 +590,59 @@ export default function ReadBookPage() {
                             <span className="hidden sm:inline">Chapters</span>
                         </button>
                         <div className="h-6 w-px bg-[#bfae95] mx-2 hidden sm:block"></div>
-                        <span className="text-sm font-bold text-[#5c4033] hidden md:block truncate max-w-[300px]">
+                        <span className="text-sm font-bold text-[#5c4033] hidden md:block truncate max-w-[200px] lg:max-w-[300px]">
                             {book.title}
                         </span>
                     </div>
 
                     {/* Center: Playback Controls */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 md:gap-2">
                         <button onClick={handlePrevChapter} disabled={currentChapterIndex === 0} className={`${iconBtnStyle} ${currentChapterIndex === 0 ? 'opacity-50 cursor-not-allowed' : ''}`} title="Previous Chapter">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                         </button>
 
                         <button onClick={handlePrevLine} className={iconBtnStyle} title="Previous Line">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="11 19 2 12 11 5 11 19"></polygon><polygon points="22 19 13 12 22 5 22 19"></polygon></svg>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="11 19 2 12 11 5 11 19"></polygon><polygon points="22 19 13 12 22 5 22 19"></polygon></svg>
                         </button>
 
                         <button
                             onClick={handlePlay}
-                            className="p-3 bg-[#8b7a60] hover:bg-[#6f5f4b] text-[#f3eacb] rounded-full shadow-md border border-[#5c4033] transition-transform hover:scale-105"
+                            className="p-2 md:p-3 bg-[#8b7a60] hover:bg-[#6f5f4b] text-[#f3eacb] rounded-full shadow-md border border-[#5c4033] transition-transform hover:scale-105"
                             title={isPlaying ? "Pause" : "Play"}
                         >
                             {isPlaying ? (
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
                             ) : (
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                             )}
                         </button>
 
                         <button onClick={handleNextLine} className={iconBtnStyle} title="Next Line">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg>
                         </button>
 
                         <button onClick={() => handleNextChapter(false)} disabled={currentChapterIndex === book.chapters.length - 1} className={`${iconBtnStyle} ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-50 cursor-not-allowed' : ''}`} title="Next Chapter">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                         </button>
                     </div>
 
                     {/* Right: Settings */}
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-[#5c4033] hidden lg:block border-r border-[#bfae95] pr-3 mr-1 max-w-[300px] truncate" title={currentChapter?.title}>
+                    <div className="flex items-center gap-2 md:gap-3">
+                        <span className="text-sm font-medium text-[#5c4033] hidden lg:block border-r border-[#bfae95] pr-3 mr-1 max-w-[200px] truncate" title={currentChapter?.title}>
                             {currentChapter?.title}
                         </span>
                         <button onClick={() => setShowReplacementModal(true)} className={topBtnStyle}>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            Settings
+                            <span className="hidden sm:inline">Settings</span>
                         </button>
                     </div>
                 </header>
 
                 <div className="flex flex-1 overflow-hidden relative">
                     {/* Collapsible Sidebar */}
-                    <div className={`absolute inset-y-0 left-0 z-10 w-80 bg-[#e8dbc3] border-r border-[#c2b091] transform transition-transform duration-300 ease-in-out shadow-lg flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                    <div
+                        className={`absolute inset-y-0 left-0 z-20 w-3/4 sm:w-80 bg-[#e8dbc3] border-r border-[#c2b091] transform transition-transform duration-300 ease-in-out shadow-lg flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                    >
                         <div className="p-3 border-b border-[#c2b091] bg-[#dccbb3] flex justify-between items-center">
                             <h3 className="font-bold text-[#3e2b22]">Table of Contents</h3>
                             <button onClick={toggleSidebar} className="p-1 hover:bg-[#c2b091] rounded">
@@ -582,6 +653,7 @@ export default function ReadBookPage() {
                             {book.chapters.map((chapter, index) => (
                                 <button
                                     key={chapter.id}
+                                    id={`toc-chapter-${index}`}
                                     onClick={() => handleJumpToChapter(index)}
                                     className={`w-full text-left p-2 rounded mb-1 text-sm truncate ${currentChapterIndex === index
                                         ? 'bg-[#b09e80] text-[#2e1d15] font-bold'
@@ -594,15 +666,22 @@ export default function ReadBookPage() {
                         </div>
                     </div>
 
+                    {/* Visual Backdrop for Sidebar (Mobile/Tablet) */}
+                    {sidebarOpen && (
+                        <div
+                            className="absolute inset-0 bg-black/30 z-10 backdrop-blur-[1px] transition-opacity"
+                            onClick={() => setSidebarOpen(false)}
+                        ></div>
+                    )}
+
                     {/* Main Content Area */}
                     <main
                         ref={contentRef}
-                        className="flex-1 overflow-y-auto p-6 md:p-12 relative bg-[#f3eacb] min-h-0"
-                        onClick={() => sidebarOpen && setSidebarOpen(false)} // Close sidebar if clicking content
+                        className="flex-1 overflow-y-auto p-4 md:p-12 relative bg-[#f3eacb] min-h-0"
                     >
-                        <div className="w-full max-w-[95%] mx-auto">
+                        <div className="w-full max-w-[95%] lg:max-w-4xl mx-auto">
                             {/* Chapter Title */}
-                            <h2 className="text-3xl md:text-4xl font-bold text-[#3e2b22] mb-10 pb-4 border-b border-[#d4c5b0]">
+                            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-[#3e2b22] mb-6 md:mb-10 pb-4 border-b border-[#d4c5b0]">
                                 {currentChapter?.title}
                             </h2>
 
@@ -615,7 +694,7 @@ export default function ReadBookPage() {
                                     <p
                                         key={idx}
                                         id={`paragraph-${idx}`}
-                                        className={`mb-8 p-2 rounded transition-colors duration-300 ${isPlaying && currentParagraphIndex === idx
+                                        className={`mb-6 md:mb-8 p-2 rounded transition-colors duration-300 ${isPlaying && currentParagraphIndex === idx
                                             ? 'bg-[#e6d5b8] shadow-sm ring-1 ring-[#c2b091]'
                                             : ''
                                             }`}
@@ -626,18 +705,18 @@ export default function ReadBookPage() {
                             </div>
 
                             {/* Bottom Navigation */}
-                            <div className="flex justify-between mt-20 pt-10 border-t border-[#d4c5b0]">
+                            <div className="flex items-center justify-between mt-10 md:mt-20 pt-6 md:pt-10 border-t border-[#d4c5b0] gap-4">
                                 <button
                                     onClick={handlePrevChapter}
                                     disabled={currentChapterIndex === 0}
-                                    className={`px-8 py-3 rounded bg-[#b09e80] text-[#2e1d15] font-bold text-lg hover:bg-[#a08d6f] transition-colors shadow-sm ${currentChapterIndex === 0 ? 'opacity-0' : ''}`}
+                                    className={`flex-1 px-4 py-3 md:px-8 md:py-3 rounded bg-[#b09e80] text-[#2e1d15] font-bold text-sm md:text-lg hover:bg-[#a08d6f] transition-colors shadow-sm whitespace-nowrap ${currentChapterIndex === 0 ? 'opacity-0 pointer-events-none' : ''}`}
                                 >
                                     ← Previous
                                 </button>
                                 <button
                                     onClick={() => handleNextChapter(false)}
                                     disabled={currentChapterIndex === book.chapters.length - 1}
-                                    className={`px-8 py-3 rounded bg-[#b09e80] text-[#2e1d15] font-bold text-lg hover:bg-[#a08d6f] transition-colors shadow-sm ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-0' : ''}`}
+                                    className={`flex-1 px-4 py-3 md:px-8 md:py-3 rounded bg-[#b09e80] text-[#2e1d15] font-bold text-sm md:text-lg hover:bg-[#a08d6f] transition-colors shadow-sm whitespace-nowrap ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-0 pointer-events-none' : ''}`}
                                 >
                                     Next →
                                 </button>
@@ -816,7 +895,10 @@ export default function ReadBookPage() {
                                     </h4>
                                     <div className="p-4 bg-[#e8dbc3]/50 rounded border border-[#c2b091] flex justify-between items-center">
                                         <span className="text-sm text-[#5c4033]">Clear cached chapters for this book</span>
-                                        <button className="px-3 py-1 bg-red-800 hover:bg-red-700 text-[#f3eacb] text-sm font-bold rounded shadow-sm transition-colors">
+                                        <button
+                                            onClick={handleDeleteCache}
+                                            className="px-3 py-1 bg-red-800 hover:bg-red-700 text-[#f3eacb] text-sm font-bold rounded shadow-sm transition-colors"
+                                        >
                                             Delete Cache
                                         </button>
                                     </div>
