@@ -65,12 +65,12 @@ export default function ReadBookPage() {
     useEffect(() => {
         const loadVoices = () => {
             const available = window.speechSynthesis.getVoices();
+            console.log("Voices loaded:", available.length);
             setVoices(available);
         };
         loadVoices();
         window.speechSynthesis.onvoiceschanged = loadVoices;
 
-        // Cleanup speech on unmount
         return () => {
             window.speechSynthesis.cancel();
         };
@@ -113,7 +113,6 @@ export default function ReadBookPage() {
                     if (rule.isRegex) {
                         return paragraph.replace(searchValue, replaceValue);
                     } else {
-                        // Global string replace
                         return paragraph.split(searchValue).join(replaceValue);
                     }
                 });
@@ -123,9 +122,15 @@ export default function ReadBookPage() {
         });
 
         setProcessedContent(newContent);
-        // Reset paragraph index on chapter change unless auto-playing
-        if (!shouldPlayRef.current) {
+
+        // Logic to handle chapter change auto-play
+        if (shouldPlayRef.current) {
             setCurrentParagraphIndex(0);
+            setIsPlaying(true);
+            shouldPlayRef.current = false;
+        } else {
+            setCurrentParagraphIndex(0);
+            setIsPlaying(false);
         }
     }, [book, currentChapterIndex, replacementRules]);
 
@@ -136,92 +141,78 @@ export default function ReadBookPage() {
         }
     }, [currentChapterIndex]);
 
-    // Verify auto-play on content load
-    useEffect(() => {
-        if (shouldPlayRef.current && processedContent.length > 0) {
-            setCurrentParagraphIndex(0);
-            speakParagraph(0);
-            shouldPlayRef.current = false; // logic handled, reset
-        }
-    }, [processedContent]);
-
     // Highlight active paragraph
     useEffect(() => {
-        if (isPlaying && contentRef.current) {
+        if (contentRef.current) {
             const activeEl = document.getElementById(`paragraph-${currentParagraphIndex}`);
             if (activeEl) {
                 activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }
-    }, [currentParagraphIndex, isPlaying]);
+    }, [currentParagraphIndex]);
 
-    // Handle dynamic voice/speed switching
+    // Main TTS Drive Effect
     useEffect(() => {
-        if (isPlaying) {
+        if (!isPlaying || processedContent.length === 0) {
             window.speechSynthesis.cancel();
-            // Small timeout to allow state to settle
-            const timer = setTimeout(() => {
-                speakParagraph(currentParagraphIndex);
-                isSwitchingRef.current = false;
-            }, 50);
-            return () => clearTimeout(timer);
-        }
-    }, [selectedVoice, playbackSpeed]);
-
-    const speakParagraph = (index: number) => {
-        // Cancel removed to allow smooth transition in Firefox
-
-
-        if (index >= processedContent.length) {
-            handleNextChapter(true); // Auto-advance to next chapter and play
             return;
         }
 
-        const text = processedContent[index];
+        // Handle End of Chapter
+        if (currentParagraphIndex >= processedContent.length) {
+            handleNextChapter(true);
+            return;
+        }
+
+        const text = processedContent[currentParagraphIndex];
+
+        // Skip empty paragraphs
         if (!text || !text.trim()) {
-            // Skip empty paragraphs
-            speakParagraph(index + 1);
+            setCurrentParagraphIndex(prev => prev + 1);
             return;
         }
+
+        // Cancel previous speech and invalidate ref to prevent onend from advancing
+        speechRef.current = null;
+        window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = playbackSpeed;
 
-        // Find selected voice object
         const voice = voices.find(v => v.name === selectedVoice) || voices[0];
         if (voice) utterance.voice = voice;
 
-        utterance.onstart = () => {
-            setCurrentParagraphIndex(index);
+        // Guard against race conditions using closure
+        utterance.onend = () => {
+            // If this utterance is not the current one (e.g. cancelled), do nothing
+            if (speechRef.current !== utterance) return;
+
+            // Move to next paragraph
+            setCurrentParagraphIndex(prev => prev + 1);
         };
 
-        utterance.onend = () => {
-            // Check if we are switching voice/speed, if so, abort continuation
-            if (isSwitchingRef.current) return;
-
-            // Automatically queue next paragraph
-            if (shouldPlayRef.current) return; // Prevent race conditions if chapter changing
-            speakParagraph(index + 1);
+        utterance.onerror = (e) => {
+            console.error("TTS Error:", e);
+            if (speechRef.current !== utterance) return;
+            // Should we advance? Maybe logs error and stops.
+            // For now, let's stop to avoid infinite error loops
+            setIsPlaying(false);
         };
 
         speechRef.current = utterance;
-        setIsPlaying(true);
         window.speechSynthesis.speak(utterance);
-    };
+
+        // We don't need a cleanup to cancel here specifically, 
+        // because the next run will cancel. 
+        // But on unmount/isPlaying=false, we cancel.
+
+    }, [currentParagraphIndex, isPlaying, processedContent, playbackSpeed, selectedVoice, voices]);
+
 
     const handlePlay = () => {
-        if (isPlaying) {
-            shouldPlayRef.current = false;
-            window.speechSynthesis.pause();
-            setIsPlaying(false);
-        } else {
-            if (window.speechSynthesis.paused) {
-                window.speechSynthesis.resume();
-                setIsPlaying(true);
-            } else {
-                window.speechSynthesis.cancel();
-                speakParagraph(currentParagraphIndex);
-            }
+        setIsPlaying(prev => !prev);
+        if (!isPlaying && window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
         }
     };
 
@@ -232,37 +223,22 @@ export default function ReadBookPage() {
     };
 
     const handleNextLine = () => {
-        const next = currentParagraphIndex + 1;
-        if (next < processedContent.length) {
-            setCurrentParagraphIndex(next);
-            if (isPlaying) {
-                window.speechSynthesis.cancel();
-                speakParagraph(next);
-            }
-        } else {
-            handleNextChapter(true);
-        }
+        setCurrentParagraphIndex(prev => Math.min(prev + 1, processedContent.length)); // Allow going to length to trigger next chapter
     };
 
     const handlePrevLine = () => {
-        const prev = Math.max(0, currentParagraphIndex - 1);
-        setCurrentParagraphIndex(prev);
-        if (isPlaying) {
-            window.speechSynthesis.cancel();
-            speakParagraph(prev);
-        }
+        setCurrentParagraphIndex(prev => Math.max(0, prev - 1));
     };
 
     // --- Keyboard & Media Controls ---
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ignore if typing in input (e.g., search/replace)
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
             switch (e.key) {
                 case ' ':
-                    e.preventDefault(); // Prevent scrolling
+                    e.preventDefault();
                     handlePlay();
                     break;
                 case 'ArrowRight':
@@ -280,7 +256,7 @@ export default function ReadBookPage() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isPlaying, currentParagraphIndex, currentChapterIndex, processedContent.length]); // Dependencies crucial for closure
+    }, [isPlaying]); // Minimized dependencies as handlers use state setters
 
     // Media Session API
     useEffect(() => {
