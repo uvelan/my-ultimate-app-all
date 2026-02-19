@@ -2,15 +2,13 @@
 const nextConfig = {
     output: 'standalone',
     serverExternalPackages: ['@prisma/client', 'sharp', 'bcryptjs'],
-    experimental: {
-        // Exclude specific heavy files from being bundled in the function
-        outputFileTracingExcludes: {
-            '*': [
-                'node_modules/@swc/core-linux-x64-gnu',
-                'node_modules/@swc/core-linux-x64-musl',
-                'node_modules/@esbuild/linux-x64',
-            ],
-        },
+    // Exclude specific heavy files from being bundled in the function
+    outputFileTracingExcludes: {
+        '*': [
+            'node_modules/@swc/core-linux-x64-gnu',
+            'node_modules/@swc/core-linux-x64-musl',
+            'node_modules/@esbuild/linux-x64',
+        ],
     },
     images: {
         remotePatterns: [
