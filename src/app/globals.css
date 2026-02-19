@@ -1,0 +1,76 @@
+@import 'bootstrap/dist/css/bootstrap.min.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.25);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+
+  /* Dashboard Theme */
+  --dash-bg: #EAE9E4;
+  --dash-sidebar-bg: #FFFFFF;
+  --dash-accent: #1D3430;
+  /* Dark Green */
+  --dash-text: #1a1a1a;
+  --dash-secondary: #8E8E8E;
+  --dash-secondary: #8E8E8E;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+body {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+  color: #333;
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #333;
+}
+
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: #764ba2;
+  box-shadow: 0 0 0 0.2rem rgba(118, 75, 162, 0.25);
+}
+
+.btn-primary-custom {
+  background: #764ba2;
+  border-color: #764ba2;
+  color: white;
+}
+
+.btn-primary-custom:hover {
+  background: #667eea;
+  border-color: #667eea;
+}
+
+/* Toast container positioning override if needed */
+.toast-container {
+  z-index: 1055;
+}

@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(USER)
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model MyApp {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String
+  imageLink   String
+  appLink     String
+  isNative    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Book {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  cover       String?
+  content     Json?
+  description String?
+  userName    String?
+  fileName    String?  // Original filename for duplicate detection
+  chapterId   Int      @default(0)
+  sentenceId  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime? @updatedAt
+  chapters    Chapter[]
+}
+
+model Chapter {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  bookId    String   @db.ObjectId
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  title     String
+  content   Json
+  order     Int
+
+  @@index([bookId, order])
+}
+
+model ReplacementRule {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  bookId    String?  // Optional: If null, rule applies to all books
+  search    String
+  replace   String
+  isRegex   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
