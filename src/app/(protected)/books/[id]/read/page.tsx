@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { diffWords } from 'diff';
 import { Crimson_Text } from 'next/font/google';
 
 const crimsonText = Crimson_Text({
@@ -41,6 +42,11 @@ export default function ReadBookPage() {
     const [fontSize, setFontSize] = useState(20); // Default font size in px
     const [replacementRules, setReplacementRules] = useState<any[]>([]);
     const [showReplacementModal, setShowReplacementModal] = useState(false);
+
+    const [isCorrectingGrammar, setIsCorrectingGrammar] = useState(false);
+    const [showDiffModal, setShowDiffModal] = useState(false);
+    const [correctedContent, setCorrectedContent] = useState<string[] | null>(null);
+    const [aiModel, setAiModel] = useState('gemini-2.5-flash'); // Default model
 
     const [processedContent, setProcessedContent] = useState<string[]>([]);
 
@@ -364,9 +370,67 @@ export default function ReadBookPage() {
     // It saves on Chapter Change.
 
 
-    // ... (existing imports)
+    const handleGrammarCorrection = async () => {
+        if (!book || !currentChapter) return;
 
-    // ... (inside ReadBookPage)
+        setIsCorrectingGrammar(true);
+        const toastId = toast.loading('Correcting grammar with Gemini (this may take a minute)...');
+
+        try {
+            const res = await fetch('/api/grammar-correct', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chapterId: currentChapter.id, modelId: aiModel })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                if (data.rawResponse) console.error("Raw AI Response:", data.rawResponse);
+                if (data.details) console.error("Parse Details:", data.details);
+                throw new Error(data.details ? `${data.error} Details: ${data.details}` : data.error || 'Failed to correct grammar');
+            }
+
+            const data = await res.json();
+            setCorrectedContent(data.correctedContent);
+            setShowDiffModal(true);
+            toast.success('Grammar correction ready for review!', { id: toastId });
+        } catch (error: any) {
+            console.error(error);
+            toast.error(error.message || 'Error running grammar correction', { id: toastId });
+        } finally {
+            setIsCorrectingGrammar(false);
+        }
+    };
+
+    const confirmGrammarChanges = async () => {
+        if (!book || !currentChapter || !correctedContent) return;
+
+        const toastId = toast.loading('Saving changes...');
+        try {
+            const res = await fetch(`/api/chapters/${currentChapter.id}/content`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: correctedContent })
+            });
+
+            if (!res.ok) throw new Error('Failed to save changes');
+
+            // Update local state
+            const updatedChapters = [...book.chapters];
+            updatedChapters[currentChapterIndex] = { ...currentChapter, content: correctedContent };
+            const updatedBook = { ...book, chapters: updatedChapters };
+
+            setBook(updatedBook);
+            saveBookToCache(updatedBook).catch(console.error);
+
+            setShowDiffModal(false);
+            setCorrectedContent(null);
+            toast.success('Chapter grammar updated!', { id: toastId });
+        } catch (error: any) {
+            console.error(error);
+            toast.error('Failed to save grammar changes.', { id: toastId });
+        }
+    };
 
     const fetchBook = async (id: string) => {
         try {
@@ -530,10 +594,12 @@ export default function ReadBookPage() {
         const storedFontSize = localStorage.getItem('book-font-size');
         const storedSpeed = localStorage.getItem('book-playback-speed');
         const storedVoice = localStorage.getItem('book-selected-voice');
+        const storedAiModel = localStorage.getItem('book-ai-model');
 
         if (storedFontSize) setFontSize(parseInt(storedFontSize));
         if (storedSpeed) setPlaybackSpeed(parseFloat(storedSpeed));
         if (storedVoice) setSelectedVoice(storedVoice);
+        if (storedAiModel) setAiModel(storedAiModel);
     }, []);
 
     const handleSpeedChange = (newSpeed: number) => {
@@ -546,6 +612,12 @@ export default function ReadBookPage() {
         isSwitchingRef.current = true;
         setSelectedVoice(newVoice);
         localStorage.setItem('book-selected-voice', newVoice);
+    };
+
+    const handleAiModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const newModel = e.target.value;
+        setAiModel(newModel);
+        localStorage.setItem('book-ai-model', newModel);
     };
 
     const increaseFontSize = () => {
@@ -638,6 +710,38 @@ export default function ReadBookPage() {
                         <span className="text-sm font-medium text-[#5c4033] hidden lg:block border-r border-[#bfae95] pr-3 mr-1 max-w-[200px] truncate" title={currentChapter?.title}>
                             {currentChapter?.title}
                         </span>
+
+                        <div className="hidden sm:flex items-center">
+                            <select
+                                value={aiModel}
+                                onChange={handleAiModelChange}
+                                className="bg-[#fffdf5] border border-[#bfae95] text-[#3e2b22] text-sm px-2 py-1.5 rounded-l border-r-0 focus:outline-none focus:ring-1 focus:ring-[#8b7a60] h-[34px] md:h-[38px] cursor-pointer"
+                                title="Select AI Model"
+                            >
+                                <option value="gemini-2.5-flash">Gemini Flash</option>
+                                <option value="gpt-4o-mini">ChatGPT (GPT-4o Mini)</option>
+                                <option value="pollinations">Pollinations (Free)</option>
+                                <option value="ollama">Local (Ollama llama3)</option>
+                            </select>
+                            <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar} className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded-r shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm ${isCorrectingGrammar ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
+                                {isCorrectingGrammar ? (
+                                    <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                ) : (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
+                                )}
+                                <span className="hidden md:inline">AI Fix</span>
+                            </button>
+                        </div>
+
+                        {/* Mobile AI Fix Button (No dropdown to save space) */}
+                        <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar} className={`sm:hidden ${topBtnStyle} ${isCorrectingGrammar ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
+                            {isCorrectingGrammar ? (
+                                <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            ) : (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
+                            )}
+                        </button>
+
                         <button onClick={() => setShowReplacementModal(true)} className={topBtnStyle}>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                             <span className="hidden sm:inline">Settings</span>
@@ -911,6 +1015,70 @@ export default function ReadBookPage() {
                                     </div>
                                 </div>
 
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Grammar Diff Modal */}
+                {showDiffModal && correctedContent && currentChapter && (
+                    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-[#f3eacb] rounded-lg shadow-2xl w-full max-w-4xl border border-[#bfae95] flex flex-col max-h-[90vh]">
+                            <div className="p-4 md:p-6 border-b border-[#c2b091] flex justify-between items-center bg-[#dccbb3] rounded-t-lg shrink-0">
+                                <div>
+                                    <h3 className="text-xl md:text-2xl font-bold text-[#3e2b22] font-serif">Review Grammar Changes</h3>
+                                    <p className="text-sm text-[#5c4033] mt-1">Review the AI-suggested corrections for {currentChapter.title}</p>
+                                </div>
+                                <button onClick={() => setShowDiffModal(false)} className="text-[#5c4033] hover:text-[#2e1d15] bg-[#d7c9b0] p-2 rounded-full transition-colors">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+
+                            <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-[#fdfaf2]">
+                                <div className="space-y-6 font-serif text-lg leading-relaxed text-[#2e1d15]">
+                                    {currentChapter.content.map((originalParagraph, idx) => {
+                                        const correctedParagraph = correctedContent[idx];
+                                        if (!correctedParagraph) return null;
+
+                                        if (originalParagraph === correctedParagraph) {
+                                            return <p key={idx} className="text-[#5c4033] opacity-70">{originalParagraph}</p>;
+                                        }
+
+                                        const differences = diffWords(originalParagraph, correctedParagraph);
+
+                                        return (
+                                            <div key={idx} className="p-4 bg-[#e8dbc3] rounded border border-[#c2b091] shadow-sm">
+                                                <p>
+                                                    {differences.map((part, partIdx) => {
+                                                        if (part.added) {
+                                                            return <span key={partIdx} className="bg-green-200 text-green-900 font-medium px-1 rounded">{part.value}</span>;
+                                                        }
+                                                        if (part.removed) {
+                                                            return <span key={partIdx} className="bg-red-200 text-red-900 line-through px-1 rounded mx-1 opacity-60">{part.value}</span>;
+                                                        }
+                                                        return <span key={partIdx}>{part.value}</span>;
+                                                    })}
+                                                </p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="p-4 md:p-6 border-t border-[#c2b091] bg-[#e8dbc3] rounded-b-lg shrink-0 flex items-center justify-end gap-3">
+                                <button
+                                    onClick={() => setShowDiffModal(false)}
+                                    className="px-5 py-2.5 bg-[#d7c9b0] hover:bg-[#c2b091] text-[#3e2b22] font-bold rounded transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmGrammarChanges}
+                                    className="px-5 py-2.5 bg-[#8b7a60] hover:bg-[#6f5f4b] text-[#f3eacb] font-bold rounded shadow-md transition-colors flex items-center gap-2"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                    Save Changes
+                                </button>
                             </div>
                         </div>
                     </div>
