@@ -34,6 +34,7 @@ export default function ListenPage() {
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+    const [grammarModel, setGrammarModel] = useState("OFF");
 
     // Player State
     const [isPlaying, setIsPlaying] = useState(false);
@@ -100,7 +101,7 @@ export default function ListenPage() {
         }
     };
 
-    // Whenever chapter index changes, fetch the new audio URL
+    // Whenever chapter index or grammar model changes, fetch the new audio URL
     useEffect(() => {
         if (!book || !currentChapter) return;
 
@@ -112,7 +113,7 @@ export default function ListenPage() {
         saveProgressToDb(currentChapterIndex);
 
         fetchAudioForChapter(currentChapter.id);
-    }, [currentChapterIndex, book]);
+    }, [currentChapterIndex, book, grammarModel]);
 
     const fetchAudioForChapter = async (chapterId: string) => {
         setIsGenerating(true);
@@ -121,7 +122,7 @@ export default function ListenPage() {
         try {
             // Using our new API route. Because building this audio file might take a second, 
             // returning the direct URL to the <audio> src is sometimes better, but here we preload to show spinning until ready.
-            const url = `/api/tts?chapterId=${chapterId}`;
+            const url = `/api/tts?chapterId=${chapterId}&grammarModel=${grammarModel}`;
 
             // To test if it exists and handles generation, we can fetch it once
             const response = await fetch(url);
@@ -213,11 +214,16 @@ export default function ListenPage() {
         localStorage.setItem('listen-playback-speed', newSpeed.toString());
     };
 
-    // Restore speed preference
+    // Restore preference settings
     useEffect(() => {
         const storedSpeed = localStorage.getItem('listen-playback-speed');
         if (storedSpeed) {
             setPlaybackSpeed(parseFloat(storedSpeed));
+        }
+
+        const storedGrammar = localStorage.getItem('listen-grammar-model');
+        if (storedGrammar) {
+            setGrammarModel(storedGrammar);
         }
     }, []);
 
@@ -318,7 +324,22 @@ export default function ListenPage() {
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-1 sm:gap-2 md:gap-3">
+                    <div className="flex items-center gap-1 xl:gap-2 flex-wrap justify-end max-w-full">
+                        <select
+                            value={grammarModel}
+                            onChange={(e) => {
+                                setGrammarModel(e.target.value);
+                                localStorage.setItem('listen-grammar-model', e.target.value);
+                            }}
+                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[80px]"
+                            title="Grammar Model"
+                        >
+                            <option value="OFF">Grammar: OFF</option>
+                            <option value="gemini-2.5-flash">Gemini Flash</option>
+                            <option value="gpt-4o-mini">GPT 4o Mini</option>
+                            <option value="pollinations">Pollinations (Free)</option>
+                            <option value="ollama">Ollama (Local)</option>
+                        </select>
                         <select
                             value={sleepTimer === null ? 'OFF' : sleepTimer}
                             onChange={handleTimerSelect}
