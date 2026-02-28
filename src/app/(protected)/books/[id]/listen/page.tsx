@@ -35,6 +35,7 @@ export default function ListenPage() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [grammarModel, setGrammarModel] = useState("OFF");
+    const [ttsVoice, setTtsVoice] = useState("en");
 
     // Player State
     const [isPlaying, setIsPlaying] = useState(false);
@@ -101,7 +102,7 @@ export default function ListenPage() {
         }
     };
 
-    // Whenever chapter index or grammar model changes, fetch the new audio URL
+    // Whenever chapter index, grammar model, or voice changes, fetch the new audio URL
     useEffect(() => {
         if (!book || !currentChapter) return;
 
@@ -113,7 +114,7 @@ export default function ListenPage() {
         saveProgressToDb(currentChapterIndex);
 
         fetchAudioForChapter(currentChapter.id);
-    }, [currentChapterIndex, book, grammarModel]);
+    }, [currentChapterIndex, book, grammarModel, ttsVoice]);
 
     const fetchAudioForChapter = async (chapterId: string) => {
         setIsGenerating(true);
@@ -122,7 +123,7 @@ export default function ListenPage() {
         try {
             // Using our new API route. Because building this audio file might take a second, 
             // returning the direct URL to the <audio> src is sometimes better, but here we preload to show spinning until ready.
-            const url = `/api/tts?chapterId=${chapterId}&grammarModel=${grammarModel}`;
+            const url = `/api/tts?chapterId=${chapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}`;
 
             // To test if it exists and handles generation, we can fetch it once
             const response = await fetch(url);
@@ -225,6 +226,11 @@ export default function ListenPage() {
         if (storedGrammar) {
             setGrammarModel(storedGrammar);
         }
+
+        const storedVoice = localStorage.getItem('listen-tts-voice');
+        if (storedVoice) {
+            setTtsVoice(storedVoice);
+        }
     }, []);
 
     // Also update audio ref immediately when it mounts or speed state changes
@@ -325,6 +331,22 @@ export default function ListenPage() {
                     </div>
 
                     <div className="flex items-center gap-1 xl:gap-2 flex-wrap justify-end max-w-full">
+                        <select
+                            value={ttsVoice}
+                            onChange={(e) => {
+                                setTtsVoice(e.target.value);
+                                localStorage.setItem('listen-tts-voice', e.target.value);
+                            }}
+                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
+                            title="TTS Voice Accent"
+                        >
+                            <option value="en">Voice: Default</option>
+                            <option value="en-US">Voice: US English</option>
+                            <option value="en-GB">Voice: British</option>
+                            <option value="en-AU">Voice: Australian</option>
+                            <option value="en-IN">Voice: Indian</option>
+                            <option value="en-NG">Voice: Nigerian</option>
+                        </select>
                         <select
                             value={grammarModel}
                             onChange={(e) => {

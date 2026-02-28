@@ -9,6 +9,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const chapterId = searchParams.get('chapterId');
         const grammarModel = searchParams.get('grammarModel') || "OFF";
+        const voice = searchParams.get('voice') || "en";
 
         if (!chapterId) {
             return NextResponse.json({ error: 'Chapter ID is required' }, { status: 400 });
@@ -139,7 +140,7 @@ ${JSON.stringify(contentArray)}`;
 
         // Split text into lines, ensuring no single chunk exceeds 200 chars
         const results = googleTTS.getAllAudioBase64(fullText, {
-            lang: 'en',
+            lang: voice,
             slow: false,
             host: 'https://translate.google.com',
             splitPunct: ',.?',
