@@ -301,11 +301,11 @@ export default function ListenPage() {
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-2 md:gap-3">
+                    <div className="flex items-center gap-1 sm:gap-2 md:gap-3">
                         <select
                             value={sleepTimer === null ? 'OFF' : sleepTimer}
                             onChange={handleTimerSelect}
-                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-sm px-2 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer"
+                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-xs sm:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer"
                             title="Sleep Timer"
                         >
                             <option value="OFF">Timer: Off</option>
@@ -318,7 +318,7 @@ export default function ListenPage() {
                         <select
                             value={playbackSpeed}
                             onChange={handleSpeedChange}
-                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-sm px-2 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer"
+                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-xs sm:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer"
                             title="Playback Speed"
                         >
                             <option value={0.75}>0.75x</option>
@@ -366,10 +366,10 @@ export default function ListenPage() {
                     )}
 
                     {/* Main UI Area */}
-                    <main className="flex-1 flex flex-col items-center justify-center p-4 md:p-8 relative bg-gradient-to-b from-[#1a202c] to-[#000000]">
+                    <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-8 relative bg-gradient-to-b from-[#1a202c] to-[#000000] overflow-y-auto">
 
                         {/* Artwork / CD Style UI */}
-                        <div className={`w-48 h-48 md:w-64 md:h-64 rounded-xl shadow-2xl mb-8 border border-[#2d3748] overflow-hidden bg-[#2d3748] flex items-center justify-center transition-all ${!isGenerating && audioUrl ? 'scale-105' : 'scale-100 opacity-80'}`}>
+                        <div className={`w-32 h-32 sm:w-48 sm:h-48 md:w-64 md:h-64 rounded-xl shadow-2xl mb-4 sm:mb-8 border border-[#2d3748] overflow-hidden bg-[#2d3748] flex items-center justify-center transition-all shrink-0 ${!isGenerating && audioUrl ? 'scale-105' : 'scale-100 opacity-80'}`}>
                             {book.cover ? (
                                 <img src={book.cover} alt="Cover" className="w-full h-full object-cover" />
                             ) : (
@@ -378,14 +378,14 @@ export default function ListenPage() {
                         </div>
 
                         {/* Title and Info */}
-                        <div className="text-center max-w-2xl px-4 w-full">
-                            <h2 className="text-2xl md:text-3xl font-bold text-white mb-2 md:mb-3 truncate">
+                        <div className="text-center max-w-2xl px-2 sm:px-4 w-full">
+                            <h2 className="text-lg sm:text-2xl md:text-3xl font-bold text-white mb-1 sm:mb-2 md:mb-3 truncate">
                                 {currentChapter?.title || 'Unknown Chapter'}
                             </h2>
-                            <p className="text-[#a0aec0] mb-8 font-medium">Chapter {currentChapterIndex + 1} of {book.chapters.length}</p>
+                            <p className="text-[#a0aec0] mb-3 sm:mb-8 text-xs sm:text-sm md:text-base font-medium">Chapter {currentChapterIndex + 1} of {book.chapters.length}</p>
 
                             {/* Audio Player */}
-                            <div className="bg-[#2d3748] rounded-xl p-4 md:p-6 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
+                            <div className="bg-[#2d3748] rounded-xl p-3 sm:p-4 md:p-6 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
 
                                 {isGenerating ? (
                                     <div className="flex flex-col items-center justify-center py-4">
@@ -419,7 +419,7 @@ export default function ListenPage() {
                                         )}
 
                                         {/* Complete Progress Timeline */}
-                                        <div className="w-full flex items-center gap-3 text-xs text-[#a0aec0] font-mono mb-2">
+                                        <div className="w-full flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-[#a0aec0] font-mono mb-2">
                                             <span>{formatTime(currentTime)}</span>
                                             <input
                                                 type="range"
@@ -433,18 +433,18 @@ export default function ListenPage() {
                                                         setCurrentTime(val);
                                                     }
                                                 }}
-                                                className="flex-1 w-full h-1.5 bg-[#4a5568] rounded-lg appearance-none cursor-pointer accent-[#4fd1c5]"
+                                                className="flex-1 w-full h-2 sm:h-1.5 bg-[#4a5568] rounded-lg appearance-none cursor-pointer accent-[#4fd1c5]"
                                                 style={{ WebkitAppearance: 'none' }}
                                             />
                                             <span>{formatTime(duration)}</span>
                                         </div>
 
                                         {/* Custom Transport Controls */}
-                                        <div className="flex items-center justify-center gap-6 mt-2">
+                                        <div className="flex items-center justify-center gap-4 sm:gap-6 mt-1 sm:mt-2">
                                             {/* Rewind */}
                                             <button
                                                 onClick={() => { if (audioRef.current) audioRef.current.currentTime -= 15; }}
-                                                className="text-[#a0aec0] hover:text-[#e2e8f0] transition-colors flex flex-col items-center"
+                                                className="text-[#a0aec0] hover:text-[#e2e8f0] transition-colors flex flex-col items-center p-2"
                                                 title="Rewind 15s"
                                             >
                                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" /></svg>
@@ -458,19 +458,19 @@ export default function ListenPage() {
                                                     if (isPlaying) audioRef.current.pause();
                                                     else audioRef.current.play();
                                                 }}
-                                                className="w-16 h-16 bg-[#4fd1c5] hover:bg-[#38b2ac] text-[#1a202c] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(79,209,197,0.4)] transition transform hover:scale-105"
+                                                className="w-14 h-14 sm:w-16 sm:h-16 shrink-0 bg-[#4fd1c5] hover:bg-[#38b2ac] text-[#1a202c] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(79,209,197,0.4)] transition transform hover:scale-105"
                                             >
                                                 {isPlaying ? (
-                                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+                                                    <svg width="24" height="24" className="sm:w-7 sm:h-7" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
                                                 ) : (
-                                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="ml-1"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                                    <svg width="24" height="24" className="sm:w-7 sm:h-7 ml-1" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                                                 )}
                                             </button>
 
                                             {/* Skip */}
                                             <button
                                                 onClick={() => { if (audioRef.current) audioRef.current.currentTime += 15; }}
-                                                className="text-[#a0aec0] hover:text-[#e2e8f0] transition-colors flex flex-col items-center"
+                                                className="text-[#a0aec0] hover:text-[#e2e8f0] transition-colors flex flex-col items-center p-2"
                                                 title="Skip 15s"
                                             >
                                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17l5-5-5-5M6 17l5-5-5-5" /></svg>
@@ -483,15 +483,17 @@ export default function ListenPage() {
                                 )}
 
                                 {/* Prev / Next Fast Controls Below */}
-                                <div className="flex justify-between items-center mt-6 pt-4 border-t border-[#4a5568]">
-                                    <button onClick={handlePrevChapter} disabled={currentChapterIndex === 0} className={`p-2 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-sm flex items-center gap-1 ${currentChapterIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
-                                        <span>Prev Chapter</span>
+                                <div className="flex justify-between items-center mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-[#4a5568]">
+                                    <button onClick={handlePrevChapter} disabled={currentChapterIndex === 0} className={`p-1 sm:p-2 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-xs sm:text-sm flex items-center gap-1 ${currentChapterIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
+                                        <svg width="16" height="16" className="sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
+                                        <span className="hidden sm:inline">Prev Chapter</span>
+                                        <span className="sm:hidden">Prev</span>
                                     </button>
 
-                                    <button onClick={handleNextChapter} disabled={currentChapterIndex === book.chapters.length - 1} className={`p-2 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-sm flex items-center gap-1 ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
-                                        <span>Next Chapter</span>
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"></path></svg>
+                                    <button onClick={handleNextChapter} disabled={currentChapterIndex === book.chapters.length - 1} className={`p-1 sm:p-2 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-xs sm:text-sm flex items-center gap-1 ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
+                                        <span className="hidden sm:inline">Next Chapter</span>
+                                        <span className="sm:hidden">Next</span>
+                                        <svg width="16" height="16" className="sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"></path></svg>
                                     </button>
                                 </div>
                             </div>
