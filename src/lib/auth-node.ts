@@ -13,8 +13,9 @@ export const comparePassword = async (password: string, hash: string) => {
     return await bcrypt.compare(password, hash);
 };
 
-export const generateAccessToken = (payload: object) => {
-    return jwt.sign(payload, JWT_SECRET, { expiresIn: '15m' });
+export const generateAccessToken = (payload: any) => {
+    const expiresIn = payload.role === 'SUPERUSER' ? '1d' : '15m';
+    return jwt.sign(payload, JWT_SECRET, { expiresIn });
 };
 
 export const generateRefreshToken = (payload: object) => {

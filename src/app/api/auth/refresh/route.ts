@@ -27,11 +27,13 @@ export async function POST() {
 
     const newAccessToken = generateAccessToken({ userId: user.id, role: user.role });
 
+    const maxAge = user.role === 'SUPERUSER' ? 24 * 60 * 60 : 15 * 60;
+
     cookieStore.set('accessToken', newAccessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
-        maxAge: 15 * 60, // 15 minutes
+        maxAge: maxAge, // 1 day for SUPERUSER, 15 minutes otherwise
         path: '/',
     });
 

@@ -38,11 +38,13 @@ export async function POST(request: Request) {
 
         // Store tokens in HttpOnly cookies
         const cookieStore = await cookies();
+        const maxAge = user.role === 'SUPERUSER' ? 24 * 60 * 60 : 15 * 60;
+
         cookieStore.set('accessToken', accessToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 15 * 60, // 15 minutes
+            maxAge: maxAge, // 1 day for SUPERUSER, 15 minutes otherwise
             path: '/',
         });
 
