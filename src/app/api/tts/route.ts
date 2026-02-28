@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma as db } from '@/lib/prisma';
 import * as googleTTS from 'google-tts-api';
-import fs from 'fs';
-import path from 'path';
-
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
@@ -20,28 +17,6 @@ export async function GET(request: Request) {
 
         if (!chapter) {
             return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
-        }
-
-        // Ensure audio cache directory exists
-        const audioCacheDir = path.join(process.cwd(), 'public', 'audio-cache');
-        if (!fs.existsSync(audioCacheDir)) {
-            fs.mkdirSync(audioCacheDir, { recursive: true });
-        }
-
-        const cachedFilePath = path.join(audioCacheDir, `${chapterId}.mp3`);
-
-        // If file exists, serve it
-        if (fs.existsSync(cachedFilePath)) {
-            const stat = fs.statSync(cachedFilePath);
-            const fileStream = fs.createReadStream(cachedFilePath) as any;
-
-            return new NextResponse(fileStream, {
-                headers: {
-                    'Content-Type': 'audio/mpeg',
-                    'Content-Length': stat.size.toString(),
-                    'Accept-Ranges': 'bytes',
-                }
-            });
         }
 
         // Generate Text into proper chunks (< 200 characters limit for google-tts-api)
@@ -82,15 +57,13 @@ export async function GET(request: Request) {
         // Combine buffers into 1 file
         const combinedBuffer = Buffer.concat(buffers);
 
-        // Cache the buffer to file system so next request is instant
-        fs.writeFileSync(cachedFilePath, combinedBuffer);
-
-        // Return the final combined audio stream
+        // Return the final combined audio stream with CDN caching headers
         return new NextResponse(combinedBuffer, {
             headers: {
                 'Content-Type': 'audio/mpeg',
                 'Content-Length': combinedBuffer.length.toString(),
                 'Accept-Ranges': 'bytes',
+                'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
             }
         });
 
