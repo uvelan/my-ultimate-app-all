@@ -58,12 +58,13 @@ export async function GET(
 
         // Generate the Buffer
         const epubBuffer = await Epub(options, epubContent);
+        const webBlob = new Blob([new Uint8Array(epubBuffer)], { type: 'application/epub+zip' });
 
         // Sanitize filename
         const safeTitle = (book.title || 'book').replace(/[^a-z0-9]/gi, '_').toLowerCase();
 
         // Return the EPUB as a downloadable stream
-        return new NextResponse(epubBuffer, {
+        return new NextResponse(webBlob, {
             headers: {
                 'Content-Disposition': `attachment; filename="${safeTitle}.epub"`,
                 'Content-Type': 'application/epub+zip',
