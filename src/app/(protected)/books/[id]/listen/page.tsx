@@ -26,6 +26,10 @@ export default function ListenPage() {
     const [loading, setLoading] = useState(true);
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
+    // Sidebar Search & Scroll State
+    const [searchQuery, setSearchQuery] = useState("");
+    const chapterRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -247,7 +251,20 @@ export default function ListenPage() {
 
 
     // --- Navigation Handlers ---
-    const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+    const toggleSidebar = () => {
+        setSidebarOpen(!sidebarOpen);
+        if (!sidebarOpen) {
+            // Give the DOM a tiny fraction of a second to render the sidebar, then scroll to active chapter
+            setTimeout(() => {
+                if (chapterRefs.current[currentChapterIndex]) {
+                    chapterRefs.current[currentChapterIndex]?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                    });
+                }
+            }, 100);
+        }
+    };
 
     const handleNextChapter = () => {
         if (book && currentChapterIndex < book.chapters.length - 1) {
@@ -335,25 +352,64 @@ export default function ListenPage() {
                     <div
                         className={`absolute inset-y-0 left-0 z-20 w-3/4 sm:w-80 bg-[#2d3748] border-r border-[#4a5568] transform transition-transform duration-300 ease-in-out shadow-xl flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
                     >
-                        <div className="p-3 border-b border-[#4a5568] bg-[#1a202c] flex justify-between items-center">
-                            <h3 className="font-bold text-[#e2e8f0]">Listening Index</h3>
-                            <button onClick={toggleSidebar} className="p-1 hover:bg-[#4a5568] rounded">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-                        <div className="overflow-y-auto flex-1 p-2">
-                            {book.chapters.map((chapter, index) => (
-                                <button
-                                    key={chapter.id}
-                                    onClick={() => handleJumpToChapter(index)}
-                                    className={`w-full text-left p-3 rounded mb-1 text-sm truncate transition ${currentChapterIndex === index
-                                        ? 'bg-[#4fd1c5] text-[#1a202c] font-bold'
-                                        : 'hover:bg-[#4a5568] text-[#a0aec0]'
-                                        }`}
-                                >
-                                    {chapter.title}
+                        <div className="p-3 border-b border-[#4a5568] bg-[#1a202c] flex flex-col gap-3">
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-[#e2e8f0]">Listening Index</h3>
+                                <button onClick={toggleSidebar} className="p-1 hover:bg-[#4a5568] rounded">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                                 </button>
-                            ))}
+                            </div>
+
+                            {/* Search Input */}
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="Search chapters..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-[#2d3748] border border-[#4a5568] text-sm text-[#e2e8f0] px-3 py-2 rounded focus:outline-none focus:border-[#4fd1c5] transition-colors"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery("")}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#a0aec0] hover:text-white"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="overflow-y-auto flex-1 p-2">
+                            {book.chapters.map((chapter, index) => {
+                                // Filter logic
+                                if (searchQuery && !chapter.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+                                    return null;
+                                }
+
+                                return (
+                                    <button
+                                        key={chapter.id}
+                                        ref={(el) => {
+                                            chapterRefs.current[index] = el;
+                                        }}
+                                        onClick={() => handleJumpToChapter(index)}
+                                        className={`w-full text-left p-3 rounded mb-1 text-sm truncate transition shrink-0 ${currentChapterIndex === index
+                                            ? 'bg-[#4fd1c5] text-[#1a202c] font-bold border-l-4 border-[#319795] shadow-sm'
+                                            : 'hover:bg-[#4a5568] text-[#a0aec0] border-l-4 border-transparent'
+                                            }`}
+                                    >
+                                        {chapter.title}
+                                    </button>
+                                );
+                            })}
+
+                            {/* Empty state for search */}
+                            {searchQuery && !book.chapters.some(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())) && (
+                                <div className="text-center text-[#a0aec0] text-sm py-8 italic">
+                                    No chapters found matching "{searchQuery}"
+                                </div>
+                            )}
                         </div>
                     </div>
 
