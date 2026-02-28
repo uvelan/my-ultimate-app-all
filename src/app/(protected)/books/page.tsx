@@ -239,9 +239,21 @@ export default function BooksPage() {
                                         {/* Overlay gradient for depth */}
                                         <div className="absolute inset-0 pl-3 bg-gradient-to-r from-black/40 to-transparent pointer-events-none rounded-r-lg"></div>
 
-                                        {/* Action Buttons - Moved inside for better transform handling */}
+                                        {/* Action Buttons */}
                                         <div className="absolute top-2 right-2 flex flex-col gap-2 z-50">
-                                            {/* Read button removed as clickable card does the same, keep delete */}
+                                            {/* Listen Button */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    router.push(`/books/${book.id}/listen`);
+                                                }}
+                                                className="p-2 bg-[#4a5568] text-white rounded-full hover:bg-[#2d3748] shadow-lg backdrop-blur-sm transition-transform hover:scale-110"
+                                                title="Listen as Audiobook"
+                                            >
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                            </button>
+
+                                            {/* Delete button */}
                                             <button
                                                 onClick={(e) => deleteBook(e, book.id)}
                                                 className="p-2 bg-red-600 text-white rounded-full hover:bg-red-700 shadow-lg backdrop-blur-sm transition-transform hover:scale-110"
