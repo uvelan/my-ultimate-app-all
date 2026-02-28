@@ -109,6 +109,33 @@ export default function Dashboard() {
         });
     }
 
+    const renderCustomLegend = (props: any) => {
+        const { payload } = props;
+        return (
+            <div className="d-flex justify-content-center w-100 mt-2">
+                <ul className="d-flex flex-wrap justify-content-center m-0 p-0" style={{ listStyle: 'none', gap: '16px' }}>
+                    {payload?.map((entry: any, index: number) => {
+                        const key = String(entry.dataKey || entry.value);
+                        const isHidden = hiddenCategories.has(key);
+                        const boxColor = isHidden ? '#dee2e6' : (entry.color !== '#ccc' ? entry.color : (entry.payload?.fill || entry.color));
+
+                        return (
+                            <li
+                                key={`item-${index}`}
+                                className="d-flex align-items-center"
+                                style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
+                                onClick={() => handleLegendClick(entry)}
+                            >
+                                <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: boxColor, marginRight: 6, borderRadius: '3px' }}></span>
+                                <span style={{ fontSize: '13px', color: isHidden ? '#adb5bd' : '#495057', fontWeight: 500 }}>{entry.value}</span>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </div>
+        );
+    }
+
     async function handleSaveLimit() {
         try {
             const val = parseFloat(tempLimit)
@@ -143,22 +170,22 @@ export default function Dashboard() {
             {/* Top Date Filter Controls */}
             <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
                 <div className="d-flex flex-wrap gap-2">
-                    <div className="btn-group shadow-sm" role="group">
-                        <button onClick={() => setDateRange('month')} className={`btn ${dateRange === 'month' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Monthly</button>
-                        <button onClick={() => setDateRange('quarter')} className={`btn ${dateRange === 'quarter' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Quarterly</button>
-                        <button onClick={() => setDateRange('half')} className={`btn ${dateRange === 'half' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Half-Yearly</button>
-                        <button onClick={() => setDateRange('year')} className={`btn ${dateRange === 'year' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Yearly</button>
+                    <div className="btn-group shadow-sm w-100 mb-2 mb-md-0 d-flex" role="group">
+                        <button onClick={() => setDateRange('month')} className={`btn flex-fill ${dateRange === 'month' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Monthly</button>
+                        <button onClick={() => setDateRange('quarter')} className={`btn flex-fill ${dateRange === 'quarter' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Quarterly</button>
+                        <button onClick={() => setDateRange('half')} className={`btn flex-fill d-none d-sm-block ${dateRange === 'half' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Half-Yearly</button>
+                        <button onClick={() => setDateRange('year')} className={`btn flex-fill ${dateRange === 'year' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Yearly</button>
                     </div>
 
-                    <div className="btn-group shadow-sm ms-md-2" role="group">
-                        <button onClick={() => setGroupingMode('category')} className={`btn ${groupingMode === 'category' ? 'btn-secondary' : 'btn-outline-secondary bg-white'}`}>By Category</button>
-                        <button onClick={() => setGroupingMode('method')} className={`btn ${groupingMode === 'method' ? 'btn-secondary' : 'btn-outline-secondary bg-white'}`}>By Method</button>
+                    <div className="btn-group shadow-sm ms-md-2 w-100 d-flex" role="group">
+                        <button onClick={() => setGroupingMode('category')} className={`btn flex-fill ${groupingMode === 'category' ? 'btn-secondary' : 'btn-outline-secondary bg-white'}`}>By Category</button>
+                        <button onClick={() => setGroupingMode('method')} className={`btn flex-fill ${groupingMode === 'method' ? 'btn-secondary' : 'btn-outline-secondary bg-white'}`}>By Method</button>
                     </div>
                 </div>
 
-                <div className="d-flex align-items-center gap-2">
+                <div className="d-flex flex-wrap align-items-center gap-2 w-100 justify-content-md-end">
                     <select
-                        className="form-select form-select-sm shadow-sm" style={{ width: 'auto' }}
+                        className="form-select form-select-sm shadow-sm flex-grow-1 flex-md-grow-0" style={{ minWidth: '100px', width: 'auto' }}
                         value={activeDate.getFullYear()}
                         onChange={(e) => {
                             const newDate = new Date(activeDate)
@@ -173,7 +200,7 @@ export default function Dashboard() {
 
                     {dateRange === 'month' && (
                         <select
-                            className="form-select form-select-sm shadow-sm" style={{ width: 'auto' }}
+                            className="form-select form-select-sm shadow-sm flex-grow-1 flex-md-grow-0" style={{ minWidth: '100px', width: 'auto' }}
                             value={activeDate.getMonth()}
                             onChange={(e) => {
                                 const newDate = new Date(activeDate)
@@ -223,7 +250,7 @@ export default function Dashboard() {
 
             {/* Summary Cards */}
             <div className="row g-3 mb-4">
-                <div className="col-md-3">
+                <div className="col-12 col-sm-6 col-md-3">
                     <div className="card text-white bg-success h-100 border-0 shadow-sm">
                         <div className="card-body">
                             <h6 className="card-title text-white-50">Total Income</h6>
@@ -231,7 +258,7 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
-                <div className="col-md-3">
+                <div className="col-12 col-sm-6 col-md-3">
                     <div className="card text-white bg-danger h-100 border-0 shadow-sm">
                         <div className="card-body">
                             <h6 className="card-title text-white-50">Total Expense</h6>
@@ -239,7 +266,7 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
-                <div className="col-md-3">
+                <div className="col-12 col-sm-6 col-md-3">
                     <div className={`card text-white h-100 border-0 shadow-sm ${data.balance >= 0 ? 'bg-primary' : 'bg-warning'}`}>
                         <div className="card-body">
                             <h6 className="card-title text-white-50">Remaining Balance</h6>
@@ -247,7 +274,7 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
-                <div className="col-md-3">
+                <div className="col-12 col-sm-6 col-md-3">
                     <div className="card bg-white text-dark h-100 border-0 shadow-sm">
                         <div className="card-body d-flex flex-column justify-content-between">
                             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -288,7 +315,7 @@ export default function Dashboard() {
 
             <div className="row g-4 mb-4">
                 {/* Category Split Chart */}
-                <div className="col-md-6">
+                <div className="col-12 col-lg-6">
                     <div className="card h-100 border-0 shadow-sm">
                         <div className="card-body">
                             <h5 className="card-title mb-3">Expense Breakdown</h5>
@@ -322,10 +349,8 @@ export default function Dashboard() {
                                                 <Tooltip formatter={(value: any) => `₹${Number(value).toFixed(2)}`} />
                                                 <Legend
                                                     verticalAlign="bottom"
-                                                    height={36}
+                                                    content={renderCustomLegend}
                                                     payload={pieLegendPayload}
-                                                    onClick={handleLegendClick}
-                                                    wrapperStyle={{ cursor: 'pointer' }}
                                                 />
                                             </PieChart>
                                         </ResponsiveContainer>
@@ -339,7 +364,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Period Transactions */}
-                <div className="col-md-6">
+                <div className="col-12 col-lg-6">
                     <div className="card h-100 border-0 shadow-sm d-flex flex-column">
                         <div className="card-body p-0 d-flex flex-column">
                             <h5 className="card-title p-3 mb-0 border-bottom">Period Expenses Summary</h5>
@@ -410,7 +435,7 @@ export default function Dashboard() {
                                             <XAxis dataKey="period" />
                                             <YAxis />
                                             <Tooltip formatter={(val: any) => `₹${Number(val || 0).toFixed(2)}`} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                                            <Legend onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                                            <Legend verticalAlign="bottom" content={renderCustomLegend} />
                                             {historicalCategories.map(cat => (
                                                 <Bar key={cat.name} dataKey={cat.name} name={cat.name} stackId="a" fill={cat.color} barSize={40} hide={hiddenCategories.has(cat.name)} />
                                             ))}
