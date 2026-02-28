@@ -11,7 +11,7 @@ interface User {
     id: string;
     name: string;
     email: string;
-    role: 'USER' | 'ADMIN';
+    role: 'USER' | 'ADMIN' | 'SUPERUSER';
     isActive: boolean;
     createdAt: string;
 }
@@ -137,9 +137,11 @@ export default function UsersPage() {
                                 <Link href="/admin" className="btn btn-outline-light btn-sm border-white/20 hover:bg-white/10">
                                     Back to Admin
                                 </Link>
-                                <Button onClick={() => setShowCreateForm(!showCreateForm)}>
-                                    {showCreateForm ? 'Cancel' : 'Create User'}
-                                </Button>
+                                {user?.role === 'SUPERUSER' && (
+                                    <Button onClick={() => setShowCreateForm(!showCreateForm)}>
+                                        {showCreateForm ? 'Cancel' : 'Create User'}
+                                    </Button>
+                                )}
                             </div>
                         </div>
 
@@ -186,6 +188,7 @@ export default function UsersPage() {
                                         >
                                             <option value="USER">User</option>
                                             <option value="ADMIN">Admin</option>
+                                            <option value="SUPERUSER">Superuser</option>
                                         </select>
                                     </div>
                                     <div className="col-md-3 d-flex align-items-center">
@@ -262,7 +265,7 @@ export default function UsersPage() {
                                                         variant="outline"
                                                         className="btn-sm me-2 text-white border-white/20 hover:bg-white/10"
                                                         onClick={() => toggleRole(u)}
-                                                        disabled={u.id === user?.id}
+                                                        disabled={u.id === user?.id || (user?.role !== 'SUPERUSER' && u.role === 'SUPERUSER')}
                                                     >
                                                         {u.role === 'ADMIN' ? 'Demote' : 'Promote'}
                                                     </Button>
@@ -270,7 +273,7 @@ export default function UsersPage() {
                                                         variant="danger"
                                                         className="btn-sm"
                                                         onClick={() => deleteUser(u.id)}
-                                                        disabled={u.id === user?.id}
+                                                        disabled={u.id === user?.id || user?.role !== 'SUPERUSER'}
                                                     >
                                                         Delete
                                                     </Button>

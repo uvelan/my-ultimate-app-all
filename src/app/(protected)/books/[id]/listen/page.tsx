@@ -59,6 +59,10 @@ export default function ListenPage() {
     const fetchBook = async (id: string) => {
         try {
             const res = await fetch(`/api/books/${id}`);
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
                 setBook({
@@ -92,11 +96,16 @@ export default function ListenPage() {
     const saveProgressToDb = async (index: number) => {
         if (!book?.id) return;
         try {
-            await fetch(`/api/books/${book.id}`, {
+            const res = await fetch(`/api/books/${book.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chapterId: index, sentenceId: 0 })
             });
+
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
         } catch (error) {
             console.error('Error saving progress', error);
         }
@@ -127,6 +136,12 @@ export default function ListenPage() {
 
             // To test if it exists and handles generation, we can fetch it once
             const response = await fetch(url);
+
+            if (response.status === 401 || response.status === 403) {
+                router.push('/login');
+                return;
+            }
+
             if (!response.ok) {
                 throw new Error("Audio generation failed");
             }

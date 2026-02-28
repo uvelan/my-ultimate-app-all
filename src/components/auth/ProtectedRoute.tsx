@@ -20,7 +20,7 @@ export default function ProtectedRoute({
         if (!loading) {
             if (!user) {
                 router.push('/login');
-            } else if (adminOnly && user.role !== 'ADMIN') {
+            } else if (adminOnly && !['ADMIN', 'SUPERUSER'].includes(user.role)) {
                 router.push('/dashboard');
             }
         }
@@ -36,7 +36,7 @@ export default function ProtectedRoute({
         );
     }
 
-    if (!user || (adminOnly && user.role !== 'ADMIN')) {
+    if (!user || (adminOnly && !['ADMIN', 'SUPERUSER'].includes(user.role))) {
         return null;
     }
 

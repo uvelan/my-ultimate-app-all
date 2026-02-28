@@ -13,11 +13,14 @@ export async function GET() {
 
     const payload = verifyAccessToken(accessToken) as { role: string } | null;
 
-    if (!payload || payload.role !== 'ADMIN') {
+    if (!payload || (payload.role !== 'ADMIN' && payload.role !== 'SUPERUSER')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const whereClause = payload.role === 'ADMIN' ? { role: { not: 'SUPERUSER' as any } } : {};
+
     const users = await prisma.user.findMany({
+        where: whereClause,
         select: {
             id: true,
             name: true,

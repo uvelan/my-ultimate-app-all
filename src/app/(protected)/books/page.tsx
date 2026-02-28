@@ -14,6 +14,8 @@ interface Book {
     cover?: string;
     content: any;
     userName?: string;
+    chapterId?: number;
+    _count?: { chapters: number };
     createdAt: string;
 }
 
@@ -23,6 +25,7 @@ export default function BooksPage() {
     const router = useRouter();
     const [books, setBooks] = useState<Book[]>([]);
     const [loading, setLoading] = useState(true);
+    const [showProgressFor, setShowProgressFor] = useState<string | null>(null);
     const [showUpload, setShowUpload] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [file, setFile] = useState<File | null>(null);
@@ -36,6 +39,10 @@ export default function BooksPage() {
     const fetchBooks = async () => {
         try {
             const res = await fetch('/api/books');
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
                 setBooks(data);
@@ -55,6 +62,11 @@ export default function BooksPage() {
             const res = await fetch(`/api/books/${bookId}`, {
                 method: 'DELETE',
             });
+
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
 
             if (res.ok) {
                 toast.success('Book deleted successfully');
@@ -92,6 +104,11 @@ export default function BooksPage() {
                 method: 'POST',
                 body: formData,
             });
+
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
 
             if (res.ok) {
                 toast.success('Book uploaded successfully');
@@ -253,6 +270,18 @@ export default function BooksPage() {
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                                             </button>
 
+                                            {/* Download Button */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    window.open(`/api/books/${book.id}/download`, '_blank');
+                                                }}
+                                                className="p-2 bg-[#2d3748] text-white rounded-full hover:bg-[#1a202c] shadow-lg backdrop-blur-sm transition-transform hover:scale-110"
+                                                title="Download EPUB"
+                                            >
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                            </button>
+
                                             {/* Delete button */}
                                             <button
                                                 onClick={(e) => deleteBook(e, book.id)}
@@ -264,9 +293,28 @@ export default function BooksPage() {
                                         </div>
                                     </div>
 
-                                    {/* Shelf Shadow */}
-                                    <div className="mt-4 text-center">
-                                        <h5 className="font-medium text-[#e6dccf] truncate text-sm px-1">{book.title}</h5>
+                                    {/* Shelf Shadow & Details */}
+                                    <div className="mt-4 text-center pb-2">
+                                        <h5 className="font-medium text-[#e6dccf] truncate text-sm px-1 mb-2">{book.title}</h5>
+                                        {book._count?.chapters !== undefined && book._count.chapters > 0 ? (
+                                            <div className="mt-1 px-2">
+                                                <div
+                                                    className="w-full bg-[#5c4033]/50 rounded-full h-1.5 mb-1 overflow-hidden pointer-events-auto border border-[#3e2b22] cursor-pointer hover:border-[#8b4513] transition-colors"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setShowProgressFor(showProgressFor === book.id ? null : book.id);
+                                                    }}
+                                                    title="Click for details"
+                                                >
+                                                    <div className="bg-[#8b4513] h-1.5 rounded-full shadow-[0_0_5px_#8b4513] transition-all duration-300" style={{ width: `${Math.min(100, Math.max(0, ((book.chapterId || 0) / book._count.chapters) * 100))}%` }}></div>
+                                                </div>
+                                                {showProgressFor === book.id && (
+                                                    <div className="text-xs text-[#d4c4b4] mt-1 fade-in">
+                                                        Chapter {book.chapterId || 0} of {book._count.chapters} ({Math.round(((book.chapterId || 0) / book._count.chapters) * 100)}%)
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                             ))}

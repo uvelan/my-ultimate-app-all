@@ -176,6 +176,7 @@ export async function GET(req: NextRequest) {
                     description: true,
                     userName: true,
                     fileName: true,
+                    chapterId: true,
                     createdAt: true,
                     updatedAt: true,
                     // Exclude content and chapters for list view
@@ -192,13 +193,26 @@ export async function GET(req: NextRequest) {
                     description: true,
                     userName: true,
                     fileName: true,
+                    chapterId: true,
                     createdAt: true,
                     updatedAt: true,
                 }
             });
         }
 
-        return NextResponse.json(books);
+        const booksWithCounts = await Promise.all(
+            books.map(async (book) => {
+                const chapterCount = await prisma.chapter.count({
+                    where: { bookId: book.id }
+                });
+                return {
+                    ...book,
+                    _count: { chapters: chapterCount }
+                };
+            })
+        );
+
+        return NextResponse.json(booksWithCounts);
     } catch (error) {
         console.error('Error fetching books:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

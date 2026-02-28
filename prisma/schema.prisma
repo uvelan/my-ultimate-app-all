@@ -22,6 +22,7 @@ model User {
 enum Role {
   USER
   ADMIN
+  SUPERUSER
 }
 
 model MyApp {

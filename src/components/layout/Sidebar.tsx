@@ -20,7 +20,7 @@ export default function Sidebar({
 
     const menuItems = [
         { name: 'Discover', href: '/dashboard', icon: <HomeIcon /> },
-        ...(user?.role === 'ADMIN' ? [
+        ...(['ADMIN', 'SUPERUSER'].includes(user?.role as string) ? [
             { name: 'Admin Panel', href: '/admin', icon: <SettingsIcon /> }
         ] : []),
         { name: 'Category', href: '#category', icon: <GridIcon /> },

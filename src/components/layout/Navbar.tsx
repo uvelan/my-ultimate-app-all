@@ -35,7 +35,7 @@ export default function Navbar() {
                                 <li className="nav-item">
                                     <span className="nav-link text-white">Welcome, {user.name}</span>
                                 </li>
-                                {user.role === 'ADMIN' && (
+                                {['ADMIN', 'SUPERUSER'].includes(user.role) && (
                                     <li className="nav-item">
                                         <Link href="/admin" className="nav-link text-white">
                                             Admin

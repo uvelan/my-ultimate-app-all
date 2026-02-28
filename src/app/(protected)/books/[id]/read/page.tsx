@@ -101,6 +101,10 @@ export default function ReadBookPage() {
     const fetchRules = async (bookId: string) => {
         try {
             const res = await fetch(`/api/replacements?bookId=${bookId}`);
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
                 setReplacementRules(data);
@@ -324,7 +328,7 @@ export default function ReadBookPage() {
     const saveToDb = async (cIndex: number, pIndex: number) => {
         if (!book?.id) return;
         try {
-            await fetch(`/api/books/${book.id}`, {
+            const res = await fetch(`/api/books/${book.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -332,6 +336,10 @@ export default function ReadBookPage() {
                     sentenceId: pIndex
                 })
             });
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
         } catch (err) {
             console.error('Failed to save progress to DB', err);
         }
@@ -383,6 +391,11 @@ export default function ReadBookPage() {
                 body: JSON.stringify({ chapterId: currentChapter.id, modelId: aiModel })
             });
 
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
+
             if (!res.ok) {
                 const data = await res.json();
                 if (data.rawResponse) console.error("Raw AI Response:", data.rawResponse);
@@ -412,6 +425,11 @@ export default function ReadBookPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: correctedContent })
             });
+
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
 
             if (!res.ok) throw new Error('Failed to save changes');
 
@@ -468,6 +486,10 @@ export default function ReadBookPage() {
     const fetchBookNetwork = async (id: string) => {
         try {
             const res = await fetch(`/api/books/${id}`);
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
                 setBook(data);
@@ -530,6 +552,11 @@ export default function ReadBookPage() {
                 })
             });
 
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
+
             if (res.ok) {
                 toast.success('Rule added');
                 setNewRuleSearch('');
@@ -548,6 +575,10 @@ export default function ReadBookPage() {
     const handleDeleteRule = async (id: string) => {
         try {
             const res = await fetch(`/api/replacements?id=${id}`, { method: 'DELETE' });
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return;
+            }
             if (res.ok) {
                 toast.success('Rule deleted');
                 if (book?.id) fetchRules(book.id);

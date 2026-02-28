@@ -28,7 +28,7 @@ export async function middleware(request: NextRequest) {
             }
 
             // Check admin role
-            if (pathname.startsWith('/admin') && payload.role !== 'ADMIN') {
+            if (pathname.startsWith('/admin') && !['ADMIN', 'SUPERUSER'].includes(payload.role as string)) {
                 return NextResponse.redirect(new URL('/dashboard', request.url));
             }
         }

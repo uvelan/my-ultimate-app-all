@@ -21,6 +21,7 @@
     "date-fns": "^4.1.0",
     "diff": "^8.0.3",
     "dotenv": "^17.3.1",
+    "epub-gen-memory": "^1.1.2",
     "epub2": "^3.0.2",
     "google-tts-api": "^2.0.2",
     "jose": "^6.1.3",

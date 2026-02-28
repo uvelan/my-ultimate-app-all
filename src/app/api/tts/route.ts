@@ -139,16 +139,21 @@ ${JSON.stringify(contentArray)}`;
         fullText = fullText.replace(/\*/g, '');
 
         // Split text into lines, ensuring no single chunk exceeds 200 chars
-        const results = googleTTS.getAllAudioBase64(fullText, {
+        const results = googleTTS.getAllAudioUrls(fullText, {
             lang: voice,
             slow: false,
             host: 'https://translate.google.com',
             splitPunct: ',.?',
         });
 
-        const buffers = await results.then((audioData) =>
-            audioData.map(item => Buffer.from(item.base64, 'base64'))
-        );
+        const buffers = await Promise.all(results.map(async (item) => {
+            const response = await fetch(item.url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            return Buffer.from(arrayBuffer);
+        }));
 
         // Combine buffers into 1 file
         const combinedBuffer = Buffer.concat(buffers);

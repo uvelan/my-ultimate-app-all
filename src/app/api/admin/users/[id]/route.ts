@@ -16,8 +16,8 @@ export async function DELETE(
 
     const payload = verifyAccessToken(accessToken) as { role: string } | null;
 
-    if (!payload || payload.role !== 'ADMIN') {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!payload || payload.role !== 'SUPERUSER') {
+        return NextResponse.json({ error: 'Forbidden. Only Superusers can delete accounts.' }, { status: 403 });
     }
 
     // Next.js 15: params should be awaited if accessing async, but here it's passed as prop. 
@@ -48,7 +48,7 @@ export async function PATCH(
 
     const payload = verifyAccessToken(accessToken) as { role: string } | null;
 
-    if (!payload || payload.role !== 'ADMIN') {
+    if (!payload || !['ADMIN', 'SUPERUSER'].includes(payload.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -56,10 +56,22 @@ export async function PATCH(
     const body = await request.json();
     const { role, isActive } = body;
 
-    const updateData: { role?: 'USER' | 'ADMIN'; isActive?: boolean } = {};
+    const userToUpdate = await prisma.user.findUnique({ where: { id } });
+    if (!userToUpdate) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    if (payload.role === 'ADMIN' && userToUpdate.role === 'SUPERUSER') {
+        return NextResponse.json({ error: 'Forbidden. Admins cannot modify Superusers.' }, { status: 403 });
+    }
+
+    const updateData: { role?: 'USER' | 'ADMIN' | 'SUPERUSER'; isActive?: boolean } = {};
 
     if (role) {
-        if (!['USER', 'ADMIN'].includes(role)) {
+        if (payload.role === 'ADMIN' && role === 'SUPERUSER') {
+            return NextResponse.json({ error: 'Forbidden. Admins cannot grant Superuser status.' }, { status: 403 });
+        }
+        if (!['USER', 'ADMIN', 'SUPERUSER'].includes(role)) {
             return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
         }
         updateData.role = role;
