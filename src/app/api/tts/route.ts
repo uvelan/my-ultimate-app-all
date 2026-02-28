@@ -147,12 +147,21 @@ ${JSON.stringify(contentArray)}`;
         });
 
         const buffers = await Promise.all(results.map(async (item) => {
-            const response = await fetch(item.url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
+            let lastError: any = null;
+            for (let i = 0; i < 3; i++) {
+                try {
+                    const response = await fetch(item.url);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
+                    }
+                    const arrayBuffer = await response.arrayBuffer();
+                    return Buffer.from(arrayBuffer);
+                } catch (error) {
+                    lastError = error;
+                    if (i < 2) await new Promise(res => setTimeout(res, 1000 * (i + 1))); // Backoff
+                }
             }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
+            throw new Error(`Audio conversion failed after 3 attempts: ${lastError?.message || 'Unknown error'}`);
         }));
 
         // Combine buffers into 1 file
