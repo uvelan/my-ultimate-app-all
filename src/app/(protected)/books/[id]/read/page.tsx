@@ -46,7 +46,8 @@ export default function ReadBookPage() {
     const [isCorrectingGrammar, setIsCorrectingGrammar] = useState(false);
     const [showDiffModal, setShowDiffModal] = useState(false);
     const [correctedContent, setCorrectedContent] = useState<string[] | null>(null);
-    const [aiModel, setAiModel] = useState('gemini-2.5-flash'); // Default model
+    const [aiModel, setAiModel] = useState('OFF'); // OFF by default so it doesn't auto-correct without user asking
+    const correctedChaptersRef = useRef<Set<string>>(new Set());
 
     const [processedContent, setProcessedContent] = useState<string[]>([]);
 
@@ -63,6 +64,7 @@ export default function ReadBookPage() {
     const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
     const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
     const shouldPlayRef = useRef(false);
+    const resumePlayAfterGrammarRef = useRef(false);
 
     const isSwitchingRef = useRef(false);
 
@@ -141,15 +143,9 @@ export default function ReadBookPage() {
 
         setProcessedContent(newContent);
 
-        // Logic to handle chapter change auto-play
-        if (shouldPlayRef.current) {
-            setCurrentParagraphIndex(0);
-            setIsPlaying(true);
-            shouldPlayRef.current = false;
-        } else {
-            setCurrentParagraphIndex(0);
-            setIsPlaying(false);
-        }
+        // Logic to handle chapter change auto-play removed from here to prevent
+        // resetting currentParagraphIndex on every book state change.
+        // It is now handled in handleNextChapter, handlePrevChapter, etc.
     }, [book, currentChapterIndex, replacementRules]);
 
     // Scroll to top when chapter changes
@@ -192,6 +188,11 @@ export default function ReadBookPage() {
         // Handle End of Chapter
         if (currentParagraphIndex >= processedContent.length) {
             handleNextChapter(true);
+            return;
+        }
+
+        // If we are currently correcting grammar (e.g. from autoPlay chapter transition), wait.
+        if (isCorrectingGrammar) {
             return;
         }
 
@@ -240,10 +241,78 @@ export default function ReadBookPage() {
     }, [currentParagraphIndex, isPlaying, processedContent, playbackSpeed, selectedVoice, voices]);
 
 
-    const handlePlay = () => {
-        setIsPlaying(prev => !prev);
-        if (!isPlaying && window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
+    const autoCorrectChapter = async (chap: Chapter, index: number) => {
+        if (aiModel === 'OFF' || correctedChaptersRef.current.has(chap.id)) return true;
+
+        setIsCorrectingGrammar(true);
+        // Pause playback while we are generating the new chapter text so we don't start reading the uncorrected one.
+        setIsPlaying(false);
+        window.speechSynthesis.pause();
+
+        const toastId = toast.loading(`Auto-correcting grammar (${aiModel})...`);
+        try {
+            const res = await fetch('/api/grammar-correct', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chapterId: chap.id, modelId: aiModel })
+            });
+
+            if (res.status === 401 || res.status === 403) {
+                router.push('/login');
+                return false;
+            }
+            if (!res.ok) throw new Error('Correction failed');
+
+            const data = await res.json();
+            const newContent = data.correctedContent;
+
+            // Save to backend automatically
+            const patchRes = await fetch(`/api/chapters/${chap.id}/content`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: newContent })
+            });
+
+            if (patchRes.ok) {
+                setBook(prev => {
+                    if (!prev) return prev;
+                    const updatedChapters = [...prev.chapters];
+                    updatedChapters[index] = { ...updatedChapters[index], content: newContent };
+                    const updatedBook = { ...prev, chapters: updatedChapters };
+                    saveBookToCache(updatedBook).catch(console.error);
+                    return updatedBook;
+                });
+                correctedChaptersRef.current.add(chap.id);
+                toast.success('Grammar corrected!', { id: toastId });
+                // Return true to indicate success
+                return true;
+            } else {
+                throw new Error('Failed to save DB');
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Auto grammar fix failed, continuing...', { id: toastId });
+            return false;
+        } finally {
+            setIsCorrectingGrammar(false);
+        }
+    };
+
+    const handlePlay = async () => {
+        if (!isPlaying) {
+            if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
+                setIsPlaying(true);
+                return;
+            }
+            // Starting fresh
+            if (aiModel !== 'OFF' && currentChapter && !correctedChaptersRef.current.has(currentChapter.id)) {
+                await autoCorrectChapter(currentChapter, currentChapterIndex);
+            }
+            setIsPlaying(true);
+        } else {
+            setIsPlaying(false);
+            window.speechSynthesis.pause();
         }
     };
 
@@ -381,6 +450,14 @@ export default function ReadBookPage() {
     const handleGrammarCorrection = async () => {
         if (!book || !currentChapter) return;
 
+        if (isPlaying) {
+            resumePlayAfterGrammarRef.current = true;
+            setIsPlaying(false);
+            window.speechSynthesis.pause();
+        } else {
+            resumePlayAfterGrammarRef.current = false;
+        }
+
         setIsCorrectingGrammar(true);
         const toastId = toast.loading('Correcting grammar with Gemini (this may take a minute)...');
 
@@ -410,6 +487,11 @@ export default function ReadBookPage() {
         } catch (error: any) {
             console.error(error);
             toast.error(error.message || 'Error running grammar correction', { id: toastId });
+            if (resumePlayAfterGrammarRef.current) {
+                resumePlayAfterGrammarRef.current = false;
+                window.speechSynthesis.resume();
+                setIsPlaying(true);
+            }
         } finally {
             setIsCorrectingGrammar(false);
         }
@@ -440,13 +522,30 @@ export default function ReadBookPage() {
 
             setBook(updatedBook);
             saveBookToCache(updatedBook).catch(console.error);
+            if (currentChapter?.id) {
+                correctedChaptersRef.current.add(currentChapter.id);
+            }
 
             setShowDiffModal(false);
             setCorrectedContent(null);
             toast.success('Chapter grammar updated!', { id: toastId });
+
+            if (resumePlayAfterGrammarRef.current) {
+                resumePlayAfterGrammarRef.current = false;
+                // Add a small delay so the component has a chance to update with new content
+                setTimeout(() => {
+                    window.speechSynthesis.resume();
+                    setIsPlaying(true);
+                }, 500);
+            }
         } catch (error: any) {
             console.error(error);
             toast.error('Failed to save grammar changes.', { id: toastId });
+            if (resumePlayAfterGrammarRef.current) {
+                resumePlayAfterGrammarRef.current = false;
+                window.speechSynthesis.resume();
+                setIsPlaying(true);
+            }
         }
     };
 
@@ -596,8 +695,8 @@ export default function ReadBookPage() {
         if (book && currentChapterIndex < book.chapters.length - 1) {
             if (autoPlay) shouldPlayRef.current = true;
             window.speechSynthesis.cancel(); // Stop current speech
+            setCurrentParagraphIndex(0);
             setCurrentChapterIndex(prev => prev + 1);
-            // Paragraph index reset handled in useEffect
         } else {
             setIsPlaying(false);
             window.speechSynthesis.cancel();
@@ -609,6 +708,7 @@ export default function ReadBookPage() {
         if (currentChapterIndex > 0) {
             window.speechSynthesis.cancel();
             setIsPlaying(false);
+            setCurrentParagraphIndex(0);
             setCurrentChapterIndex(prev => prev - 1);
         }
     };
@@ -616,9 +716,46 @@ export default function ReadBookPage() {
     const handleJumpToChapter = (index: number) => {
         window.speechSynthesis.cancel();
         setIsPlaying(false);
+        setCurrentParagraphIndex(0);
         setCurrentChapterIndex(index);
         setSidebarOpen(false); // Close sidebar on selection
     };
+
+    // Auto-play hook when chapter advances
+    useEffect(() => {
+        const checkAutoPlay = async () => {
+            if (shouldPlayRef.current) {
+                const chap = book?.chapters[currentChapterIndex];
+
+                // If auto-correction is enabled and hasn't been done yet
+                if (chap && aiModel !== 'OFF' && !correctedChaptersRef.current.has(chap.id)) {
+                    // This pauses TTS (inside autoCorrectChapter) and waits for it to finish and save state
+                    const success = await autoCorrectChapter(chap, currentChapterIndex);
+
+                    if (success) {
+                        // Reset the ref since we handled it
+                        shouldPlayRef.current = false;
+
+                        // We must wait a tiny bit for the React state (setBook -> setProcessedContent) 
+                        // to actually flush to the DOM before we tell TTS to read the new `processedContent`
+                        setTimeout(() => {
+                            window.speechSynthesis.resume();
+                            setIsPlaying(true);
+                        }, 500);
+                    } else {
+                        // It failed, just play the original
+                        shouldPlayRef.current = false;
+                        setIsPlaying(true);
+                    }
+                } else {
+                    // No correction needed, just play
+                    shouldPlayRef.current = false;
+                    setIsPlaying(true);
+                }
+            }
+        };
+        checkAutoPlay();
+    }, [currentChapterIndex, book, aiModel]);
 
     // Load settings from localStorage
     useEffect(() => {
@@ -749,12 +886,13 @@ export default function ReadBookPage() {
                                 className="bg-[#fffdf5] border border-[#bfae95] text-[#3e2b22] text-sm px-2 py-1.5 rounded-l border-r-0 focus:outline-none focus:ring-1 focus:ring-[#8b7a60] h-[34px] md:h-[38px] cursor-pointer"
                                 title="Select AI Model"
                             >
+                                <option value="OFF">Grammar: OFF</option>
                                 <option value="gemini-2.5-flash">Gemini Flash</option>
                                 <option value="gpt-4o-mini">ChatGPT (GPT-4o Mini)</option>
                                 <option value="pollinations">Pollinations (Free)</option>
                                 <option value="ollama">Local (Ollama llama3)</option>
                             </select>
-                            <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar} className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded-r shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm ${isCorrectingGrammar ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
+                            <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar || aiModel === 'OFF'} className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded-r shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
                                 {isCorrectingGrammar ? (
                                     <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 ) : (
@@ -765,7 +903,7 @@ export default function ReadBookPage() {
                         </div>
 
                         {/* Mobile AI Fix Button (No dropdown to save space) */}
-                        <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar} className={`sm:hidden ${topBtnStyle} ${isCorrectingGrammar ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
+                        <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar || aiModel === 'OFF'} className={`sm:hidden ${topBtnStyle} ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
                             {isCorrectingGrammar ? (
                                 <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             ) : (
@@ -1060,7 +1198,14 @@ export default function ReadBookPage() {
                                     <h3 className="text-xl md:text-2xl font-bold text-[#3e2b22] font-serif">Review Grammar Changes</h3>
                                     <p className="text-sm text-[#5c4033] mt-1">Review the AI-suggested corrections for {currentChapter.title}</p>
                                 </div>
-                                <button onClick={() => setShowDiffModal(false)} className="text-[#5c4033] hover:text-[#2e1d15] bg-[#d7c9b0] p-2 rounded-full transition-colors">
+                                <button onClick={() => {
+                                    setShowDiffModal(false);
+                                    if (resumePlayAfterGrammarRef.current) {
+                                        resumePlayAfterGrammarRef.current = false;
+                                        window.speechSynthesis.resume();
+                                        setIsPlaying(true);
+                                    }
+                                }} className="text-[#5c4033] hover:text-[#2e1d15] bg-[#d7c9b0] p-2 rounded-full transition-colors">
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                                 </button>
                             </div>
@@ -1098,7 +1243,14 @@ export default function ReadBookPage() {
 
                             <div className="p-4 md:p-6 border-t border-[#c2b091] bg-[#e8dbc3] rounded-b-lg shrink-0 flex items-center justify-end gap-3">
                                 <button
-                                    onClick={() => setShowDiffModal(false)}
+                                    onClick={() => {
+                                        setShowDiffModal(false);
+                                        if (resumePlayAfterGrammarRef.current) {
+                                            resumePlayAfterGrammarRef.current = false;
+                                            window.speechSynthesis.resume();
+                                            setIsPlaying(true);
+                                        }
+                                    }}
                                     className="px-5 py-2.5 bg-[#d7c9b0] hover:bg-[#c2b091] text-[#3e2b22] font-bold rounded transition-colors"
                                 >
                                     Cancel
