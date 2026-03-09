@@ -6,7 +6,7 @@ import { verifyAuth } from '@/lib/auth-server';
 export async function GET() {
     try {
         const auth = await verifyAuth();
-        if (!auth.isAuthenticated || auth.user?.role !== 'ADMIN') {
+        if (!auth.isAuthenticated || (auth.user?.role !== 'ADMIN' && auth.user?.role !== 'SUPERUSER')) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const auth = await verifyAuth();
-        if (!auth.isAuthenticated || auth.user?.role !== 'ADMIN') {
+        if (!auth.isAuthenticated || (auth.user?.role !== 'ADMIN' && auth.user?.role !== 'SUPERUSER')) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 

@@ -165,52 +165,54 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        let books;
-        if (auth.user.role === 'ADMIN') {
-            books = await prisma.book.findMany({
-                orderBy: { createdAt: 'desc' },
-                select: {
-                    id: true,
-                    title: true,
-                    cover: true,
-                    description: true,
-                    userName: true,
-                    fileName: true,
-                    chapterId: true,
-                    createdAt: true,
-                    updatedAt: true,
-                    // Exclude content and chapters for list view
-                }
-            });
-        } else {
-            books = await prisma.book.findMany({
-                where: { userName: auth.user.email },
-                orderBy: { createdAt: 'desc' },
-                select: {
-                    id: true,
-                    title: true,
-                    cover: true,
-                    description: true,
-                    userName: true,
-                    fileName: true,
-                    chapterId: true,
-                    createdAt: true,
-                    updatedAt: true,
-                }
-            });
+        const isAdmin = auth.user.role === 'ADMIN';
+
+        // Fetch books (no chapter content — just metadata)
+        const books = await prisma.book.findMany({
+            where: isAdmin ? undefined : { userName: auth.user.email },
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true,
+                title: true,
+                cover: true,
+                description: true,
+                userName: true,
+                fileName: true,
+                chapterId: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        if (books.length === 0) {
+            return NextResponse.json([]);
         }
 
-        const booksWithCounts = await Promise.all(
-            books.map(async (book) => {
-                const chapterCount = await prisma.chapter.count({
-                    where: { bookId: book.id }
-                });
-                return {
-                    ...book,
-                    _count: { chapters: chapterCount }
-                };
-            })
-        );
+        // Use a $group aggregation to count chapters per bookId in ONE query.
+        // This only reads the `bookId` field – never touches `content` – so it
+        // won't hit MongoDB's 16 MB $lookup document-size limit.
+        const bookIds = books.map(b => ({ $oid: b.id }));
+        const chapterCounts = await prisma.$runCommandRaw({
+            aggregate: 'Chapter',
+            pipeline: [
+                { $match: { bookId: { $in: bookIds } } },
+                { $group: { _id: '$bookId', count: { $sum: 1 } } },
+            ],
+            cursor: {},
+        }) as { cursor: { firstBatch: { _id: { $oid: string } | string; count: number }[] } };
+
+        // Build a lookup map: bookId → chapter count
+        const countMap = new Map<string, number>();
+        for (const row of chapterCounts.cursor.firstBatch) {
+            const id = typeof row._id === 'string' ? row._id : row._id.$oid ?? String(row._id);
+            countMap.set(id, row.count);
+        }
+
+        // Merge counts into books (matching the _count.chapters shape the UI expects)
+        const booksWithCounts = books.map(book => ({
+            ...book,
+            _count: { chapters: countMap.get(book.id) ?? 0 },
+        }));
 
         return NextResponse.json(booksWithCounts);
     } catch (error) {

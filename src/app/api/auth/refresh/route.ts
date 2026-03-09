@@ -3,9 +3,18 @@ import { cookies } from 'next/headers';
 import { verifyRefreshToken, generateAccessToken } from '@/lib/auth-node';
 import { prisma } from '@/lib/prisma';
 
-export async function POST() {
+export async function POST(request: Request) {
     const cookieStore = await cookies();
-    const refreshToken = cookieStore.get('refreshToken')?.value;
+    let refreshToken = cookieStore.get('refreshToken')?.value;
+
+    if (!refreshToken) {
+        try {
+            const body = await request.json();
+            refreshToken = body.refreshToken;
+        } catch (e) {
+            // No body or invalid JSON
+        }
+    }
 
     if (!refreshToken) {
         return NextResponse.json({ error: 'No refresh token found' }, { status: 401 });

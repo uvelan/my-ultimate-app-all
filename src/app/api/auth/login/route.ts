@@ -63,6 +63,8 @@ export async function POST(request: Request) {
                 email: user.email,
                 role: user.role,
             },
+            accessToken,
+            refreshToken,
         });
     } catch (error) {
         console.error('Login error:', error);

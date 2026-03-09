@@ -12,7 +12,7 @@ export default function ClientLayout({
 
     // Check if the current path is the dashboard
     // We can extend this logic if other detailed pages need full screen
-    const isDashboard = pathname?.startsWith('/dashboard') || pathname?.startsWith('/books') || pathname?.startsWith('/myexpence');
+    const isDashboard = pathname?.startsWith('/dashboard') || pathname?.startsWith('/books') || pathname?.startsWith('/myexpence') || pathname?.startsWith('/novelscraper');
     const isAuthPage = pathname?.startsWith('/login') || pathname?.startsWith('/register');
 
     if (isDashboard) {
@@ -21,7 +21,7 @@ export default function ClientLayout({
 
     if (isAuthPage) {
         return (
-            <main className="h-screen w-full flex items-center justify-center overflow-hidden">
+            <main className="auth-bg h-screen w-full flex items-center justify-center overflow-hidden">
                 {children}
             </main>
         );

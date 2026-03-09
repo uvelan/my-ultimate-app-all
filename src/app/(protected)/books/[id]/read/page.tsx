@@ -67,6 +67,7 @@ export default function ReadBookPage() {
     const resumePlayAfterGrammarRef = useRef(false);
 
     const isSwitchingRef = useRef(false);
+    const hasBookLoadedRef = useRef(false); // tracks whether the book has been loaded at least once
 
     const contentRef = useRef<HTMLDivElement>(null);
 
@@ -356,7 +357,7 @@ export default function ReadBookPage() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isPlaying]); // Minimized dependencies as handlers use state setters
+    }, [isPlaying, currentChapterIndex]); // currentChapterIndex needed so chapter-nav handlers see fresh state
 
     // Media Session API
     useEffect(() => {
@@ -426,19 +427,12 @@ export default function ReadBookPage() {
 
     // 2. Database Update (Slow, only on chapter change or play/pause)
     useEffect(() => {
-        // Trigger save when keeping chapter index changes OR when pausing
-        // We don't want to save on every paragraph.
-        // But we DO want to save when the user stops listening or changes chapters.
-
-        // If playing is FALSE (user paused), save. 
-        // If chapter changed (currentChapterIndex changed), save (likely handled by the fact that component updates).
-
-        // Note: checking !isPlaying might save when page loads (initially false), so ensure book is loaded.
-        if (!book?.id) return;
+        // Don't save progress on the initial load — that would overwrite the user's saved position.
+        if (!book?.id || !hasBookLoadedRef.current) return;
 
         const timer = setTimeout(() => {
             saveToDb(currentChapterIndex, currentParagraphIndex);
-        }, 500); // 500ms debounce
+        }, 800); // slightly longer debounce to reduce writes
 
         return () => clearTimeout(timer);
     }, [book?.id, currentChapterIndex, isPlaying]);
@@ -609,6 +603,8 @@ export default function ReadBookPage() {
                 } else {
                     setCurrentParagraphIndex(0);
                 }
+                // Mark book as fully loaded so progress-save effect can now fire
+                hasBookLoadedRef.current = true;
             } else {
                 if (!book) { // Only show error if we don't have book (cached or otherwise)
                     toast.error('Failed to load book from network');
@@ -817,18 +813,18 @@ export default function ReadBookPage() {
     if (!book) return null;
 
     // Button Styles
-    const topBtnStyle = "px-3 py-2 bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm";
-    const iconBtnStyle = "p-2 bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] rounded-full shadow-sm border border-[#8c7b60] transition-colors flex items-center justify-center";
+    const topBtnStyle = "px-3 py-2 bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm whitespace-nowrap shrink-0";
+    const iconBtnStyle = "p-2 bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] rounded-full shadow-sm border border-[#8c7b60] transition-colors flex items-center justify-center shrink-0";
 
     return (
         <ProtectedRoute>
             <div className="flex flex-col h-screen bg-[#f3eacb] text-[#3e2b22] font-serif overflow-hidden">
 
                 {/* Top Control Bar - Redesigned */}
-                <header className="bg-[#dccbb3] border-b border-[#bfae95] px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between">
+                <header className="bg-[#dccbb3] border-b border-[#bfae95] px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between gap-2 overflow-hidden">
 
                     {/* Left: Navigation & Context */}
-                    <div className="flex items-center gap-2 md:gap-3">
+                    <div className="flex items-center gap-2 md:gap-3 min-w-0 shrink">
                         <Link href="/books" className={iconBtnStyle} title="Back to Library">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                         </Link>
@@ -836,8 +832,8 @@ export default function ReadBookPage() {
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             <span className="hidden sm:inline">Chapters</span>
                         </button>
-                        <div className="h-6 w-px bg-[#bfae95] mx-2 hidden sm:block"></div>
-                        <span className="text-sm font-bold text-[#5c4033] hidden md:block truncate max-w-[200px] lg:max-w-[300px]">
+                        <div className="h-6 w-px bg-[#bfae95] mx-2 hidden sm:block shrink-0"></div>
+                        <span className="text-sm font-bold text-[#5c4033] hidden md:block truncate min-w-0">
                             {book.title}
                         </span>
                     </div>
@@ -874,36 +870,47 @@ export default function ReadBookPage() {
                     </div>
 
                     {/* Right: Settings */}
-                    <div className="flex items-center gap-2 md:gap-3">
-                        <span className="text-sm font-medium text-[#5c4033] hidden lg:block border-r border-[#bfae95] pr-3 mr-1 max-w-[200px] truncate" title={currentChapter?.title}>
+                    <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                        <span className="text-sm font-medium text-[#5c4033] hidden lg:block border-r border-[#bfae95] pr-3 mr-1 max-w-[160px] truncate" title={currentChapter?.title}>
                             {currentChapter?.title}
                         </span>
 
+                        {/* Desktop AI model selector + fix button */}
                         <div className="hidden sm:flex items-center">
                             <select
                                 value={aiModel}
                                 onChange={handleAiModelChange}
-                                className="bg-[#fffdf5] border border-[#bfae95] text-[#3e2b22] text-sm px-2 py-1.5 rounded-l border-r-0 focus:outline-none focus:ring-1 focus:ring-[#8b7a60] h-[34px] md:h-[38px] cursor-pointer"
+                                className="bg-[#fffdf5] border border-[#bfae95] text-[#3e2b22] text-sm px-2 py-1.5 rounded-l border-r-0 focus:outline-none focus:ring-1 focus:ring-[#8b7a60] h-[34px] md:h-[38px] cursor-pointer max-w-[130px] md:max-w-none"
                                 title="Select AI Model"
                             >
                                 <option value="OFF">Grammar: OFF</option>
                                 <option value="gemini-2.5-flash">Gemini Flash</option>
-                                <option value="gpt-4o-mini">ChatGPT (GPT-4o Mini)</option>
-                                <option value="pollinations">Pollinations (Free)</option>
-                                <option value="ollama">Local (Ollama llama3)</option>
+                                <option value="gpt-4o-mini">ChatGPT Mini</option>
+                                <option value="pollinations">Pollinations</option>
+                                <option value="ollama">Ollama</option>
                             </select>
-                            <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar || aiModel === 'OFF'} className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded-r shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
+                            <button
+                                onClick={handleGrammarCorrection}
+                                disabled={isCorrectingGrammar || aiModel === 'OFF'}
+                                className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded-r shadow-sm border border-[#8c7b60] flex items-center gap-1.5 transition-colors text-sm whitespace-nowrap shrink-0 ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title="Correct Grammar"
+                            >
                                 {isCorrectingGrammar ? (
                                     <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 ) : (
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
                                 )}
-                                <span className="hidden md:inline">AI Fix</span>
+                                <span className="hidden lg:inline">AI Fix</span>
                             </button>
                         </div>
 
-                        {/* Mobile AI Fix Button (No dropdown to save space) */}
-                        <button onClick={handleGrammarCorrection} disabled={isCorrectingGrammar || aiModel === 'OFF'} className={`sm:hidden ${topBtnStyle} ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`} title="Correct Grammar">
+                        {/* Mobile: icon-only AI Fix button */}
+                        <button
+                            onClick={handleGrammarCorrection}
+                            disabled={isCorrectingGrammar || aiModel === 'OFF'}
+                            className={`sm:hidden ${iconBtnStyle} ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title="AI Grammar Fix"
+                        >
                             {isCorrectingGrammar ? (
                                 <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             ) : (
@@ -911,7 +918,8 @@ export default function ReadBookPage() {
                             )}
                         </button>
 
-                        <button onClick={() => setShowReplacementModal(true)} className={topBtnStyle}>
+                        {/* Settings button */}
+                        <button onClick={() => setShowReplacementModal(true)} className={topBtnStyle} title="Settings">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                             <span className="hidden sm:inline">Settings</span>
                         </button>
