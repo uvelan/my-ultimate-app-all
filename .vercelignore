@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+mobile-app
+public/audios
+public/chapters
+data
+*.html
+test-*.js
+update_*.js
+check-*.js
