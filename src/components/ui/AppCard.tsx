@@ -1,6 +1,9 @@
 'use client';
 
-import Image from 'next/image';
+import { Typography } from '@/components/ui/Typography';
+import { Card, CardContent } from '@/components/ui/Card';
+import { cn } from '@/lib/utils';
+import { AppWindow } from 'lucide-react';
 
 interface AppCardProps {
     name: string;
@@ -9,35 +12,39 @@ interface AppCardProps {
     onClick?: () => void;
 }
 
+import Image from 'next/image';
+
 export default function AppCard({ name, description, image, onClick }: AppCardProps) {
     return (
-        <div className="bg-white rounded-2xl p-3 shadow-sm hover:shadow-md transition-shadow duration-300 w-full flex flex-col h-full">
-            <div className="relative w-full aspect-square rounded-xl overflow-hidden mb-3 bg-gray-100">
-                {/* Fallback pattern if image fails or for mock */}
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 text-gray-300">
-                    <span className="text-3xl">📱</span>
-                </div>
-                {/* Once we have real images, we'd use Next.js Image here with a valid src */}
-                {image && (
-                    <img
+        <Card 
+            className="group cursor-pointer overflow-hidden border-none bg-background-surface hover:shadow-shadow-md transition-premium h-full flex flex-col w-full"
+            onClick={onClick}
+        >
+            <div className="relative w-full h-40 md:h-48 overflow-hidden bg-background-muted flex flex-col items-center justify-center transition-premium group-hover:bg-primary/5">
+                {image ? (
+                    <Image
                         src={image}
                         alt={name}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        onError={(e) => {
-                            // Hide broken image icon
-                            e.currentTarget.style.display = 'none';
-                        }}
+                        fill
+                        sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
+                        className="object-cover transition-premium group-hover:scale-105"
                     />
+                ) : (
+                    <AppWindow className="h-12 w-12 text-text-muted transition-premium group-hover:text-primary/40 group-hover:scale-110" />
                 )}
+                
+                {/* Subtle overlay on hover */}
+                <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-premium" />
             </div>
 
-            <h3 className="text-sm font-bold text-gray-800 mb-1 line-clamp-1 truncate" title={name}>
-                {name}
-            </h3>
-
-            <p className="text-xs text-gray-500 mb-3 line-clamp-2 min-h-[32px]" title={description}>
-                {description}
-            </p>
-        </div>
+            <CardContent className="p-space-4 flex flex-col flex-1">
+                <Typography variant="small" className="font-bold text-text-primary mb-space-1 line-clamp-1 group-hover:text-primary transition-premium">
+                    {name}
+                </Typography>
+                <Typography variant="caption" className="text-text-secondary line-clamp-2 min-h-[32px]">
+                    {description}
+                </Typography>
+            </CardContent>
+        </Card>
     );
 }

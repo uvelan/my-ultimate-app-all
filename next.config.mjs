@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: 'standalone',
-    serverExternalPackages: ['@prisma/client', 'sharp'],
+    serverExternalPackages: ['@prisma/client', 'sharp', 'zipfile'],
     // Exclude specific heavy files from being bundled in the function
     outputFileTracingExcludes: {
         '*': [

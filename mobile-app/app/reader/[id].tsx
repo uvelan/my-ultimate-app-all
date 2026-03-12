@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
-import { ChevronLeft, ChevronRight, Settings, Headphones, Download, CloudOff } from 'lucide-react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, Switch } from 'react-native';
+import { ChevronLeft, ChevronRight, Settings, Headphones, Download, CloudOff, Wand2, X, Plus, Minus } from 'lucide-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { bookService } from '@/src/services/book.service';
+import { replacementService } from '@/src/services/features.service';
 import { offlineService } from '@/src/services/offline.service';
 import { ttsService } from '@/src/services/tts.service';
 
@@ -11,12 +12,43 @@ export default function ReaderScreen() {
     const { id, chapterId = '1' } = useLocalSearchParams<{ id: string, chapterId: string }>();
 
     const [content, setContent] = useState<string>('');
+    const [rawContent, setRawContent] = useState<string>('');
+    const [replacements, setReplacements] = useState<any[]>([]);
+    const [replacementsEnabled, setReplacementsEnabled] = useState(true);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isOffline, setIsOffline] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
+    const [isCorrecting, setIsCorrecting] = useState(false);
     const [fontSize, setFontSize] = useState(18);
     const [rate, setRate] = useState(1.0);
     const [sleepTimer, setSleepTimer] = useState<number | null>(null);
+
+    const handleGrammarCorrection = async () => {
+        if (isOffline) {
+            alert("Grammar correction requires an internet connection.");
+            return;
+        }
+        setIsCorrecting(true);
+        try {
+            const res = await bookService.proposeGrammarCorrection(id as string, chapterId as string, 'gemini-2.5-flash');
+            
+            if (res.correctedChapter) {
+                // We use Alert in React Native for simple confirmations
+                requestAnimationFrame(() => {
+                    alert("Grammar correction generated successfully! Applying now...");
+                    setRawContent(res.correctedChapter);
+                    bookService.updateChapterContent(id as string, chapterId as string, res.correctedChapter)
+                        .catch(err => console.error("Failed to save grammar on backend", err));
+                });
+            }
+        } catch (error: any) {
+            console.error(error);
+            alert(error.message || "Grammar correction failed.");
+        } finally {
+            setIsCorrecting(false);
+        }
+    };
 
     const toggleTTS = async () => {
         if (isSpeaking) {
@@ -55,12 +87,12 @@ export default function ReaderScreen() {
             // 1. Try local cache first
             const cachedContent = await offlineService.getChapter(id, chapterId);
             if (cachedContent) {
-                setContent(cachedContent);
+                setRawContent(cachedContent);
                 setIsOffline(true);
             } else {
                 // 2. Fetch from API
                 const data = await bookService.getChapterContent(id, chapterId);
-                setContent(data.content);
+                setRawContent(data.content);
                 setIsOffline(false);
                 // 3. Silently save to cache for next time
                 await offlineService.saveChapter(id, chapterId, data.content);
@@ -72,8 +104,63 @@ export default function ReaderScreen() {
         }
     };
 
+    const fetchReplacements = async () => {
+        try {
+            const rules = await replacementService.getReplacements(id as string);
+            setReplacements(rules);
+        } catch (err) {
+            console.error("Failed to fetch replacements", err);
+        }
+    };
+
     useEffect(() => {
         loadChapter();
+        fetchReplacements();
+    }, [id, chapterId]);
+
+    // Apply replacements whenever content or rules change
+    useEffect(() => {
+        if (!rawContent) {
+            setContent('');
+            return;
+        }
+
+        if (!replacementsEnabled || replacements.length === 0) {
+            setContent(rawContent);
+            return;
+        }
+
+        let processedContent = rawContent;
+        replacements.forEach(rule => {
+            try {
+                const searchValue = rule.isRegex ? new RegExp(rule.search, 'g') : rule.search;
+                const replaceValue = rule.replace || '';
+
+                if (rule.isRegex) {
+                    processedContent = processedContent.replace(searchValue, replaceValue);
+                } else {
+                    processedContent = processedContent.split(searchValue as string).join(replaceValue);
+                }
+            } catch (e) {
+                console.error(`Invalid replacement rule: ${rule.search}`, e);
+            }
+        });
+
+        setContent(processedContent);
+    }, [rawContent, replacements, replacementsEnabled]);
+
+    useEffect(() => {
+        const saveTimer = setTimeout(() => {
+            if (id && chapterId) {
+                const cIndex = parseInt(chapterId as string);
+                if (!isNaN(cIndex)) {
+                     bookService.updateProgress(id as string, cIndex, 0)
+                        .catch((err: any) => console.log('Silently failed to sync progress', err.message));
+                }
+            }
+        }, 1500);
+
+        return () => clearTimeout(saveTimer);
     }, [id, chapterId]);
 
     return (
@@ -121,8 +208,14 @@ export default function ReaderScreen() {
                         </>
                     )}
 
+                    <Pressable onPress={handleGrammarCorrection} disabled={isCorrecting} className={isCorrecting ? 'opacity-50' : ''}>
+                        {isCorrecting ? <ActivityIndicator size="small" color="#5c4033" /> : <Wand2 size={20} color="#5c4033" />}
+                    </Pressable>
+
                     <Download size={20} color="#5c4033" />
-                    <Settings size={22} color="#5c4033" />
+                    <Pressable onPress={() => setIsSettingsOpen(true)}>
+                        <Settings size={22} color="#5c4033" />
+                    </Pressable>
                 </View>
             </View>
 
@@ -168,6 +261,44 @@ export default function ReaderScreen() {
                     <ChevronRight size={20} color="#5c4033" />
                 </Pressable>
             </View>
+
+            {/* Settings Modal */}
+            <Modal visible={isSettingsOpen} animationType="slide" transparent={true}>
+                <View className="flex-1 justify-end bg-black/50">
+                    <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[40%] border-t border-[#5c4033]">
+                        <View className="flex-row justify-between items-center mb-6">
+                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Reader Settings</Text>
+                            <Pressable onPress={() => setIsSettingsOpen(false)}>
+                                <X size={24} color="#d4c5b0" />
+                            </Pressable>
+                        </View>
+
+                        <Text className="text-[#d4c5b0] font-bold mb-3">Font Size</Text>
+                        <View className="flex-row items-center justify-between bg-[#1a110d] p-3 rounded-xl border border-[#5c4033] mb-6">
+                            <Pressable onPress={() => setFontSize(Math.max(12, fontSize - 2))} className="p-3 bg-[#5c4033] rounded-lg">
+                                <Minus size={20} color="#e6dccf" />
+                            </Pressable>
+                            <Text className="text-[#e6dccf] font-bold text-lg">{fontSize}px</Text>
+                            <Pressable onPress={() => setFontSize(Math.min(32, fontSize + 2))} className="p-3 bg-[#5c4033] rounded-lg">
+                                <Plus size={20} color="#e6dccf" />
+                            </Pressable>
+                        </View>
+
+                        <View className="flex-row items-center justify-between mb-2">
+                            <View>
+                                <Text className="text-[#d4c5b0] font-bold">Custom Replacements</Text>
+                                <Text className="text-[#d4c5b0]/60 text-xs">Apply {replacements.length} custom text rules</Text>
+                            </View>
+                            <Switch 
+                                value={replacementsEnabled}
+                                onValueChange={setReplacementsEnabled}
+                                trackColor={{ false: "#1a110d", true: "#8b4513" }}
+                                thumbColor="#e6dccf"
+                            />
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }

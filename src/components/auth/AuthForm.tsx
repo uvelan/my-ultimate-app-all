@@ -5,7 +5,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { RegisterSchema, LoginSchema } from '@/lib/validation';
-import { Button, Input, Card } from '@/components/ui/components';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card } from '@/components/ui/Card';
+import { Select } from '@/components/ui/Select';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -64,11 +67,14 @@ export default function AuthForm({ type }: AuthFormProps) {
     };
 
     return (
-        <Card className="max-w-md mx-auto w-full">
-            <h2 className="text-2xl font-bold text-center mb-6 text-white">
+        <Card className="max-w-md mx-auto w-full p-space-8 border-border shadow-shadow-lg relative overflow-hidden">
+            {/* Soft decorative glow behind the card content */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[150%] h-32 bg-accent/10 blur-[50px] pointer-events-none rounded-full" />
+            
+            <h2 className="text-h2 font-bold text-center mb-space-8 text-text-primary relative z-10">
                 {type === 'login' ? 'Welcome Back' : 'Create Account'}
             </h2>
-            <form onSubmit={handleSubmit(onSubmit)}>
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-space-4 relative z-10">
                 {type === 'register' && (
                     <Input
                         id="name"
@@ -98,36 +104,39 @@ export default function AuthForm({ type }: AuthFormProps) {
                 />
 
                 {type === 'register' && (
-                    <div className="mb-3">
-                        <label className="form-label">Role</label>
-                        <select
-                            className="form-select glass-input"
-                            {...register('role' as any)}
-                        >
-                            <option value="USER">User</option>
-                            <option value="ADMIN">Admin</option>
-                        </select>
-                    </div>
+                    <Select
+                        id="role"
+                        label="Role"
+                        error={(errors as any).role?.message as string}
+                        {...register('role' as any)}
+                    >
+                        <option value="USER">User</option>
+                        <option value="ADMIN">Admin</option>
+                    </Select>
                 )}
 
                 {type === 'login' && (
-                    <div className="form-check mb-3">
-                        <input className="form-check-input" type="checkbox" id="rememberMe" />
-                        <label className="form-check-label" htmlFor="rememberMe">
+                    <div className="flex items-center gap-space-2 mt-space-2 mb-space-4">
+                        <input 
+                            className="w-4 h-4 rounded-radius-sm border-border text-accent focus:ring-accent bg-background-surface cursor-pointer" 
+                            type="checkbox" 
+                            id="rememberMe" 
+                        />
+                        <label className="text-small text-text-secondary cursor-pointer select-none font-medium" htmlFor="rememberMe">
                             Remember me
                         </label>
                     </div>
                 )}
 
-                <Button type="submit" className="w-100 mt-3" isLoading={loading}>
+                <Button type="submit" className="w-full mt-space-6" size="lg" isLoading={loading}>
                     {type === 'login' ? 'Sign In' : 'Sign Up'}
                 </Button>
 
-                <p className="text-center mt-4 text-white/80 text-sm">
+                <p className="text-center mt-space-6 text-text-secondary text-small">
                     {type === 'login' ? "Don't have an account? " : "Already have an account? "}
                     <Link
                         href={type === 'login' ? '/register' : '/login'}
-                        className="text-white font-semibold underline hover:text-white/80"
+                        className="text-text-primary font-semibold hover:text-accent transition-colors underline decoration-border underline-offset-4 hover:decoration-accent"
                     >
                         {type === 'login' ? 'Sign Up' : 'Sign In'}
                     </Link>

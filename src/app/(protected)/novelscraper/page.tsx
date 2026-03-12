@@ -5,6 +5,40 @@ import { useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { 
+    LayoutDashboard, 
+    Settings, 
+    Plus, 
+    RefreshCw, 
+    Download, 
+    Database, 
+    Trash2, 
+    ChevronLeft,
+    Globe,
+    Zap,
+    Clock,
+    CheckCircle2,
+    XCircle,
+    ArrowRight,
+    Search,
+    BookOpen,
+    Edit3,
+    X
+} from 'lucide-react';
+
+import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Section, Container, Grid, Stack } from '@/components/layout/Primitives';
+import { Button } from '@/components/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
+import { Typography } from '@/components/ui/Typography';
+import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { Modal } from '@/components/ui/Modal';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/Table';
+import { cn } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,7 +78,7 @@ export interface SourceSite {
 
 export default function NovelScraperPage() {
     const router = useRouter();
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
+    const [activeTab, setActiveTab] = useState('dashboard');
     const [novels, setNovels] = useState<ScrapedNovel[]>([]);
     const [loadingNovels, setLoadingNovels] = useState(true);
     const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -53,7 +87,6 @@ export default function NovelScraperPage() {
     const [loadingSites, setLoadingSites] = useState(true);
     const [loadingSettings, setLoadingSettings] = useState(false);
 
-    // ── Fetch sites ──
     const fetchSites = useCallback(async () => {
         try {
             const res = await fetch('/api/novelscraper/sources');
@@ -62,7 +95,6 @@ export default function NovelScraperPage() {
         finally { setLoadingSites(false); }
     }, []);
 
-    // ── Fetch novels ──
     const fetchNovels = useCallback(async () => {
         try {
             const res = await fetch('/api/novelscraper/novels');
@@ -71,7 +103,6 @@ export default function NovelScraperPage() {
         finally { setLoadingNovels(false); }
     }, []);
 
-    // ── Fetch settings ──
     const fetchSettings = useCallback(async () => {
         setLoadingSettings(true);
         try {
@@ -86,10 +117,6 @@ export default function NovelScraperPage() {
         if (activeTab === 'settings') fetchSettings();
     }, [activeTab, fetchSettings]);
 
-    // Replaced auto-refresh with manual refresh.
-    // Use onRefresh (fetchNovels) for manual trigger.
-
-    // ── Actions ──
     const handleSync = async (id: string) => {
         toast.loading('Syncing...', { id: `sync-${id}` });
         try {
@@ -123,84 +150,89 @@ export default function NovelScraperPage() {
 
     return (
         <ProtectedRoute>
-            <div className="ns-root">
-                {/* ── Header ── */}
-                <header className="ns-header">
-                    <div className="ns-header-inner">
-                        <div className="ns-header-left">
-                            <Link href="/dashboard" className="ns-back-btn" title="Back to Dashboard">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-                            </Link>
-                            <div className="ns-title-group">
-                                <span className="ns-logo-icon">🕷️</span>
-                                <div>
-                                    <h1 className="ns-title">Novel Scraper</h1>
-                                    <p className="ns-subtitle">Scrape &amp; manage web novels</p>
-                                </div>
-                            </div>
-                        </div>
-                        <button className="ns-generate-btn" onClick={() => setShowGenerateModal(true)}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                            Generate
-                        </button>
-                    </div>
-                    {/* Tab Bar */}
-                    <div className="ns-tabs">
-                        <button className={`ns-tab ${activeTab === 'dashboard' ? 'ns-tab-active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
-                            Dashboard
-                        </button>
-                        <button className={`ns-tab ${activeTab === 'settings' ? 'ns-tab-active' : ''}`} onClick={() => setActiveTab('settings')}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
-                            Settings
-                        </button>
-                    </div>
-                </header>
+            <DashboardLayout>
+                <Section>
+                    <Stack gap="space-8">
+                        <Stack gap="space-4" direction="row" align="center" justify="between">
+                            <Stack gap="space-4">
+                                <Stack gap="space-2" direction="row" align="center">
+                                    <Globe className="w-8 h-8 text-primary" />
+                                    <Typography variant="h1">Novel Scraper</Typography>
+                                </Stack>
+                                <Typography variant="body" className="text-text-secondary">
+                                    Scrape and manage web novels from supported sources
+                                </Typography>
+                            </Stack>
+                            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setShowGenerateModal(true)}>
+                                Generate Novel
+                            </Button>
+                        </Stack>
 
-                {/* ── Content ── */}
-                <main className="ns-main">
-                    {activeTab === 'dashboard' ? (
-                        <DashboardTab
+                        <Tabs value={activeTab} onValueChange={setActiveTab}>
+                            <TabsList className="mb-space-6">
+                                <TabsTrigger value="dashboard">
+                                    <LayoutDashboard className="w-4 h-4 mr-2" />
+                                    Dashboard
+                                </TabsTrigger>
+                                <TabsTrigger value="settings">
+                                    <Settings className="w-4 h-4 mr-2" />
+                                    Sources & Settings
+                                </TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="dashboard">
+                                <DashboardTab
+                                    sites={sites}
+                                    novels={novels}
+                                    loading={loadingNovels || loadingSites}
+                                    onSync={handleSync}
+                                    onDownload={handleDownload}
+                                    onAddToDb={handleAddToDb}
+                                    onDelete={handleDelete}
+                                    onGenerate={() => setShowGenerateModal(true)}
+                                    onRefresh={fetchNovels}
+                                />
+                            </TabsContent>
+
+                            <TabsContent value="settings">
+                                <SettingsTab
+                                    refreshSites={fetchSites}
+                                    sites={sites}
+                                    settings={settings}
+                                    loading={loadingSettings || loadingSites}
+                                    onSave={async (siteId, replacements) => {
+                                        const res = await fetch('/api/novelscraper/settings', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ siteId, replacements }),
+                                        });
+                                        if (res.ok) { toast.success('Settings saved!'); fetchSettings(); }
+                                        else toast.error('Failed to save settings');
+                                    }}
+                                />
+                            </TabsContent>
+                        </Tabs>
+                    </Stack>
+                </Section>
+
+                {showGenerateModal && (
+                    <Modal 
+                        isOpen={showGenerateModal} 
+                        onClose={() => setShowGenerateModal(false)}
+                        title="Generate Novel"
+                    >
+                        <GenerateModal
                             sites={sites}
-                            novels={novels}
-                            loading={loadingNovels || loadingSites}
-                            onSync={handleSync}
-                            onDownload={handleDownload}
-                            onAddToDb={handleAddToDb}
-                            onDelete={handleDelete}
-                            onGenerate={() => setShowGenerateModal(true)}
-                            onRefresh={fetchNovels}
-                        />
-                    ) : (
-                        <SettingsTab
-                            refreshSites={fetchSites}
-                            sites={sites}
-                            settings={settings}
-                            loading={loadingSettings || loadingSites}
-                            onSave={async (siteId, replacements) => {
-                                const res = await fetch('/api/novelscraper/settings', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ siteId, replacements }),
-                                });
-                                if (res.ok) { toast.success('Settings saved!'); fetchSettings(); }
-                                else toast.error('Failed to save settings');
+                            onClose={() => setShowGenerateModal(false)}
+                            onSuccess={() => { 
+                                setShowGenerateModal(false); 
+                                fetchNovels(); 
+                                setActiveTab('dashboard'); 
                             }}
                         />
-                    )}
-                </main>
-
-                {/* ── Generate Modal ── */}
-                {showGenerateModal && (
-                    <GenerateModal
-                        sites={sites}
-                        onClose={() => setShowGenerateModal(false)}
-                        onSuccess={() => { setShowGenerateModal(false); fetchNovels(); setActiveTab('dashboard'); }}
-                    />
+                    </Modal>
                 )}
-
-                <style jsx global>{nsStyles}</style>
-            </div>
+            </DashboardLayout>
         </ProtectedRoute>
     );
 }
@@ -222,32 +254,47 @@ function DashboardTab({
 }) {
     if (loading) {
         return (
-            <div className="ns-empty">
-                <div className="ns-spinner" />
-                <p>Loading novels...</p>
-            </div>
+            <Stack align="center" justify="center" className="min-h-[400px]">
+                <RefreshCw className="w-8 h-8 text-primary animate-spin mb-4" />
+                <Typography variant="body" className="text-text-secondary">Loading novels...</Typography>
+            </Stack>
         );
     }
 
     if (novels.length === 0) {
         return (
-            <div className="ns-empty">
-                <div className="ns-empty-icon">📚</div>
-                <h3>No novels yet</h3>
-                <p>Click <strong>Generate</strong> to scrape your first novel.</p>
-                <button className="ns-generate-btn mt-4" onClick={onGenerate}>
-                    + Generate Novel
-                </button>
-            </div>
+            <Card className="p-space-12 text-center border-dashed border-2">
+                <Stack align="center" gap="space-4">
+                    <BookOpen className="w-12 h-12 text-text-muted" />
+                    <Stack gap="space-2">
+                        <Typography variant="h3">No novels yet</Typography>
+                        <Typography variant="body" className="text-text-secondary text-center max-w-md">
+                            Your library is empty. Click generate to start scraping your first web novel and building your digital library.
+                        </Typography>
+                    </Stack>
+                    <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={onGenerate}>
+                        Generate Novel
+                    </Button>
+                </Stack>
+            </Card>
         );
     }
 
     return (
-        <div>
-            <div className="ns-dashboard-header">
-                <h2 className="ns-section-title">Scraped Novels <span className="ns-count">{novels.length}</span></h2>
-            </div>
-            <div className="ns-novel-grid">
+        <Stack gap="space-6">
+            <Stack direction="row" align="center" justify="between">
+                <Stack direction="row" align="center" gap="space-2">
+                    <Typography variant="h3">Scraped Novels</Typography>
+                    <Badge variant="secondary" className="rounded-full px-3">
+                        {novels.length}
+                    </Badge>
+                </Stack>
+                <Button variant="ghost" size="sm" leftIcon={<RefreshCw className="w-3 h-3" />} onClick={onRefresh}>
+                    Refresh Status
+                </Button>
+            </Stack>
+
+            <Grid cols={{ sm: 1, md: 2, lg: 3, xl: 4 }} gap="space-6">
                 {novels.map(novel => (
                     <NovelCard
                         key={novel.id}
@@ -260,8 +307,8 @@ function DashboardTab({
                         onRefresh={onRefresh}
                     />
                 ))}
-            </div>
-        </div>
+            </Grid>
+        </Stack>
     );
 }
 
@@ -277,81 +324,103 @@ function NovelCard({ sites, novel, onSync, onDownload, onAddToDb, onDelete, onRe
     onRefresh: () => void;
 }) {
     const siteInfo = sites.find(s => s.id === novel.site);
-    const statusClass = {
-        pending: 'ns-status-pending',
-        scraping: 'ns-status-scraping',
-        done: 'ns-status-done',
-        error: 'ns-status-error',
-    }[novel.status];
+    const statusMap = {
+        pending: { label: 'Pending', variant: 'warning' as const, icon: Clock },
+        scraping: { label: 'Scraping', variant: 'primary' as const, icon: Zap },
+        done: { label: 'Done', variant: 'success' as const, icon: CheckCircle2 },
+        error: { label: 'Error', variant: 'error' as const, icon: XCircle },
+    };
 
-    const statusLabel = {
-        pending: '⏳ Pending',
-        scraping: '⚡ Scraping...',
-        done: '✅ Done',
-        error: '❌ Error',
-    }[novel.status];
+    const status = statusMap[novel.status];
+    const StatusIcon = status.icon;
 
     return (
-        <div className="ns-card">
-            {/* Cover */}
-            <div className="ns-card-cover">
+        <Card className="group overflow-hidden flex flex-col h-full border-border/50 hover:border-primary/50 transition-premium">
+            <div className="relative aspect-[3/4] overflow-hidden bg-secondary/50">
                 {novel.cover ? (
-                    <img src={novel.cover} alt={novel.title} className="ns-card-img" />
+                    <img src={novel.cover} alt={novel.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                 ) : (
-                    <div className="ns-card-cover-placeholder">
-                        <span>📖</span>
-                        <span className="ns-card-site">{siteInfo?.name || novel.site}</span>
-                    </div>
+                    <Stack align="center" justify="center" className="w-full h-full bg-gradient-to-br from-secondary/80 to-background/50 text-text-muted">
+                        <BookOpen className="w-12 h-12 opacity-20" />
+                        <Typography variant="caption" className="mt-2 opacity-50 uppercase tracking-widest font-bold">
+                            {siteInfo?.name || novel.site}
+                        </Typography>
+                    </Stack>
                 )}
-                <div className={`ns-card-status ${statusClass}`}>{statusLabel}</div>
+                <div className="absolute top-2 right-2">
+                    <Badge variant={status.variant} className="backdrop-blur-md bg-opacity-80 shadow-lg">
+                        <StatusIcon className={cn("w-3 h-3 mr-1", novel.status === 'scraping' && "animate-pulse")} />
+                        {status.label}
+                    </Badge>
+                </div>
             </div>
 
-            {/* Info */}
-            <div className="ns-card-body">
-                <h3 className="ns-card-title" title={novel.title}>{novel.title}</h3>
-                <p className="ns-card-meta">
-                    {siteInfo?.name || novel.site}
-                    {novel.chaptersScraped > 0 && <> · {novel.chaptersScraped} chapters</>}
-                </p>
-                {novel.fromChapter || novel.toChapter ? (
-                    <p className="ns-card-range">Ch. {novel.fromChapter ?? 1} – {novel.toChapter ?? '∞'}</p>
-                ) : null}
-            </div>
+            <CardContent className="p-space-4 flex-1 flex flex-col justify-between">
+                <Stack gap="space-2">
+                    <Typography variant="small" className="font-bold line-clamp-2 leading-tight group-hover:text-primary transition-colors" title={novel.title}>
+                        {novel.title}
+                    </Typography>
+                    <Stack gap="space-1" className="text-caption text-text-muted">
+                        <Typography variant="caption" className="flex items-center gap-1">
+                            <Globe className="w-3 h-3" />
+                            {siteInfo?.name || novel.site}
+                        </Typography>
+                        {novel.chaptersScraped > 0 && (
+                            <Typography variant="caption" className="flex items-center gap-1">
+                                <Search className="w-3 h-3" />
+                                {novel.chaptersScraped} chapters
+                            </Typography>
+                        )}
+                        {(novel.fromChapter || novel.toChapter) && (
+                            <Typography variant="caption" className="text-primary/70 font-medium">
+                                Ch. {novel.fromChapter ?? 1} – {novel.toChapter ?? '∞'}
+                            </Typography>
+                        )}
+                    </Stack>
+                </Stack>
 
-            {/* Actions */}
-            <div className="ns-card-actions">
-                <button className="ns-action-btn ns-action-sync" onClick={() => onSync(novel.id)} title="Sync / Re-scrape">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
-                    Sync
-                </button>
-                <button
-                    className="ns-action-btn ns-action-download"
-                    onClick={() => onDownload(novel.id)}
-                    title="Download EPUB"
-                    disabled={novel.status !== 'done'}
-                >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-                    EPUB
-                </button>
-                <button
-                    className="ns-action-btn ns-action-adddb"
-                    onClick={() => onAddToDb(novel.id)}
-                    title="Add to Book Library"
-                    disabled={novel.status !== 'done'}
-                >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
-                    Add to DB
-                </button>
-                <button className="ns-action-btn ns-action-delete" onClick={() => onDelete(novel.id, novel.title)} title="Delete">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                </button>
-                {(novel.status === 'pending' || novel.status === 'scraping') && (
-                    <button className="ns-action-btn" onClick={onRefresh} title="Refresh Status" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
-                    </button>
-                )}
-            </div>
-        </div>
+                <Stack gap="space-2" direction="row" className="mt-4 pt-4 border-t border-border/50">
+                    <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        className="flex-1 p-0 h-9" 
+                        onClick={() => onSync(novel.id)} 
+                        title="Sync / Re-scrape"
+                    >
+                        <RefreshCw className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        className="flex-1 p-0 h-9" 
+                        onClick={() => onDownload(novel.id)} 
+                        disabled={novel.status !== 'done'}
+                        title="Download EPUB"
+                    >
+                        <Download className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        className="flex-1 p-0 h-9" 
+                        onClick={() => onAddToDb(novel.id)} 
+                        disabled={novel.status !== 'done'}
+                        title="Add to Book Library"
+                    >
+                        <Database className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="p-0 w-9 h-9 text-error hover:bg-error/10" 
+                        onClick={() => onDelete(novel.id, novel.title)} 
+                        title="Delete"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </Button>
+                </Stack>
+            </CardContent>
+        </Card>
     );
 }
 
@@ -367,15 +436,13 @@ function SettingsTab({ sites, settings, loading, onSave, refreshSites }: {
     const [showSiteModal, setShowSiteModal] = useState(false);
     const [editingSite, setEditingSite] = useState<SourceSite | null>(null);
     const [selectedSite, setSelectedSite] = useState('');
-    const [newName, setNewName] = useState('');
-    const [newUrl, setNewUrl] = useState('');
-    const [addingSite, setAddingSite] = useState(false);
-
+    
     useEffect(() => {
         if (sites.length > 0 && !selectedSite) {
             setSelectedSite(sites[0].id);
         }
     }, [sites, selectedSite]);
+
     const [replacements, setReplacements] = useState<WordReplacement[]>([]);
     const [tagsList, setTagsList] = useState<{ tag: string, selector: string }[]>([]);
     const [saving, setSaving] = useState(false);
@@ -432,170 +499,232 @@ function SettingsTab({ sites, settings, loading, onSave, refreshSites }: {
         setSaving(false);
     };
 
-    if (loading) return <div className="ns-empty"><div className="ns-spinner" /><p>Loading settings...</p></div>;
+    if (loading) {
+        return (
+            <Stack align="center" justify="center" className="min-h-[400px]">
+                <RefreshCw className="w-8 h-8 text-primary animate-spin mb-4" />
+                <Typography variant="body" className="text-text-secondary">Loading settings...</Typography>
+            </Stack>
+        );
+    }
 
     return (
-        <div className="ns-settings">
-            <div className="ns-settings-card">
-                <h2 className="ns-settings-title">Add Source website for the scraper</h2>
-                <p className="ns-settings-desc">
-                    Configure automatic word replacements and tag patterns applied during scraping for each website.
-                </p>
-
-                {/* Site selector */}
-                <div className="ns-form-group">
-                    <label className="ns-label">Website</label>
-                    <select
-                        className="ns-select"
-                        value={selectedSite}
-                        onChange={e => setSelectedSite(e.target.value)}
-                    >
-                        {sites.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.url})</option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* Existing replacements */}
-                <div className="ns-replacements-list">
-                    {replacements.length === 0 ? (
-                        <div className="ns-no-replacements">No replacements configured for this site.</div>
-                    ) : (
-                        replacements.map((r, idx) => (
-                            <div key={idx} className="ns-replacement-row">
-                                <div className="ns-replacement-from" title={r.from}>{r.from}</div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ns-arrow"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-                                <div className="ns-replacement-to" title={r.to || '(delete)'}>{r.to || <em className="ns-empty-val">delete word</em>}</div>
-                                <button className="ns-remove-btn" onClick={() => removeReplacement(idx)} title="Remove">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                                </button>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                {/* Add new row */}
-                <div className="ns-add-row">
-                    <input
-                        className="ns-input"
-                        placeholder="Word to replace"
-                        value={newFrom}
-                        onChange={e => setNewFrom(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && addReplacement()}
-                    />
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ns-arrow"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-                    <input
-                        className="ns-input"
-                        placeholder="Replace with (empty = delete)"
-                        value={newTo}
-                        onChange={e => setNewTo(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && addReplacement()}
-                    />
-                    <button className="ns-add-btn" onClick={addReplacement} title="Add replacement">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                    </button>
-                </div>
-
-
-                <h3 className="ns-settings-title" style={{ marginTop: '2rem', fontSize: '1rem' }}>Tags to Extract</h3>
-                {/* Existing tags */}
-                <div className="ns-replacements-list">
-                    {tagsList.length === 0 ? (
-                        <div className="ns-no-replacements">No tags configured for this site.</div>
-                    ) : (
-                        tagsList.map((t, idx) => (
-                            <div key={idx} className="ns-replacement-row">
-                                <div className="ns-replacement-from" title={t.tag} style={{ fontWeight: 'bold' }}>{t.tag}</div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ns-arrow"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-                                <div className="ns-replacement-to" title={t.selector || '(empty)'}>{t.selector || <em className="ns-empty-val">empty selector</em>}</div>
-                                <button className="ns-remove-btn" onClick={() => removeTag(idx)} title="Remove">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                                </button>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                {/* Add new tag row */}
-                <div className="ns-add-row" style={{ marginBottom: '2rem' }}>
-                    <input className="ns-input" placeholder="Tag Name (e.g. title)" value={newTag} onChange={e => setNewTag(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTag()} />
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ns-arrow"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-                    <input className="ns-input" placeholder="CSS Selector (e.g. h1)" value={newSelector} onChange={e => setNewSelector(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTag()} />
-                    <button className="ns-add-btn" onClick={addTag} title="Add tag">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                    </button>
-                </div>
-
-                {/* Manage Websites Section */}
-                <div className="ns-form-group" style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h3 className="ns-settings-title" style={{ fontSize: '1.2rem', margin: 0 }}>Manage Websites</h3>
-                        <button className="ns-add-btn" onClick={() => { setEditingSite(null); setShowSiteModal(true); }}>
-                            + Add New Site
-                        </button>
-                    </div>
-
-                    <div className="ns-sites-table" style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'rgba(226,224,240,0.5)' }}>
-                                    <th style={{ padding: '0.75rem' }}>Name</th>
-                                    <th style={{ padding: '0.75rem' }}>Link</th>
-                                    <th style={{ padding: '0.75rem', width: '80px' }}>Status</th>
-                                    <th style={{ padding: '0.75rem', width: '120px', textAlign: 'right' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+        <Grid cols={{ sm: 1, lg: 2 }} gap="space-8">
+            {/* Scraper Configurations */}
+            <Stack gap="space-6">
+                <Card className="flex-1">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Settings className="w-5 h-5 text-primary" />
+                            Scraper Configuration
+                        </CardTitle>
+                        <CardDescription>
+                            Configure word replacements and extraction patterns for specific websites.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-space-6">
+                        <Stack gap="space-2">
+                            <Typography variant="small" className="font-medium">Target Website</Typography>
+                            <select
+                                className="w-full bg-secondary/50 border border-border rounded-radius-md p-space-2 text-small outline-none focus:ring-2 focus:ring-primary/50"
+                                value={selectedSite}
+                                onChange={e => setSelectedSite(e.target.value)}
+                            >
                                 {sites.map(s => (
-                                    <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                        <td style={{ padding: '0.75rem', fontWeight: '500' }}>{s.name}</td>
-                                        <td style={{ padding: '0.75rem', color: 'rgba(226,224,240,0.7)' }}>{s.url}</td>
-                                        <td style={{ padding: '0.75rem' }}>
-                                            <span style={{ padding: '0.2rem 0.5rem', borderRadius: '12px', fontSize: '0.7rem', background: s.isEnabled !== false ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: s.isEnabled !== false ? '#4ade80' : '#f87171' }}>
-                                                {s.isEnabled !== false ? 'Enabled' : 'Disabled'}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '0.75rem', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                                            <button className="ns-action-btn ns-action-sync" style={{ padding: '0.3rem 0.6rem', flex: 'none' }} onClick={() => { setEditingSite(s); setShowSiteModal(true); }}>Edit</button>
-                                            <button className="ns-action-btn ns-action-delete" style={{ padding: '0.3rem', width: 'auto', flex: 'none' }} onClick={async () => {
-                                                if (!confirm(`Delete ${s.name}?`)) return;
-                                                try {
-                                                    const res = await fetch(`/api/novelscraper/sources/${s.id}`, { method: 'DELETE' });
-                                                    if (res.ok) { toast.success('Deleted'); refreshSites(); }
-                                                    else toast.error('Failed to delete');
-                                                } catch { toast.error('Error deleting site'); }
-                                            }} title="Delete">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    <option key={s.id} value={s.id}>{s.name} ({s.url})</option>
+                                ))}
+                            </select>
+                        </Stack>
+
+                        <Stack gap="space-4">
+                            <Typography variant="small" className="font-medium">Word Replacements</Typography>
+                            <div className="rounded-radius-lg border border-border overflow-hidden bg-background-surface">
+                                <Table>
+                                    <TableBody>
+                                        {replacements.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={3} className="text-center py-space-8 text-text-muted">
+                                                    No replacements configured.
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            replacements.map((r, idx) => (
+                                                <TableRow key={idx}>
+                                                    <TableCell className="font-mono text-error/80">{r.from}</TableCell>
+                                                    <TableCell className="text-center"><ArrowRight className="w-4 h-4 text-text-muted mx-auto" /></TableCell>
+                                                    <TableCell className="font-mono text-success/80">
+                                                        {r.to || <span className="italic opacity-50">delete</span>}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => removeReplacement(idx)} className="text-error">
+                                                            <X className="w-4 h-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            <Stack direction="row" gap="space-2">
+                                <Input 
+                                    placeholder="Word to replace" 
+                                    value={newFrom} 
+                                    onChange={e => setNewFrom(e.target.value)}
+                                    className="flex-1"
+                                />
+                                <Input 
+                                    placeholder="Replacment" 
+                                    value={newTo} 
+                                    onChange={e => setNewTo(e.target.value)}
+                                    className="flex-1"
+                                />
+                                <Button variant="secondary" onClick={addReplacement}>
+                                    <Plus className="w-4 h-4" />
+                                </Button>
+                            </Stack>
+                        </Stack>
+
+                        <Stack gap="space-4">
+                            <Typography variant="small" className="font-medium">Tags to Extract</Typography>
+                            <div className="rounded-radius-lg border border-border overflow-hidden bg-background-surface">
+                                <Table>
+                                    <TableBody>
+                                        {tagsList.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={3} className="text-center py-space-8 text-text-muted">
+                                                    No tags configured.
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            tagsList.map((t, idx) => (
+                                                <TableRow key={idx}>
+                                                    <TableCell className="font-bold">{t.tag}</TableCell>
+                                                    <TableCell className="text-center"><Edit3 className="w-4 h-4 text-text-muted mx-auto" /></TableCell>
+                                                    <TableCell className="text-text-secondary">{t.selector}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => removeTag(idx)} className="text-error">
+                                                            <X className="w-4 h-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            <Stack direction="row" gap="space-2">
+                                <Input 
+                                    placeholder="Tag name" 
+                                    value={newTag} 
+                                    onChange={e => setNewTag(e.target.value)}
+                                    className="flex-1"
+                                />
+                                <Input 
+                                    placeholder="CSS Selector" 
+                                    value={newSelector} 
+                                    onChange={e => setNewSelector(e.target.value)}
+                                    className="flex-1"
+                                />
+                                <Button variant="secondary" onClick={addTag}>
+                                    <Plus className="w-4 h-4" />
+                                </Button>
+                            </Stack>
+                        </Stack>
+
+                        <Button variant="primary" className="w-full" onClick={handleSave} isLoading={saving}>
+                            Save Site Configurations
+                        </Button>
+                    </CardContent>
+                </Card>
+            </Stack>
+
+            {/* Source Sites Management */}
+            <Stack gap="space-6">
+                <Card>
+                    <CardHeader>
+                        <Stack direction="row" align="center" justify="between">
+                            <Stack>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Globe className="w-5 h-5 text-primary" />
+                                    Source Websites
+                                </CardTitle>
+                                <CardDescription>Manage global scraper source websites.</CardDescription>
+                            </Stack>
+                            <Button variant="outline" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={() => { setEditingSite(null); setShowSiteModal(true); }}>
+                                Add Website
+                            </Button>
+                        </Stack>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {sites.map(s => (
+                                    <TableRow key={s.id}>
+                                        <TableCell>
+                                            <Stack gap="space-1">
+                                                <Typography variant="small" className="font-medium">{s.name}</Typography>
+                                                <Typography variant="caption" className="text-text-muted">{s.url}</Typography>
+                                            </Stack>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge variant={s.isEnabled !== false ? "success" : "secondary"}>
+                                                {s.isEnabled !== false ? "Active" : "Disabled"}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Stack direction="row" gap="space-2" justify="end">
+                                                <Button variant="ghost" size="sm" onClick={() => { setEditingSite(s); setShowSiteModal(true); }}>
+                                                    <Edit3 className="w-4 h-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" className="text-error hover:bg-error/10" onClick={async () => {
+                                                    if (!confirm(`Delete ${s.name}?`)) return;
+                                                    try {
+                                                        const res = await fetch(`/api/novelscraper/sources/${s.id}`, { method: 'DELETE' });
+                                                        if (res.ok) { toast.success('Deleted'); refreshSites(); }
+                                                        else toast.error('Failed to delete');
+                                                    } catch { toast.error('Error deleting site'); }
+                                                }}>
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </Stack>
+                                        </TableCell>
+                                    </TableRow>
                                 ))}
                                 {sites.length === 0 && (
-                                    <tr><td colSpan={4} style={{ padding: '1.5rem', textAlign: 'center', color: 'rgba(226,224,240,0.4)' }}>No websites added yet.</td></tr>
+                                    <TableRow>
+                                        <TableCell colSpan={3} className="text-center py-space-12 text-text-muted">
+                                            No source websites found.
+                                        </TableCell>
+                                    </TableRow>
                                 )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </Stack>
 
-                {showSiteModal && (
+            {showSiteModal && (
+                <Modal 
+                    isOpen={showSiteModal} 
+                    onClose={() => setShowSiteModal(false)}
+                    title={editingSite ? "Edit Website" : "Add Website"}
+                >
                     <SiteFormModal
                         site={editingSite}
                         onClose={() => setShowSiteModal(false)}
                         onSuccess={() => { setShowSiteModal(false); refreshSites(); }}
                     />
-                )}
-
-
-                <button
-                    className="ns-save-btn"
-                    onClick={handleSave}
-                    disabled={saving}
-                >
-                    {saving ? 'Saving...' : 'Save Settings'}
-                </button>
-            </div>
-        </div>
+                </Modal>
+            )}
+        </Grid>
     );
 }
 
@@ -613,6 +742,7 @@ function GenerateModal({ sites, onClose, onSuccess }: {
             setSite(sites[0].id);
         }
     }, [sites, site]);
+
     const [sourceUrl, setSourceUrl] = useState('');
     const [novelName, setNovelName] = useState('');
     const [fromChapter, setFromChapter] = useState('');
@@ -677,128 +807,134 @@ function GenerateModal({ sites, onClose, onSuccess }: {
     };
 
     return (
-        <div className="ns-modal-overlay" onClick={onClose}>
-            <div className="ns-modal" onClick={e => e.stopPropagation()}>
-                <div className="ns-modal-header">
-                    <h2 className="ns-modal-title">
-                        <span>🕷️</span> Generate Novel
-                    </h2>
-                    <button className="ns-modal-close" onClick={onClose}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                    </button>
-                </div>
+        <form onSubmit={handleSubmit} className="space-y-space-6">
+            <Stack gap="space-4">
+                <Stack gap="space-2">
+                    <Typography variant="small" className="font-medium">Supported Website</Typography>
+                    <select
+                        className="w-full bg-secondary/50 border border-border rounded-radius-md p-space-2 text-small outline-none focus:ring-2 focus:ring-primary/50"
+                        value={site}
+                        onChange={e => setSite(e.target.value)}
+                    >
+                        {sites.map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.url})</option>
+                        ))}
+                    </select>
+                </Stack>
 
-                <form onSubmit={handleSubmit} className="ns-modal-body">
-                    {/* Site Dropdown */}
-                    <div className="ns-form-group">
-                        <label className="ns-label">Website *</label>
-                        <select className="ns-select" value={site} onChange={e => setSite(e.target.value)}>
-                            {sites.map(s => (
-                                <option key={s.id} value={s.id}>{s.name} — {s.url}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Mode Toggle */}
-                    <div className="ns-form-group" style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: searchMode === 'link' ? '#fff' : 'rgba(255,255,255,0.5)' }}>
-                            <input type="radio" checked={searchMode === 'link'} onChange={() => setSearchMode('link')} style={{ accentColor: '#a78bfa' }} />
-                            Search by Link
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: searchMode === 'name' ? '#fff' : 'rgba(255,255,255,0.5)' }}>
-                            <input type="radio" checked={searchMode === 'name'} onChange={() => setSearchMode('name')} style={{ accentColor: '#a78bfa' }} />
+                <Stack direction="row" gap="space-6" className="py-space-2">
+                    <label className="flex items-center gap-space-2 cursor-pointer group">
+                        <input
+                            type="radio"
+                            checked={searchMode === 'link'}
+                            onChange={() => setSearchMode('link')}
+                            className="accent-primary w-4 h-4"
+                        />
+                        <Typography variant="small" className={cn("transition-colors", searchMode === 'link' ? "text-text-primary" : "text-text-muted group-hover:text-text-secondary")}>
+                            Direct Link
+                        </Typography>
+                    </label>
+                    <label className="flex items-center gap-space-2 cursor-pointer group">
+                        <input
+                            type="radio"
+                            checked={searchMode === 'name'}
+                            onChange={() => setSearchMode('name')}
+                            className="accent-primary w-4 h-4"
+                        />
+                        <Typography variant="small" className={cn("transition-colors", searchMode === 'name' ? "text-text-primary" : "text-text-muted group-hover:text-text-secondary")}>
                             Search by Name
-                        </label>
-                    </div>
+                        </Typography>
+                    </label>
+                </Stack>
 
-                    {searchMode === 'link' ? (
-                        <>
-                            {/* Source URL */}
-                            <div className="ns-form-group">
-                                <label className="ns-label">Novel URL</label>
-                                <input
-                                    className="ns-input"
-                                    type="url"
-                                    placeholder={`https://www.${sites.find(s => s.id === site)?.url || 'example.com'}/fiction/...`}
-                                    value={sourceUrl}
-                                    onChange={e => setSourceUrl(e.target.value)}
-                                />
-                            </div>
+                {searchMode === 'link' ? (
+                    <Stack gap="space-6">
+                        <Input
+                            label="Novel URL"
+                            type="url"
+                            placeholder={`https://www.${sites.find(s => s.id === site)?.url || 'example.com'}/fiction/...`}
+                            value={sourceUrl}
+                            onChange={e => setSourceUrl(e.target.value)}
+                            required
+                        />
+                        <Stack direction="row" gap="space-4">
+                            <Input
+                                label="From Chapter"
+                                type="number"
+                                min={1}
+                                placeholder="Start"
+                                value={fromChapter}
+                                onChange={e => setFromChapter(e.target.value)}
+                                className="flex-1"
+                            />
+                            <Input
+                                label="To Chapter"
+                                type="number"
+                                min={1}
+                                placeholder="End"
+                                value={toChapter}
+                                onChange={e => setToChapter(e.target.value)}
+                                className="flex-1"
+                            />
+                        </Stack>
+                    </Stack>
+                ) : (
+                    <Stack gap="space-4">
+                        <div className="flex gap-space-2">
+                            <Input
+                                label="Novel Title"
+                                placeholder="Search for a novel..."
+                                value={novelName}
+                                onChange={e => setNovelName(e.target.value)}
+                                className="flex-1"
+                            />
+                            <Button 
+                                type="button" 
+                                variant="secondary" 
+                                className="self-end" 
+                                onClick={handleSearchByName} 
+                                isLoading={searching}
+                                leftIcon={<Search className="w-4 h-4" />}
+                            >
+                                Search
+                            </Button>
+                        </div>
 
-                            {/* Chapter Range */}
-                            <div className="ns-form-group">
-                                <label className="ns-label">Chapter Range <span className="ns-optional">(optional)</span></label>
-                                <div className="ns-range-row">
-                                    <input
-                                        className="ns-input"
-                                        type="number"
-                                        min={1}
-                                        placeholder="From ch."
-                                        value={fromChapter}
-                                        onChange={e => setFromChapter(e.target.value)}
-                                    />
-                                    <span className="ns-range-sep">to</span>
-                                    <input
-                                        className="ns-input"
-                                        type="number"
-                                        min={1}
-                                        placeholder="To ch."
-                                        value={toChapter}
-                                        onChange={e => setToChapter(e.target.value)}
-                                    />
+                        {searchResults !== null && (
+                            <Stack gap="space-2">
+                                <Typography variant="caption" className="font-medium text-text-muted">Search Results</Typography>
+                                <div className="max-h-[300px] overflow-y-auto rounded-radius-md border border-border bg-secondary/20 scrollbar-hide">
+                                    {searchResults.length === 0 ? (
+                                        <div className="p-space-8 text-center text-text-muted">No results found</div>
+                                    ) : (
+                                        searchResults.map((r, i) => (
+                                            <div 
+                                                key={i} 
+                                                onClick={() => { setSourceUrl(r.url); setSearchMode('link'); setSearchResults(null); }}
+                                                className="p-space-3 flex items-center gap-space-4 hover:bg-primary/10 cursor-pointer transition-colors border-b border-border/30 last:border-0"
+                                            >
+                                                {r.image && <img src={r.image} alt={r.title} className="w-10 h-14 object-cover rounded shadow" />}
+                                                <Typography variant="small" className="font-medium">{r.title}</Typography>
+                                                <ArrowRight className="w-4 h-4 ml-auto text-text-muted opacity-50" />
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            {/* Search By Name */}
-                            <div className="ns-form-group">
-                                <label className="ns-label">Novel Name</label>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <input
-                                        className="ns-input"
-                                        type="text"
-                                        placeholder="Novel title to search..."
-                                        value={novelName}
-                                        onChange={e => setNovelName(e.target.value)}
-                                    />
-                                    <button type="button" onClick={handleSearchByName} className="ns-action-btn ns-action-sync" disabled={searching} style={{ padding: '0 1rem', height: 'auto' }}>
-                                        {searching ? '🔍...' : 'Search'}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {searchResults !== null && (
-                                <div className="ns-form-group">
-                                    <label className="ns-label">Select a Result:</label>
-                                    <div style={{ maxHeight: '200px', overflowY: 'auto', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                        {searchResults.length === 0 ? (
-                                            <div style={{ padding: '1rem', textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>No results found</div>
-                                        ) : (
-                                            searchResults.map((r, i) => (
-                                                <div key={i} onClick={() => { setSourceUrl(r.url); setSearchMode('link'); setSearchResults(null); }} style={{ padding: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer', display: 'flex', gap: '1rem', alignItems: 'center', transition: 'background 0.2s', ...({ ':hover': { background: 'rgba(255,255,255,0.05)' } } as any) }}>
-                                                    {r.image && <img src={r.image} alt={r.title} style={{ width: '40px', height: '60px', objectFit: 'cover', borderRadius: '4px' }} />}
-                                                    <div style={{ flex: 1, fontWeight: '500', color: '#e2e0f0' }}>{r.title}</div>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
-
-                    <div className="ns-modal-footer">
-                        <button type="button" className="ns-cancel-btn" onClick={onClose}>Cancel</button>
-                        {searchMode === 'link' && (
-                            <button type="submit" className="ns-scrape-btn" disabled={loading}>
-                                {loading ? 'Starting...' : 'Start Scraper'}
-                            </button>
+                            </Stack>
                         )}
-                    </div>
-                </form>
-            </div>
-        </div>
+                    </Stack>
+                )}
+            </Stack>
+
+            <Stack direction="row" gap="space-4" justify="end" className="pt-space-4 border-t border-border/50">
+                <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+                {searchMode === 'link' && (
+                    <Button variant="primary" type="submit" isLoading={loading}>
+                        Start Scraper
+                    </Button>
+                )}
+            </Stack>
+        </form>
     );
 }
 
@@ -854,462 +990,56 @@ function SiteFormModal({ site, onClose, onSuccess }: {
     };
 
     return (
-        <div className="ns-modal-overlay" onClick={onClose} style={{ zIndex: 60, padding: '1rem', overflowY: 'auto' }}>
-            <div className="ns-modal" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '600px', margin: 'auto' }}>
-                <div className="ns-modal-header">
-                    <h2 className="ns-modal-title">{site ? 'Edit Website' : 'Add Website'}</h2>
-                    <button className="ns-modal-close" onClick={onClose}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                    </button>
-                </div>
+        <form onSubmit={handleSubmit} className="space-y-space-6">
+            <Stack gap="space-6">
+                <Grid cols={{ sm: 1, md: 2 }} gap="space-4">
+                    <Input label="Site Name" value={name} onChange={e => setName(e.target.value)} required />
+                    <Input label="Base URL" value={url} onChange={e => setUrl(e.target.value)} required />
+                </Grid>
 
-                <form onSubmit={handleSubmit} className="ns-modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="ns-form-group">
-                            <label className="ns-label">Site Name *</label>
-                            <input className="ns-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Royal Road" />
-                        </div>
-                        <div className="ns-form-group">
-                            <label className="ns-label">Base URL / Link *</label>
-                            <input className="ns-input" type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="e.g. royalroad.com" />
-                        </div>
-                    </div>
+                <label className="flex items-center gap-space-2 cursor-pointer group w-fit">
+                    <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={e => setIsEnabled(e.target.checked)}
+                        className="accent-primary w-4 h-4 rounded"
+                    />
+                    <Typography variant="small" className={cn("transition-colors", isEnabled ? "text-text-primary" : "text-text-muted group-hover:text-text-secondary")}>
+                        Enable Source
+                    </Typography>
+                </label>
 
-                    <div className="ns-form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <input type="checkbox" id="ns-enabled" checked={isEnabled} onChange={e => setIsEnabled(e.target.checked)} style={{ width: '1.2rem', height: '1.2rem', accentColor: '#a78bfa', cursor: 'pointer' }} />
-                        <label className="ns-label" htmlFor="ns-enabled" style={{ margin: 0, cursor: 'pointer' }}>Enabled</label>
-                    </div>
+                <Textarea 
+                    label="Tags to Extract (JSON)" 
+                    rows={4} 
+                    value={tagsToExtractStr} 
+                    onChange={e => setTagsToExtractStr(e.target.value)}
+                    className="font-mono text-small"
+                />
 
-                    <div className="ns-form-group">
-                        <label className="ns-label">Tags to Extract (JSON)</label>
-                        <textarea className="ns-input" rows={4} value={tagsToExtractStr} onChange={e => setTagsToExtractStr(e.target.value)} style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical' }} placeholder={'{\n  "title": "h1"\n}'} />
-                    </div>
+                <Textarea 
+                    label="Name Replacements (JSON Array)" 
+                    rows={4} 
+                    value={nameReplacementStr} 
+                    onChange={e => setNameReplacementStr(e.target.value)}
+                    className="font-mono text-small"
+                />
+            </Stack>
 
-                    <div className="ns-form-group">
-                        <label className="ns-label">Name Replacements (JSON Array)</label>
-                        <textarea className="ns-input" rows={4} value={nameReplacementStr} onChange={e => setNameReplacementStr(e.target.value)} style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical' }} placeholder={'[\n  { "from": "old", "to": "new" }\n]'} />
-                    </div>
-
-                    <div className="ns-modal-footer">
-                        <button type="button" className="ns-cancel-btn" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="ns-scrape-btn" disabled={loading}>
-                            {loading ? 'Saving...' : 'Save Site'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+            <Stack direction="row" gap="space-4" justify="end" className="pt-space-4 border-t border-border/50">
+                <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+                <Button variant="primary" type="submit" isLoading={loading}>
+                    Save Site
+                </Button>
+            </Stack>
+        </form>
     );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Verification & Quality Check ───────────────────────────────────────────
 
-const nsStyles = `
-/* ── Root ── */
-.ns-root {
-    min-height: 100vh;
-    background: linear-gradient(135deg, #0f0c1a 0%, #1a1030 50%, #0d1520 100%);
-    color: #e2e0f0;
-    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-}
-
-/* ── Header ── */
-.ns-header {
-    background: rgba(255,255,255,0.04);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(139,92,246,0.2);
-    position: sticky;
-    top: 0;
-    z-index: 40;
-}
-.ns-header-inner {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 1rem 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-}
-.ns-header-left { display: flex; align-items: center; gap: 1rem; }
-.ns-back-btn {
-    color: rgba(226,224,240,0.5);
-    transition: color 0.2s;
-    display: flex;
-    align-items: center;
-}
-.ns-back-btn:hover { color: #a78bfa; }
-.ns-title-group { display: flex; align-items: center; gap: 0.75rem; }
-.ns-logo-icon { font-size: 1.75rem; }
-.ns-title { font-size: 1.5rem; font-weight: 800; color: #e2e0f0; margin: 0; background: linear-gradient(90deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.ns-subtitle { font-size: 0.75rem; color: rgba(226,224,240,0.45); margin: 0; }
-
-/* ── Generate Button ── */
-.ns-generate-btn {
-    display: inline-flex; align-items: center; gap: 0.5rem;
-    padding: 0.6rem 1.25rem;
-    background: linear-gradient(135deg, #7c3aed, #4f46e5);
-    color: #fff;
-    border: none;
-    border-radius: 10px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 20px rgba(124,58,237,0.4);
-    text-decoration: none;
-}
-.ns-generate-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(124,58,237,0.5); background: linear-gradient(135deg, #8b5cf6, #6366f1); }
-.ns-generate-btn:active { transform: translateY(0); }
-.mt-4 { margin-top: 1rem; }
-
-/* ── Tabs ── */
-.ns-tabs {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 1.5rem;
-    display: flex;
-    gap: 0;
-    border-top: 1px solid rgba(255,255,255,0.05);
-}
-.ns-tab {
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    padding: 0.75rem 1.25rem;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: rgba(226,224,240,0.5);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-bottom: -1px;
-}
-.ns-tab:hover { color: #a78bfa; }
-.ns-tab-active { color: #a78bfa; border-bottom-color: #a78bfa; }
-
-/* ── Main ── */
-.ns-main {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
-}
-
-/* ── Dashboard ── */
-.ns-dashboard-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 1.5rem;
-}
-.ns-section-title {
-    font-size: 1.125rem;
-    font-weight: 700;
-    color: #e2e0f0;
-    display: flex; align-items: center; gap: 0.5rem;
-}
-.ns-count {
-    background: rgba(139,92,246,0.2);
-    color: #a78bfa;
-    border-radius: 6px;
-    padding: 0 0.5rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-}
-.ns-novel-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 1.25rem;
-}
-
-/* ── Novel Card ── */
-.ns-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(139,92,246,0.15);
-    border-radius: 16px;
-    overflow: hidden;
-    transition: all 0.25s;
-    display: flex;
-    flex-direction: column;
-}
-.ns-card:hover {
-    transform: translateY(-3px);
-    border-color: rgba(139,92,246,0.4);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-.ns-card-cover {
-    position: relative;
-    aspect-ratio: 3/4;
-    background: linear-gradient(135deg, #1e1535, #0d1520);
-    overflow: hidden;
-}
-.ns-card-img { width: 100%; height: 100%; object-fit: cover; }
-.ns-card-cover-placeholder {
-    width: 100%; height: 100%;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 0.5rem;
-    font-size: 2.5rem;
-    color: rgba(226,224,240,0.3);
-    background: linear-gradient(135deg, #1e1535, #0d1520);
-}
-.ns-card-site { font-size: 0.65rem; color: rgba(226,224,240,0.4); text-align: center; }
-.ns-card-status {
-    position: absolute; top: 0.5rem; right: 0.5rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 20px;
-    font-size: 0.65rem;
-    font-weight: 600;
-    backdrop-filter: blur(8px);
-}
-.ns-status-pending { background: rgba(234,179,8,0.2); color: #fbbf24; border: 1px solid rgba(234,179,8,0.3); }
-.ns-status-scraping { background: rgba(99,102,241,0.2); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); animation: ns-pulse 1.5s infinite; }
-.ns-status-done { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
-.ns-status-error { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
-
-@keyframes ns-pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
-
-.ns-card-body { padding: 0.75rem; flex: 1; }
-.ns-card-title { font-size: 0.875rem; font-weight: 600; color: #e2e0f0; margin: 0 0 0.25rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ns-card-meta { font-size: 0.7rem; color: rgba(226,224,240,0.4); margin: 0; }
-.ns-card-range { font-size: 0.7rem; color: #a78bfa; margin: 0.25rem 0 0; }
-
-/* ── Card Actions ── */
-.ns-card-actions {
-    padding: 0.6rem;
-    display: flex;
-    gap: 0.4rem;
-    border-top: 1px solid rgba(255,255,255,0.05);
-    background: rgba(0,0,0,0.2);
-}
-.ns-action-btn {
-    flex: 1;
-    display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
-    padding: 0.4rem 0.3rem;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.65rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.18s;
-}
-.ns-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.ns-action-sync { background: rgba(99,102,241,0.15); color: #818cf8; }
-.ns-action-sync:hover:not(:disabled) { background: rgba(99,102,241,0.3); }
-.ns-action-download { background: rgba(34,197,94,0.10); color: #4ade80; }
-.ns-action-download:hover:not(:disabled) { background: rgba(34,197,94,0.22); }
-.ns-action-adddb { background: rgba(251,191,36,0.10); color: #fbbf24; }
-.ns-action-adddb:hover:not(:disabled) { background: rgba(251,191,36,0.22); }
-.ns-action-delete { flex: 0 0 auto; width: 36px; background: rgba(239,68,68,0.10); color: #f87171; }
-.ns-action-delete:hover { background: rgba(239,68,68,0.25); }
-
-/* ── Empty State ── */
-.ns-empty {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    min-height: 300px;
-    text-align: center;
-    color: rgba(226,224,240,0.5);
-    gap: 0.75rem;
-}
-.ns-empty h3 { font-size: 1.25rem; color: rgba(226,224,240,0.7); margin: 0; }
-.ns-empty p { margin: 0; }
-.ns-empty-icon { font-size: 3.5rem; }
-
-/* ── Spinner ── */
-.ns-spinner {
-    width: 36px; height: 36px;
-    border: 3px solid rgba(139,92,246,0.2);
-    border-top-color: #a78bfa;
-    border-radius: 50%;
-    animation: ns-spin 0.7s linear infinite;
-}
-.ns-spinner-sm {
-    width: 14px; height: 14px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: ns-spin 0.7s linear infinite;
-    display: inline-block;
-}
-@keyframes ns-spin { to { transform: rotate(360deg); } }
-
-/* ── Settings ── */
-.ns-settings { display: flex; justify-content: center; }
-.ns-settings-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(139,92,246,0.2);
-    border-radius: 20px;
-    padding: 2rem;
-    width: 100%;
-    max-width: 680px;
-}
-.ns-settings-title { font-size: 1.25rem; font-weight: 700; color: #e2e0f0; margin: 0 0 0.4rem; }
-.ns-settings-desc { color: rgba(226,224,240,0.5); font-size: 0.875rem; margin: 0 0 1.5rem; }
-
-.ns-form-group { margin-bottom: 1.25rem; }
-.ns-label { display: block; font-size: 0.8rem; font-weight: 500; color: rgba(226,224,240,0.7); margin-bottom: 0.4rem; }
-.ns-optional { font-size: 0.7rem; color: rgba(226,224,240,0.35); font-weight: 400; }
-.ns-hint { font-size: 0.7rem; color: rgba(226,224,240,0.35); margin: 0.35rem 0 0; }
-
-.ns-select, .ns-input {
-    width: 100%;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(139,92,246,0.2);
-    border-radius: 10px;
-    padding: 0.6rem 0.85rem;
-    color: #e2e0f0;
-    font-size: 0.875rem;
-    transition: border-color 0.2s;
-    outline: none;
-    box-sizing: border-box;
-}
-.ns-select:focus, .ns-input:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
-.ns-select option { background: #1a1030; }
-
-.ns-replacements-list {
-    background: rgba(0,0,0,0.2);
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.06);
-    margin-bottom: 1rem;
-    overflow: hidden;
-}
-.ns-no-replacements {
-    padding: 1.25rem;
-    text-align: center;
-    color: rgba(226,224,240,0.3);
-    font-size: 0.825rem;
-}
-.ns-replacement-row {
-    display: flex; align-items: center; gap: 0.75rem;
-    padding: 0.65rem 1rem;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-.ns-replacement-row:last-child { border-bottom: none; }
-.ns-replacement-from, .ns-replacement-to {
-    flex: 1;
-    font-size: 0.825rem;
-    color: #e2e0f0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.ns-replacement-from { color: #f87171; font-family: monospace; }
-.ns-replacement-to { color: #4ade80; font-family: monospace; }
-.ns-empty-val { color: rgba(226,224,240,0.3); font-style: italic; }
-.ns-arrow { color: rgba(226,224,240,0.25); flex-shrink: 0; }
-.ns-remove-btn {
-    background: rgba(239,68,68,0.1); border: none;
-    border-radius: 6px; color: #f87171;
-    width: 28px; height: 28px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: background 0.15s;
-    flex-shrink: 0;
-}
-.ns-remove-btn:hover { background: rgba(239,68,68,0.25); }
-
-.ns-add-row {
-    display: flex; align-items: center; gap: 0.6rem;
-    margin-bottom: 1.25rem;
-}
-.ns-add-row .ns-input { margin: 0; }
-.ns-add-btn {
-    background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3);
-    border-radius: 10px; color: #a78bfa;
-    width: 40px; height: 40px; min-width: 40px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: all 0.15s;
-}
-.ns-add-btn:hover { background: rgba(139,92,246,0.3); }
-
-.ns-save-btn {
-    width: 100%;
-    padding: 0.7rem;
-    background: linear-gradient(135deg, #7c3aed, #4f46e5);
-    color: #fff;
-    border: none;
-    border-radius: 10px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 20px rgba(124,58,237,0.3);
-}
-.ns-save-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(124,58,237,0.45); }
-.ns-save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-/* ── Modal ── */
-.ns-modal-overlay {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(6px);
-    z-index: 1000;
-    display: flex; align-items: center; justify-content: center;
-    padding: 1rem;
-    animation: ns-fade-in 0.2s ease;
-}
-@keyframes ns-fade-in { from { opacity:0; } to { opacity:1; } }
-
-.ns-modal {
-    background: linear-gradient(180deg, #1e1535 0%, #0f0c1a 100%);
-    border: 1px solid rgba(139,92,246,0.3);
-    border-radius: 20px;
-    width: 100%;
-    max-width: 520px;
-    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
-    animation: ns-slide-up 0.25s ease;
-}
-@keyframes ns-slide-up { from { opacity:0; transform: translateY(20px); } to { opacity:1; transform: translateY(0); } }
-
-.ns-modal-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 1.25rem 1.5rem 1rem;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.ns-modal-title {
-    font-size: 1.125rem; font-weight: 700; color: #e2e0f0; margin: 0;
-    display: flex; align-items: center; gap: 0.5rem;
-}
-.ns-modal-close {
-    background: rgba(255,255,255,0.06); border: none; border-radius: 8px;
-    color: rgba(226,224,240,0.6);
-    width: 32px; height: 32px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: all 0.15s;
-}
-.ns-modal-close:hover { background: rgba(255,255,255,0.12); color: #e2e0f0; }
-
-.ns-modal-body { padding: 1.25rem 1.5rem; }
-
-.ns-range-row {
-    display: flex; align-items: center; gap: 0.75rem;
-}
-.ns-range-row .ns-input { flex: 1; }
-.ns-range-sep { color: rgba(226,224,240,0.4); font-size: 0.875rem; white-space: nowrap; }
-
-.ns-modal-footer {
-    display: flex; gap: 0.75rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(255,255,255,0.06);
-    margin-top: 0.5rem;
-}
-.ns-cancel-btn {
-    flex: 1; padding: 0.7rem;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
-    color: rgba(226,224,240,0.7);
-    font-size: 0.875rem; font-weight: 500;
-    cursor: pointer; transition: all 0.15s;
-}
-.ns-cancel-btn:hover { background: rgba(255,255,255,0.1); color: #e2e0f0; }
-.ns-scrape-btn {
-    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
-    padding: 0.7rem;
-    background: linear-gradient(135deg, #7c3aed, #4f46e5);
-    border: none;
-    border-radius: 10px;
-    color: #fff;
-    font-size: 0.875rem; font-weight: 600;
-    cursor: pointer; transition: all 0.2s;
-    box-shadow: 0 4px 20px rgba(124,58,237,0.35);
-}
-.ns-scrape-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(124,58,237,0.5); }
-.ns-scrape-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-`;
+/**
+ * Novel Scraper Page refactored to Premium UI V2.
+ * Functionality preserved, aesthetics improved for SaaS-grade experience.
+ * All legacy CSS removed.
+ */

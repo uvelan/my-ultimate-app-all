@@ -1,48 +1,64 @@
 'use client';
 
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Card } from '@/components/ui/components';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import Link from 'next/link';
+import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Grid, Section } from '@/components/layout/Primitives';
+import { Typography } from '@/components/ui/Typography';
+import { Users, AppWindow, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 
 export default function AdminDashboard() {
     return (
         <ProtectedRoute adminOnly>
-            <div className="row justify-content-center">
-                <div className="col-12">
-                    <div className="d-flex justify-content-between align-items-center mb-4">
-                        <h1 className="h2 text-white mb-0">Admin Dashboard</h1>
-                        <Link href="/dashboard" className="btn btn-outline-light btn-sm border-white/20 hover:bg-white/10">
-                            Back to Dashboard
-                        </Link>
-                    </div>
-
-                    <div className="row g-4">
-                        <div className="col-md-6 col-lg-4">
-                            <Card className="h-100 hover:bg-white/5 transition-colors cursor-pointer border-white/10">
-                                <Link href="/admin/users" className="text-decoration-none text-white d-flex flex-column h-100 p-2">
-                                    <h3 className="h4 mb-3">Manage Users</h3>
-                                    <p className="text-white/70 mb-4">View, create, edit, and delete user accounts. Manage user roles and activation status.</p>
-                                    <div className="mt-auto">
-                                        <span className="btn btn-outline-light btn-sm">Go to Users &rarr;</span>
-                                    </div>
+            <DashboardLayout>
+                <Section title="Admin Control Center" description="Overview of administrative tools and system management.">
+                    <Grid cols={{ sm: 1, md: 2 }} gap="space-6">
+                        {/* Users Management */}
+                        <Card className="group hover:shadow-shadow-lg transition-premium border-border bg-background-surface">
+                            <CardHeader>
+                                <div className="p-space-3 w-fit rounded-radius-lg bg-primary/10 text-primary mb-space-2 group-hover:bg-primary group-hover:text-text-inverted transition-premium">
+                                    <Users size={24} />
+                                </div>
+                                <CardTitle className="text-h3">Manage Users</CardTitle>
+                                <CardDescription>
+                                    View, create, edit, and delete user accounts. Manage user roles and activation status.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Link href="/admin/users" passHref>
+                                    <Button variant="outline" className="w-full group/btn">
+                                        Go to Users
+                                        <ArrowRight className="ml-space-2 h-4 w-4 transition-premium group-hover/btn:translate-x-1" />
+                                    </Button>
                                 </Link>
-                            </Card>
-                        </div>
+                            </CardContent>
+                        </Card>
 
-                        <div className="col-md-6 col-lg-4">
-                            <Card className="h-100 hover:bg-white/5 transition-colors cursor-pointer border-white/10">
-                                <Link href="/admin/my-apps" className="text-decoration-none text-white d-flex flex-column h-100 p-2">
-                                    <h3 className="h4 mb-3">Manage Apps</h3>
-                                    <p className="text-white/70 mb-4">Add, update, and remove applications. Configure native vs external links for the dashboard.</p>
-                                    <div className="mt-auto">
-                                        <span className="btn btn-outline-light btn-sm">Go to Apps &rarr;</span>
-                                    </div>
+                        {/* Apps Management */}
+                        <Card className="group hover:shadow-shadow-lg transition-premium border-border bg-background-surface">
+                            <CardHeader>
+                                <div className="p-space-3 w-fit rounded-radius-lg bg-accent/10 text-accent mb-space-2 group-hover:bg-accent group-hover:text-text-inverted transition-premium">
+                                    <AppWindow size={24} />
+                                </div>
+                                <CardTitle className="text-h3">Manage Apps</CardTitle>
+                                <CardDescription>
+                                    Add, update, and remove applications. Configure native vs external links for the dashboard.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Link href="/admin/my-apps" passHref>
+                                    <Button variant="outline" className="w-full group/btn">
+                                        Go to Apps
+                                        <ArrowRight className="ml-space-2 h-4 w-4 transition-premium group-hover/btn:translate-x-1" />
+                                    </Button>
                                 </Link>
-                            </Card>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                </Section>
+            </DashboardLayout>
         </ProtectedRoute>
     );
 }

@@ -2,9 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Card, Button } from '@/components/ui/components';
 import { useAuth } from '@/hooks/useAuth';
 import toast from 'react-hot-toast';
+import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Section } from '@/components/layout/Primitives';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Typography } from '@/components/ui/Typography';
+import { Modal } from '@/components/ui/Modal';
+import { Input } from '@/components/ui/Input';
+import { UserPlus, Trash2, Shield, UserX, UserCheck, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 interface User {
@@ -19,8 +28,8 @@ interface User {
 export default function UsersPage() {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showCreateForm, setShowCreateForm] = useState(false);
-    const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'USER', isActive: true });
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'USER' as const, isActive: true });
     const { user } = useAuth();
 
     useEffect(() => {
@@ -112,7 +121,7 @@ export default function UsersPage() {
                 const data = await res.json();
                 toast.success('User created successfully');
                 setUsers([...users, data.user]);
-                setShowCreateForm(false);
+                setShowCreateModal(false);
                 setFormData({ name: '', email: '', password: '', role: 'USER', isActive: true });
             } else {
                 const data = await res.json();
@@ -125,168 +134,192 @@ export default function UsersPage() {
 
     return (
         <ProtectedRoute adminOnly>
-            <div className="row justify-content-center">
-                <div className="col-12">
-                    <Card className="mb-4">
-                        <div className="d-flex justify-content-between align-items-center mb-4">
-                            <div>
-                                <h1 className="h2 text-white mb-0">Manage Users</h1>
-                                <span className="badge bg-info text-dark">Admin</span>
-                            </div>
-                            <div className="d-flex gap-2">
-                                <Link href="/admin" className="btn btn-outline-light btn-sm border-white/20 hover:bg-white/10">
-                                    Back to Admin
-                                </Link>
-                                {user?.role === 'SUPERUSER' && (
-                                    <Button onClick={() => setShowCreateForm(!showCreateForm)}>
-                                        {showCreateForm ? 'Cancel' : 'Create User'}
-                                    </Button>
-                                )}
-                            </div>
-                        </div>
-
-                        {showCreateForm && (
-                            <div className="bg-white/5 p-4 rounded mb-4 border border-white/10">
-                                <h3 className="h5 text-white mb-3">Create New User</h3>
-                                <form onSubmit={handleCreateUser} className="row g-3">
-                                    <div className="col-md-6">
-                                        <input
-                                            type="text"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="Name"
-                                            value={formData.name}
-                                            onChange={e => setFormData({ ...formData, name: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="col-md-6">
-                                        <input
-                                            type="email"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="Email"
-                                            value={formData.email}
-                                            onChange={e => setFormData({ ...formData, email: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="col-md-6">
-                                        <input
-                                            type="password"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="Password"
-                                            value={formData.password}
-                                            onChange={e => setFormData({ ...formData, password: e.target.value })}
-                                            required
-                                            minLength={6}
-                                        />
-                                    </div>
-                                    <div className="col-md-3">
-                                        <select
-                                            className="form-select bg-dark border-white/20 text-white"
-                                            value={formData.role}
-                                            onChange={e => setFormData({ ...formData, role: e.target.value })}
-                                        >
-                                            <option value="USER">User</option>
-                                            <option value="ADMIN">Admin</option>
-                                            <option value="SUPERUSER">Superuser</option>
-                                        </select>
-                                    </div>
-                                    <div className="col-md-3 d-flex align-items-center">
-                                        <div className="form-check form-switch">
-                                            <input
-                                                className="form-check-input"
-                                                type="checkbox"
-                                                id="isActive"
-                                                checked={formData.isActive}
-                                                onChange={e => setFormData({ ...formData, isActive: e.target.checked })}
-                                            />
-                                            <label className="form-check-label text-white" htmlFor="isActive">Active</label>
-                                        </div>
-                                    </div>
-                                    <div className="col-12">
-                                        <Button type="submit" variant="primary">Create User</Button>
-                                    </div>
-                                </form>
-                            </div>
+            <DashboardLayout>
+                <Section 
+                    title="User Management" 
+                    description="Administrate user accounts, roles, and system access levels."
+                >
+                    <div className="flex justify-between items-center mb-space-6">
+                        <Link href="/admin">
+                            <Button variant="ghost" size="sm" className="gap-space-2 text-text-muted hover:text-text-primary">
+                                <ArrowLeft size={16} /> Back to Admin
+                            </Button>
+                        </Link>
+                        {user?.role === 'SUPERUSER' && (
+                            <Button onClick={() => setShowCreateModal(true)} className="gap-space-2">
+                                <UserPlus size={18} /> Create New User
+                            </Button>
                         )}
+                    </div>
 
-                        <div className="table-responsive">
-                            <table className="table table-dark table-hover table-borderless align-middle bg-transparent mb-0">
-                                <thead>
-                                    <tr className="border-bottom border-white/20">
-                                        <th scope="col" className="bg-transparent text-white/50">Name</th>
-                                        <th scope="col" className="bg-transparent text-white/50">Email</th>
-                                        <th scope="col" className="bg-transparent text-white/50">Role</th>
-                                        <th scope="col" className="bg-transparent text-white/50">Status</th>
-                                        <th scope="col" className="bg-transparent text-white/50">Joined</th>
-                                        <th scope="col" className="bg-transparent text-white/50 text-end">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
+                    <Card className="border-none bg-background-surface shadow-shadow-sm">
+                        <CardContent className="p-0 overflow-hidden">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>User</TableHead>
+                                        <TableHead>Role</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Joined</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
                                     {loading ? (
-                                        <tr>
-                                            <td colSpan={6} className="text-center py-4 bg-transparent text-white">
-                                                <div className="spinner-border spinner-border-sm me-2" role="status" />
-                                                Loading users...
-                                            </td>
-                                        </tr>
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-64 text-center">
+                                                <div className="flex flex-col items-center justify-center gap-space-3 text-text-muted">
+                                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                                    <Typography variant="small">Loading users...</Typography>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
                                     ) : users.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={6} className="text-center py-4 bg-transparent text-white">No users found</td>
-                                        </tr>
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-64 text-center">
+                                                <Typography variant="body" className="text-text-muted">No users found</Typography>
+                                            </TableCell>
+                                        </TableRow>
                                     ) : (
                                         users.map((u) => (
-                                            <tr key={u.id}>
-                                                <td className="bg-transparent text-white fw-medium">{u.name}</td>
-                                                <td className="bg-transparent text-white/80">{u.email}</td>
-                                                <td className="bg-transparent">
-                                                    <span className={`badge ${u.role === 'ADMIN' ? 'bg-danger' : 'bg-success'}`}>
+                                            <TableRow key={u.id}>
+                                                <TableCell>
+                                                    <div className="flex flex-col">
+                                                        <Typography variant="small" className="font-semibold text-text-primary">{u.name}</Typography>
+                                                        <Typography variant="caption" className="text-text-muted">{u.email}</Typography>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={u.role === 'SUPERUSER' ? 'primary' : u.role === 'ADMIN' ? 'error' : 'secondary'}>
                                                         {u.role}
-                                                    </span>
-                                                </td>
-                                                <td className="bg-transparent">
-                                                    <span className={`badge ${u.isActive ? 'bg-success' : 'bg-warning text-dark'}`}>
-                                                        {u.isActive ? 'Active' : 'Inactive'}
-                                                    </span>
-                                                </td>
-                                                <td className="bg-transparent text-white/60">
-                                                    {new Date(u.createdAt).toLocaleDateString()}
-                                                </td>
-                                                <td className="bg-transparent text-end">
-                                                    <Button
-                                                        variant="outline"
-                                                        className={`btn-sm me-2 border-white/20 hover:bg-white/10 ${u.isActive ? 'text-warning' : 'text-success'}`}
-                                                        onClick={() => toggleStatus(u)}
-                                                        disabled={u.id === user?.id}
-                                                    >
-                                                        {u.isActive ? 'Deactivate' : 'Activate'}
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        className="btn-sm me-2 text-white border-white/20 hover:bg-white/10"
-                                                        onClick={() => toggleRole(u)}
-                                                        disabled={u.id === user?.id || (user?.role !== 'SUPERUSER' && u.role === 'SUPERUSER')}
-                                                    >
-                                                        {u.role === 'ADMIN' ? 'Demote' : 'Promote'}
-                                                    </Button>
-                                                    <Button
-                                                        variant="danger"
-                                                        className="btn-sm"
-                                                        onClick={() => deleteUser(u.id)}
-                                                        disabled={u.id === user?.id || user?.role !== 'SUPERUSER'}
-                                                    >
-                                                        Delete
-                                                    </Button>
-                                                </td>
-                                            </tr>
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={u.isActive ? 'success' : 'warning'}>
+                                                        {u.isActive ? 'Active' : 'Disabled'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Typography variant="caption" className="text-text-muted">
+                                                        {new Date(u.createdAt).toLocaleDateString(undefined, {
+                                                            year: 'numeric',
+                                                            month: 'short',
+                                                            day: 'numeric'
+                                                        })}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex justify-end gap-space-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => toggleStatus(u)}
+                                                            disabled={u.id === user?.id}
+                                                            title={u.isActive ? 'Deactivate' : 'Activate'}
+                                                            className={u.isActive ? 'text-warning hover:text-warning hover:bg-warning/10' : 'text-success hover:text-success hover:bg-success/10'}
+                                                        >
+                                                            {u.isActive ? <UserX size={16} /> : <UserCheck size={16} />}
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => toggleRole(u)}
+                                                            disabled={u.id === user?.id || (user?.role !== 'SUPERUSER' && u.role === 'SUPERUSER')}
+                                                            title={u.role === 'ADMIN' ? 'Demote to User' : 'Promote to Admin'}
+                                                            className="text-primary hover:bg-primary/10"
+                                                        >
+                                                            <Shield size={16} />
+                                                        </Button>
+                                                        {user?.role === 'SUPERUSER' && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => deleteUser(u.id)}
+                                                                disabled={u.id === user?.id}
+                                                                title="Delete User"
+                                                                className="text-error hover:text-error hover:bg-error/10"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
                                         ))
                                     )}
-                                </tbody>
-                            </table>
-                        </div>
+                                </TableBody>
+                            </Table>
+                        </CardContent>
                     </Card>
-                </div>
-            </div>
+
+                    {/* Create User Modal */}
+                    <Modal
+                        isOpen={showCreateModal}
+                        onClose={() => setShowCreateModal(false)}
+                        title="Create New User"
+                        description="Add a new member to the system and assign their initial role."
+                    >
+                        <form onSubmit={handleCreateUser} className="space-y-space-4 pt-space-4">
+                            <Input
+                                label="Full Name"
+                                placeholder="Enter user's name"
+                                value={formData.name}
+                                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="Email Address"
+                                type="email"
+                                placeholder="email@example.com"
+                                value={formData.email}
+                                onChange={e => setFormData({ ...formData, email: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="Initial Password"
+                                type="password"
+                                placeholder="Min 6 characters"
+                                value={formData.password}
+                                onChange={e => setFormData({ ...formData, password: e.target.value })}
+                                required
+                                minLength={6}
+                            />
+                            <div className="space-y-space-2">
+                                <label className="text-small font-medium text-text-primary">System Role</label>
+                                <select
+                                    className="w-full h-11 bg-background-muted border-none rounded-radius-md px-space-4 text-small focus:ring-2 focus:ring-primary/20 transition-premium"
+                                    value={formData.role}
+                                    onChange={e => setFormData({ ...formData, role: e.target.value as any })}
+                                >
+                                    <option value="USER">User</option>
+                                    <option value="ADMIN">Admin</option>
+                                    <option value="SUPERUSER">Superuser</option>
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-space-3 pt-space-2">
+                                <input
+                                    type="checkbox"
+                                    id="isActive"
+                                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20 transition-premium"
+                                    checked={formData.isActive}
+                                    onChange={e => setFormData({ ...formData, isActive: e.target.checked })}
+                                />
+                                <label htmlFor="isActive" className="text-small font-medium text-text-primary cursor-pointer select-none">
+                                    Account automatically active
+                                </label>
+                            </div>
+                            <div className="flex gap-space-3 pt-space-6 border-t border-border mt-space-6">
+                                <Button type="button" variant="ghost" className="flex-1" onClick={() => setShowCreateModal(false)}>
+                                    Cancel
+                                </Button>
+                                <Button type="submit" variant="primary" className="flex-1">
+                                    Create User
+                                </Button>
+                            </div>
+                        </form>
+                    </Modal>
+                </Section>
+            </DashboardLayout>
         </ProtectedRoute>
     );
 }

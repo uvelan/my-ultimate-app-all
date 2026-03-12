@@ -2,7 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Card, Button } from '@/components/ui/components';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table';
+import { Badge } from '@/components/ui/Badge';
+import { Typography } from '@/components/ui/Typography';
+import { Modal } from '@/components/ui/Modal';
+import { Grid, Section } from '@/components/layout/Primitives';
+import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Plus, Edit2, Trash2, ArrowLeft, ExternalLink, Globe, Smartphone, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 
@@ -19,7 +29,7 @@ interface MyApp {
 export default function AdminAppsPage() {
     const [apps, setApps] = useState<MyApp[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showForm, setShowForm] = useState(false);
+    const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
         description: '',
@@ -60,7 +70,7 @@ export default function AdminAppsPage() {
             });
 
             if (res.ok) {
-                toast.success(editingId ? 'App updated' : 'App created');
+                toast.success(editingId ? 'App updated successfully' : 'App created successfully');
                 fetchApps();
                 resetForm();
             } else {
@@ -72,7 +82,7 @@ export default function AdminAppsPage() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure?')) return;
+        if (!confirm('Are you sure you want to delete this app?')) return;
         try {
             const res = await fetch(`/api/admin/my-apps/${id}`, { method: 'DELETE' });
             if (res.ok) {
@@ -95,7 +105,7 @@ export default function AdminAppsPage() {
             isNative: app.isNative,
         });
         setEditingId(app.id);
-        setShowForm(true);
+        setShowModal(true);
     };
 
     const resetForm = () => {
@@ -107,167 +117,187 @@ export default function AdminAppsPage() {
             isNative: false,
         });
         setEditingId(null);
-        setShowForm(false);
+        setShowModal(false);
     };
 
     return (
         <ProtectedRoute adminOnly>
-            <div className="row justify-content-center">
-                <div className="col-12">
-                    <Card className="mb-4">
-                        <div className="d-flex justify-content-between align-items-center mb-4">
-                            <div>
-                                <h1 className="h2 text-white mb-0">Manage My Apps</h1>
-                                <span className="badge bg-info text-dark">Admin</span>
-                            </div>
-                            <div className="d-flex gap-2">
-                                <Link href="/admin" className="btn btn-outline-light btn-sm border-white/20 hover:bg-white/10">
-                                    Back to Admin
-                                </Link>
-                                <Button onClick={() => setShowForm(!showForm)}>
-                                    {showForm ? 'Cancel' : 'Add New App'}
-                                </Button>
-                            </div>
-                        </div>
+            <DashboardLayout>
+                <Section title="Application Registry" description="Manage the catalog of applications displayed on the main user dashboard.">
+                    <div className="flex justify-between items-center mb-space-6">
+                        <Link href="/admin">
+                            <Button variant="ghost" size="sm" className="gap-space-2 text-text-muted hover:text-text-primary">
+                                <ArrowLeft size={16} /> Back to Admin
+                            </Button>
+                        </Link>
+                        <Button onClick={() => setShowModal(true)} className="gap-space-2">
+                            <Plus size={18} /> Add New Application
+                        </Button>
+                    </div>
 
-                        {showForm && (
-                            <div className="bg-white/5 p-4 rounded mb-4 border border-white/10">
-                                <h3 className="h5 text-white mb-3">{editingId ? 'Edit App' : 'Add New App'}</h3>
-                                <form onSubmit={handleSubmit} className="row g-3">
-                                    <div className="col-md-6">
-                                        <label htmlFor="name" className="form-label text-white">App Name</label>
-                                        <input
-                                            type="text"
-                                            id="name"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="Name"
-                                            value={formData.name}
-                                            onChange={e => setFormData({ ...formData, name: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="col-md-6">
-                                        <label htmlFor="imageLink" className="form-label text-white">Image URL</label>
-                                        <input
-                                            type="text"
-                                            id="imageLink"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="https://example.com/image.png"
-                                            value={formData.imageLink}
-                                            onChange={e => setFormData({ ...formData, imageLink: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="col-12">
-                                        <label htmlFor="description" className="form-label text-white">Description</label>
-                                        <textarea
-                                            id="description"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="Brief description of the app"
-                                            value={formData.description}
-                                            onChange={e => setFormData({ ...formData, description: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="col-md-8">
-                                        <label htmlFor="appLink" className="form-label text-white">App Link (URL)</label>
-                                        <input
-                                            type="text"
-                                            id="appLink"
-                                            className="form-control bg-dark border-white/20 text-white"
-                                            placeholder="https://example.com"
-                                            value={formData.appLink}
-                                            onChange={e => setFormData({ ...formData, appLink: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="col-md-4 d-flex align-items-end">
-                                        <div className="form-check form-switch mb-2">
-                                            <input
-                                                className="form-check-input"
-                                                type="checkbox"
-                                                id="isNative"
-                                                checked={formData.isNative}
-                                                onChange={e => setFormData({ ...formData, isNative: e.target.checked })}
-                                            />
-                                            <label className="form-check-label text-white" htmlFor="isNative">Is Native (Internal Redirect)</label>
-                                        </div>
-                                    </div>
-                                    <div className="col-12">
-                                        <Button type="submit" variant="primary">{editingId ? 'Update App' : 'Create App'}</Button>
-                                    </div>
-                                </form>
-                            </div>
-                        )}
-
-                        <div className="table-responsive">
-                            <table className="table table-dark table-hover table-borderless align-middle bg-transparent mb-0">
-                                <thead>
-                                    <tr className="border-bottom border-white/20">
-                                        <th scope="col" className="bg-transparent text-white/50">Name</th>
-                                        <th scope="col" className="bg-transparent text-white/50 d-none d-md-table-cell">Details</th>
-                                        <th scope="col" className="bg-transparent text-white/50 d-none d-sm-table-cell">Type</th>
-                                        <th scope="col" className="bg-transparent text-white/50 text-end">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
+                    <Card className="border-none bg-background-surface shadow-shadow-sm">
+                        <CardContent className="p-0 overflow-hidden">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Application</TableHead>
+                                        <TableHead className="hidden md:table-cell">Details</TableHead>
+                                        <TableHead className="hidden sm:table-cell">Type</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
                                     {loading ? (
-                                        <tr>
-                                            <td colSpan={4} className="text-center py-4 bg-transparent text-white">Loading...</td>
-                                        </tr>
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="h-64 text-center">
+                                                <div className="flex flex-col items-center justify-center gap-space-3 text-text-muted">
+                                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                                    <Typography variant="small">Loading applications...</Typography>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
                                     ) : apps.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={4} className="text-center py-4 bg-transparent text-white">No apps found</td>
-                                        </tr>
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="h-64 text-center">
+                                                <Typography variant="body" className="text-text-muted">No applications found</Typography>
+                                            </TableCell>
+                                        </TableRow>
                                     ) : (
                                         apps.map((app) => (
-                                            <tr key={app.id}>
-                                                <td className="bg-transparent text-white fw-medium">
-                                                    <div className="d-flex align-items-center gap-2">
-                                                        {app.imageLink && (
-                                                            <img src={app.imageLink} alt={app.name} className="rounded" width="32" height="32" style={{ objectFit: 'cover' }} />
-                                                        )}
-                                                        <div>
-                                                            <div>{app.name}</div>
-                                                            <div className="d-md-none small text-white/50 text-truncate" style={{ maxWidth: '150px' }}>{app.description}</div>
+                                            <TableRow key={app.id}>
+                                                <TableCell>
+                                                    <div className="flex items-center gap-space-4">
+                                                        <div className="h-12 w-12 rounded-radius-md overflow-hidden bg-background-muted flex-shrink-0">
+                                                            {app.imageLink ? (
+                                                                <img src={app.imageLink} alt={app.name} className="h-full w-full object-cover" />
+                                                            ) : (
+                                                                <div className="h-full w-full flex items-center justify-center text-text-muted">
+                                                                    <Globe size={20} />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <Typography variant="small" className="font-semibold text-text-primary">{app.name}</Typography>
+                                                            <Typography variant="caption" className="text-text-muted md:hidden max-w-[150px] truncate">
+                                                                {app.description}
+                                                            </Typography>
                                                         </div>
                                                     </div>
-                                                </td>
-                                                <td className="bg-transparent text-white/80 d-none d-md-table-cell">
-                                                    <div className="small text-truncate" style={{ maxWidth: '200px' }}>{app.description}</div>
-                                                    <div className="small text-white/40 text-truncate" style={{ maxWidth: '200px' }}>{app.appLink}</div>
-                                                </td>
-                                                <td className="bg-transparent d-none d-sm-table-cell">
-                                                    <span className={`badge ${app.isNative ? 'bg-success' : 'bg-secondary'}`}>
+                                                </TableCell>
+                                                <TableCell className="hidden md:table-cell">
+                                                    <div className="flex flex-col gap-space-1 max-w-[250px]">
+                                                        <Typography variant="caption" className="text-text-primary line-clamp-1">
+                                                            {app.description}
+                                                        </Typography>
+                                                        <div className="flex items-center gap-space-1 text-text-muted">
+                                                            <ExternalLink size={12} />
+                                                            <Typography variant="caption" className="truncate">{app.appLink}</Typography>
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="hidden sm:table-cell">
+                                                    <Badge variant={app.isNative ? 'success' : 'secondary'} className="gap-space-1">
+                                                        {app.isNative ? <Smartphone size={12} /> : <Globe size={12} />}
                                                         {app.isNative ? 'Native' : 'External'}
-                                                    </span>
-                                                </td>
-                                                <td className="bg-transparent text-end">
-                                                    <div className="d-flex justify-content-end gap-2">
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex justify-end gap-space-2">
                                                         <Button
-                                                            variant="outline"
-                                                            className="btn-sm border-white/20 hover:bg-white/10"
+                                                            variant="ghost"
+                                                            size="sm"
                                                             onClick={() => startEdit(app)}
+                                                            className="text-primary hover:bg-primary/10"
+                                                            title="Edit Application"
                                                         >
-                                                            Edit
+                                                            <Edit2 size={16} />
                                                         </Button>
                                                         <Button
-                                                            variant="danger"
-                                                            className="btn-sm"
+                                                            variant="ghost"
+                                                            size="sm"
                                                             onClick={() => handleDelete(app.id)}
+                                                            className="text-error hover:bg-error/10"
+                                                            title="Delete Application"
                                                         >
-                                                            Delete
+                                                            <Trash2 size={16} />
                                                         </Button>
                                                     </div>
-                                                </td>
-                                            </tr>
-                                        )))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
                     </Card>
-                </div>
-            </div>
+
+                    {/* App Form Modal */}
+                    <Modal
+                        isOpen={showModal}
+                        onClose={resetForm}
+                        title={editingId ? 'Edit Application' : 'Add New Application'}
+                        description="Configure the metadata and links for an application in the system."
+                    >
+                        <form onSubmit={handleSubmit} className="space-y-space-4 pt-space-4">
+                            <Grid cols={{ sm: 1, md: 2 }} gap="space-4">
+                                <Input
+                                    label="App Name"
+                                    placeholder="e.g. My Expense Tracker"
+                                    value={formData.name}
+                                    onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                    required
+                                />
+                                <Input
+                                    label="Icon/Image URL"
+                                    placeholder="https://..."
+                                    value={formData.imageLink}
+                                    onChange={e => setFormData({ ...formData, imageLink: e.target.value })}
+                                    required
+                                />
+                            </Grid>
+                            <Textarea
+                                label="Description"
+                                placeholder="What does this app do?"
+                                value={formData.description}
+                                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="Application Link (URL)"
+                                placeholder="/dashboard or https://..."
+                                value={formData.appLink}
+                                onChange={e => setFormData({ ...formData, appLink: e.target.value })}
+                                required
+                            />
+                            <div className="flex items-center gap-space-3 pt-space-2 p-space-4 bg-background-muted/50 rounded-radius-md border border-border">
+                                <input
+                                    type="checkbox"
+                                    id="isNative"
+                                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20 transition-premium"
+                                    checked={formData.isNative}
+                                    onChange={e => setFormData({ ...formData, isNative: e.target.checked })}
+                                />
+                                <div className="flex flex-col">
+                                    <label htmlFor="isNative" className="text-small font-medium text-text-primary cursor-pointer select-none">
+                                        Native Routing
+                                    </label>
+                                    <Typography variant="caption" className="text-text-muted">
+                                        If enabled, the dashboard will use internal navigation instead of opening a new tab.
+                                    </Typography>
+                                </div>
+                            </div>
+                            <div className="flex gap-space-3 pt-space-6 border-t border-border mt-space-6">
+                                <Button type="button" variant="ghost" className="flex-1" onClick={resetForm}>
+                                    Cancel
+                                </Button>
+                                <Button type="submit" variant="primary" className="flex-1">
+                                    {editingId ? 'Update Application' : 'Register Application'}
+                                </Button>
+                            </div>
+                        </form>
+                    </Modal>
+                </Section>
+            </DashboardLayout>
         </ProtectedRoute>
     );
 }

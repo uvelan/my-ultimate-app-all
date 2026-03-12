@@ -16,7 +16,18 @@ export const bookService = {
         return res.data;
     },
 
-    updateProgress: async (bookId: string, chapterId: string) => {
-        await api.patch(`/books/${bookId}/progress`, { chapterId });
+    updateProgress: async (id: string, chapterId: number, sentenceId: number = 0) => {
+        const res = await api.patch(`/books/${id}`, { chapterId, sentenceId });
+        return res.data;
+    },
+
+    updateChapterContent: async (bookId: string, chapterIndex: string, content: string) => {
+        const res = await api.patch(`/books/${bookId}/chapters/${chapterIndex}`, { content });
+        return res.data;
+    },
+
+    proposeGrammarCorrection: async (bookId: string, chapterId: string, aiModel: string = 'gemini-2.5-flash') => {
+        const res = await api.post(`/grammar-correct`, { bookId, chapterId, aiModel });
+        return res.data;
     }
 };

@@ -1,0 +1,8 @@
+src/components/expense/CalendarView.tsx(104,45): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/CalendarView.tsx(115,45): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/CategoryManager.tsx(141,37): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/ExpenseList.tsx(513,57): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/ExpenseList.tsx(514,57): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/ExpenseList.tsx(535,53): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/ExpenseList.tsx(536,53): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.
+src/components/expense/IncomeList.tsx(188,49): error TS2322: Type '"icon"' is not assignable to type '"sm" | "md" | "lg" | undefined'.

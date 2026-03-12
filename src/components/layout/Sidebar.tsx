@@ -3,6 +3,21 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { cn } from '@/lib/utils';
+import { 
+    Home, 
+    LayoutGrid, 
+    Library, 
+    Download, 
+    Heart, 
+    Settings, 
+    HelpCircle, 
+    LogOut, 
+    ChevronLeft, 
+    ChevronRight,
+    ShieldCheck
+} from 'lucide-react';
+import { Typography } from '@/components/ui/Typography';
 
 export default function Sidebar({
     isCollapsed,
@@ -19,19 +34,19 @@ export default function Sidebar({
     const { user, logout } = useAuth();
 
     const menuItems = [
-        { name: 'Discover', href: '/dashboard', icon: <HomeIcon /> },
+        { name: 'Discover', href: '/dashboard', icon: Home },
         ...(['ADMIN', 'SUPERUSER'].includes(user?.role as string) ? [
-            { name: 'Admin Panel', href: '/admin', icon: <SettingsIcon /> }
+            { name: 'Admin Panel', href: '/admin', icon: ShieldCheck }
         ] : []),
-        { name: 'Category', href: '#category', icon: <GridIcon /> },
-        { name: 'My Library', href: '#library', icon: <LibraryIcon /> },
-        { name: 'Download', href: '#download', icon: <DownloadIcon /> },
-        { name: 'Favorite', href: '#favorite', icon: <HeartIcon /> },
+        { name: 'Category', href: '#category', icon: LayoutGrid },
+        { name: 'My Library', href: '#library', icon: Library },
+        { name: 'Download', href: '#download', icon: Download },
+        { name: 'Favorite', href: '#favorite', icon: Heart },
     ];
 
     const bottomItems = [
-        { name: 'Setting', href: '#setting', icon: <SettingsIcon /> },
-        { name: 'Help', href: '#help', icon: <HelpIcon /> },
+        { name: 'Settings', href: '#setting', icon: Settings },
+        { name: 'Help', href: '#help', icon: HelpCircle },
     ];
 
     return (
@@ -39,98 +54,98 @@ export default function Sidebar({
             {/* Mobile Overlay */}
             {isMobileOpen && (
                 <div
-                    className="fixed inset-0 bg-black/50 z-40 md:hidden"
+                    className="fixed inset-0 bg-text-primary/40 backdrop-blur-sm z-40 md:hidden transition-premium"
                     onClick={closeMobile}
                 />
             )}
 
             <aside
-                className={`
-                    fixed left-0 top-0 h-screen bg-white shadow-sm z-50 flex flex-col transition-all duration-300
-                    ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-                    ${isCollapsed ? 'w-20' : 'w-64'}
-                `}
+                className={cn(
+                    "fixed left-0 top-0 h-screen bg-background-surface border-r border-border z-50 flex flex-col transition-all duration-premium shadow-lg md:shadow-none",
+                    isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+                    isCollapsed ? "w-20" : "w-64"
+                )}
             >
-                <div className={`p-8 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
-                    <Link href="/dashboard" className="flex items-center gap-2 text-2xl font-bold tracking-wider text-gray-800 no-underline hover:text-gray-900 truncate">
-                        {isCollapsed ? <div className="text-[#1D3430] mx-auto"><GridIcon /></div> : 'My Complete Apps'}
-                    </Link>
+                <div className={cn(
+                    "p-space-6 flex items-center mb-space-2",
+                    isCollapsed ? "justify-center" : "justify-between"
+                )}>
                     {!isCollapsed && (
-                        <button
-                            onClick={toggleCollapse}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors hidden md:block"
-                        >
-                            <ChevronLeftIcon />
-                        </button>
+                        <Typography variant="h3" className="font-bold tracking-tight text-primary">
+                            Ultimate App
+                        </Typography>
                     )}
+                    <button
+                        onClick={toggleCollapse}
+                        className="p-space-2 text-text-muted hover:text-text-primary hover:bg-background-muted rounded-radius-md transition-premium"
+                    >
+                        {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+                    </button>
                 </div>
 
-                {/* Collapsed state toggle button (centered) */}
-                {isCollapsed && (
-                    <div className="flex justify-center mb-2 hidden md:flex">
-                        <button
-                            onClick={toggleCollapse}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                            <ChevronRightIcon />
-                        </button>
-                    </div>
-                )}
-
-                <nav className="flex-1 px-4 overflow-y-auto no-scrollbar">
+                <nav className="flex-1 px-space-4 overflow-y-auto no-scrollbar">
                     {!isCollapsed && (
-                        <div className="text-xs font-bold text-gray-400 px-4 mb-4 uppercase tracking-wider fade-in">
-                            Menu
-                        </div>
+                        <Typography variant="caption" className="font-bold text-text-muted px-space-4 mb-space-4 uppercase tracking-widest text-[10px]">
+                            Main Menu
+                        </Typography>
                     )}
 
-                    <ul className="space-y-1">
-                        {menuItems.map((item) => (
-                            <li key={item.name}>
-                                <Link
-                                    href={item.href}
-                                    title={isCollapsed ? item.name : ''}
-                                    onClick={closeMobile}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${pathname === item.href
-                                        ? 'bg-[#1D3430] text-white shadow-md'
-                                        : 'text-gray-500 hover:bg-gray-50 hover:text-[#1D3430]'
-                                        } ${isCollapsed ? 'justify-center' : ''}`}
-                                >
-                                    <span className={pathname === item.href ? 'text-white' : 'text-gray-400 group-hover:text-[#1D3430]'}>
-                                        {item.icon}
-                                    </span>
-                                    {!isCollapsed && <span className="font-medium whitespace-nowrap">{item.name}</span>}
-                                </Link>
-                            </li>
-                        ))}
+                    <ul className="space-y-space-1">
+                        {menuItems.map((item) => {
+                            const Icon = item.icon;
+                            const isActive = pathname === item.href;
+                            return (
+                                <li key={item.name}>
+                                    <Link
+                                        href={item.href}
+                                        title={isCollapsed ? item.name : ''}
+                                        onClick={closeMobile}
+                                        className={cn(
+                                            "flex items-center gap-space-3 px-space-4 py-space-3 rounded-radius-lg transition-premium group",
+                                            isActive
+                                                ? "bg-primary text-text-inverted shadow-shadow-md"
+                                                : "text-text-secondary hover:bg-secondary-hover hover:text-text-primary"
+                                        )}
+                                    >
+                                        <Icon className={cn(
+                                            "h-5 w-5 shrink-0",
+                                            isActive ? "text-text-inverted" : "text-text-muted group-hover:text-primary"
+                                        )} />
+                                        {!isCollapsed && (
+                                            <span className="font-medium whitespace-nowrap">{item.name}</span>
+                                        )}
+                                    </Link>
+                                </li>
+                            );
+                        })}
                     </ul>
 
-                    {!isCollapsed && <hr className="my-6 border-gray-100" />}
-                    {isCollapsed && <div className="my-6" />}
+                    <div className="my-space-6 border-t border-border" />
 
-                    <ul className="space-y-1">
-                        {bottomItems.map((item) => (
-                            <li key={item.name}>
-                                <Link
-                                    href={item.href}
-                                    title={isCollapsed ? item.name : ''}
-                                    onClick={closeMobile}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-gray-500 hover:bg-gray-50 hover:text-[#1D3430] transition-all ${isCollapsed ? 'justify-center' : ''}`}
-                                >
-                                    <span className="text-gray-400 group-hover:text-[#1D3430]">{item.icon}</span>
-                                    {!isCollapsed && <span className="font-medium whitespace-nowrap">{item.name}</span>}
-                                </Link>
-                            </li>
-                        ))}
+                    <ul className="space-y-space-1 pb-space-6">
+                        {bottomItems.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                                <li key={item.name}>
+                                    <Link
+                                        href={item.href}
+                                        title={isCollapsed ? item.name : ''}
+                                        onClick={closeMobile}
+                                        className="flex items-center gap-space-3 px-space-4 py-space-3 rounded-radius-lg text-text-secondary hover:bg-secondary-hover hover:text-text-primary transition-premium group"
+                                    >
+                                        <Icon className="h-5 w-5 shrink-0 text-text-muted group-hover:text-text-primary" />
+                                        {!isCollapsed && <span className="font-medium whitespace-nowrap">{item.name}</span>}
+                                    </Link>
+                                </li>
+                            );
+                        })}
                         <li>
                             <button
                                 onClick={logout}
                                 title={isCollapsed ? "Log out" : ''}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all text-left ${isCollapsed ? 'justify-center' : ''}`}
+                                className="w-full flex items-center gap-space-3 px-space-4 py-space-3 rounded-radius-lg text-text-secondary hover:bg-error/10 hover:text-error transition-premium group text-left"
                             >
-                                <span className="text-gray-400 group-hover:text-red-600">
-                                    <LogoutIcon />
-                                </span>
+                                <LogOut className="h-5 w-5 shrink-0 text-text-muted group-hover:text-error" />
                                 {!isCollapsed && <span className="font-medium whitespace-nowrap">Log out</span>}
                             </button>
                         </li>
@@ -139,49 +154,4 @@ export default function Sidebar({
             </aside>
         </>
     );
-}
-
-// Icons
-function ChevronLeftIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>;
-}
-
-function ChevronRightIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>;
-}
-
-function HomeIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>;
-}
-
-function GridIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>;
-}
-
-function LibraryIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>;
-}
-
-function DownloadIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>;
-}
-
-function HeartIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>;
-}
-
-function SettingsIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>;
-}
-
-function HelpIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>;
-}
-
-function LogoutIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>;
-}
-
-function ScraperIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"></path></svg>;
 }

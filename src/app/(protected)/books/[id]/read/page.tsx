@@ -552,15 +552,37 @@ export default function ReadBookPage() {
                 setBook(cachedBook as Book);
                 setLoading(false);
 
-                // Initialize Progress from DB/Local even if cached (metadata update)
-                // We might want to fetch fresh metadata in background, but strict offline first for now.
-                if (typeof cachedBook.chapterId === 'number') {
-                    setCurrentChapterIndex(cachedBook.chapterId);
+                // Initialize Progress from DB/Local even if cached
+                let finalChapterIndex = typeof cachedBook.chapterId === 'number' ? cachedBook.chapterId : 0;
+                let finalSentenceIndex = typeof cachedBook.sentenceId === 'number' ? cachedBook.sentenceId : 0;
+                let needsDbUpdate = false;
+
+                const savedProgress = localStorage.getItem(`book-progress-${id}`);
+                if (savedProgress) {
+                    try {
+                        const parsed = JSON.parse(savedProgress);
+                        const localChapterId = typeof parsed.chapterId === 'number' ? parsed.chapterId : 0;
+                        const localSentenceId = typeof parsed.sentenceId === 'number' ? parsed.sentenceId : 0;
+
+                        if (localChapterId > finalChapterIndex || (localChapterId === finalChapterIndex && localSentenceId > finalSentenceIndex)) {
+                            finalChapterIndex = localChapterId;
+                            finalSentenceIndex = localSentenceId;
+                            needsDbUpdate = true;
+                        }
+                    } catch (e) {
+                        console.error("Parse error for cache read progress", e);
+                    }
                 }
-                if (typeof cachedBook.sentenceId === 'number') {
-                    setCurrentParagraphIndex(cachedBook.sentenceId);
-                } else {
-                    setCurrentParagraphIndex(0);
+
+                setCurrentChapterIndex(finalChapterIndex);
+                setCurrentParagraphIndex(finalSentenceIndex);
+
+                if (needsDbUpdate) {
+                    fetch(`/api/books/${id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: finalSentenceIndex })
+                    }).catch(console.error);
                 }
 
                 // Optional: Trigger background update
@@ -594,14 +616,37 @@ export default function ReadBookPage() {
                 window.speechSynthesis.cancel();
                 setIsPlaying(false);
 
-                // Initialize Progress from DB
-                if (typeof data.chapterId === 'number') {
-                    setCurrentChapterIndex(data.chapterId);
+                // Initialize Progress from DB vs Local Storage
+                let finalChapterIndex = typeof data.chapterId === 'number' ? data.chapterId : 0;
+                let finalSentenceIndex = typeof data.sentenceId === 'number' ? data.sentenceId : 0;
+                let needsDbUpdate = false;
+
+                const savedProgress = localStorage.getItem(`book-progress-${id}`);
+                if (savedProgress) {
+                    try {
+                        const parsed = JSON.parse(savedProgress);
+                        const localChapterId = typeof parsed.chapterId === 'number' ? parsed.chapterId : 0;
+                        const localSentenceId = typeof parsed.sentenceId === 'number' ? parsed.sentenceId : 0;
+
+                        if (localChapterId > finalChapterIndex || (localChapterId === finalChapterIndex && localSentenceId > finalSentenceIndex)) {
+                            finalChapterIndex = localChapterId;
+                            finalSentenceIndex = localSentenceId;
+                            needsDbUpdate = true;
+                        }
+                    } catch (e) {
+                        console.error("Parse error for read progress", e);
+                    }
                 }
-                if (typeof data.sentenceId === 'number') {
-                    setCurrentParagraphIndex(data.sentenceId);
-                } else {
-                    setCurrentParagraphIndex(0);
+
+                setCurrentChapterIndex(finalChapterIndex);
+                setCurrentParagraphIndex(finalSentenceIndex);
+
+                if (needsDbUpdate) {
+                    fetch(`/api/books/${id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: finalSentenceIndex })
+                    }).catch(console.error);
                 }
                 // Mark book as fully loaded so progress-save effect can now fire
                 hasBookLoadedRef.current = true;

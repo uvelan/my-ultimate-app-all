@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Button } from '@/components/ui/components'; // Assuming Button is available
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { Typography } from '@/components/ui/Typography';
+import { Modal } from '@/components/ui/Modal';
+import { Section, Grid } from '@/components/layout/Primitives';
+import DashboardLayout from '@/components/layout/DashboardLayout';
+import { Book as BookIcon, Plus, Download, Search, Loader2, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-
+import BookCard from '@/components/books/BookCard';
 
 interface Book {
     id: string;
@@ -19,18 +27,16 @@ interface Book {
     createdAt: string;
 }
 
-import { useRouter } from 'next/navigation';
-
 export default function BooksPage() {
     const router = useRouter();
     const [books, setBooks] = useState<Book[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showProgressFor, setShowProgressFor] = useState<string | null>(null);
-    const [showUpload, setShowUpload] = useState(false);
+    const [showUploadModal, setShowUploadModal] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
         fetchBooks();
@@ -55,8 +61,8 @@ export default function BooksPage() {
     };
 
     const deleteBook = async (e: React.MouseEvent, bookId: string) => {
-        e.stopPropagation(); // Prevent opening the book
-        if (!confirm('Are you sure you want to delete this book?')) return;
+        e.stopPropagation();
+        if (!confirm('Are you sure you want to remove this book from your collection?')) return;
 
         try {
             const res = await fetch(`/api/books/${bookId}`, {
@@ -69,7 +75,7 @@ export default function BooksPage() {
             }
 
             if (res.ok) {
-                toast.success('Book deleted successfully');
+                toast.success('Book removed successfully');
                 setBooks(books.filter(b => b.id !== bookId));
             } else {
                 const data = await res.json();
@@ -111,8 +117,8 @@ export default function BooksPage() {
             }
 
             if (res.ok) {
-                toast.success('Book uploaded successfully');
-                setShowUpload(false);
+                toast.success('Book added to collection');
+                setShowUploadModal(false);
                 setFile(null);
                 setTitle('');
                 setDescription('');
@@ -128,200 +134,127 @@ export default function BooksPage() {
         }
     };
 
+    const filteredBooks = books.filter(book => 
+        book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        book.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
     return (
         <ProtectedRoute>
-            {/* Full Page Library Container */}
-            <div className="min-h-screen bg-[#2e1d15] text-[#d4c5b0] font-serif books-library-theme" style={{
-                backgroundImage: 'linear-gradient(rgba(46, 29, 21, 0.95), rgba(46, 29, 21, 0.95)), url("https://images.unsplash.com/photo-1507842217121-9e93c8aaf27c?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80")',
-                backgroundSize: 'cover',
-                backgroundAttachment: 'fixed'
-            }}>
-                {/* Header */}
-                <header className="bg-black/30 backdrop-blur-md sticky top-0 z-40 border-b border-[#5c4033]">
-                    <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-                        <div className="flex items-center gap-4">
-                            <Link href="/dashboard" className="text-[#d4c5b0]/70 hover:text-[#d4c5b0] transition-colors">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+            <DashboardLayout>
+                <Section 
+                    title="Digital Library" 
+                    description="Access and manage your personal collection of books and documents."
+                >
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-space-4 mb-space-8">
+                        <div className="flex items-center gap-space-4 w-full md:w-auto">
+                             <Link href="/dashboard">
+                                <Button variant="ghost" size="sm" className="gap-space-2 text-text-muted hover:text-text-primary">
+                                    <ArrowLeft size={16} /> Dashboard
+                                </Button>
                             </Link>
-                            <div>
-                                <h1 className="text-2xl font-bold tracking-wider text-[#e6dccf] font-serif">My Library</h1>
-                            </div>
+                            <Input 
+                                placeholder="Search library..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                leftIcon={<Search size={16} />}
+                                className="md:w-64"
+                            />
                         </div>
-                        <Button
-                            onClick={() => setShowUpload(!showUpload)}
-                            className="bg-[#8b4513] hover:bg-[#6f370f] text-[#e6dccf] border-none shadow-lg transition-all transform hover:scale-105"
-                        >
-                            {showUpload ? 'Cancel' : 'Add Book +'}
+                        <Button onClick={() => setShowUploadModal(true)} className="gap-space-2 w-full md:w-auto" leftIcon={<Plus size={18} />}>
+                            Add to Collection
                         </Button>
                     </div>
-                </header>
 
-                <main className="container mx-auto px-6 py-8">
-
-                    {/* Upload Section */}
-                    {showUpload && (
-                        <div className="mb-10 animate-fade-in">
-                            <div className="bg-[#1a110d]/80 backdrop-blur-md p-8 rounded-xl border border-[#5c4033] shadow-2xl max-w-2xl mx-auto">
-                                <h3 className="text-xl text-[#e6dccf] mb-6 border-b border-[#5c4033] pb-2">Add to Collection</h3>
-                                <form onSubmit={handleUpload} className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1 text-[#d4c5b0]/80">Book File (.epub, .json)</label>
-                                        <input
-                                            type="file"
-                                            className="w-full p-2 bg-[#2e1d15] border border-[#5c4033] rounded text-[#d4c5b0] focus:ring-1 focus:ring-[#8b4513]"
-                                            accept=".epub,.json"
-                                            onChange={handleFileChange}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1 text-[#d4c5b0]/80">Title</label>
-                                            <input
-                                                type="text"
-                                                className="w-full p-2 bg-[#2e1d15] border border-[#5c4033] rounded text-[#d4c5b0] focus:ring-1 focus:ring-[#8b4513]"
-                                                placeholder="Auto-detected if empty"
-                                                value={title}
-                                                onChange={e => setTitle(e.target.value)}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1 text-[#d4c5b0]/80">Description</label>
-                                        <textarea
-                                            className="w-full p-2 bg-[#2e1d15] border border-[#5c4033] rounded text-[#d4c5b0] focus:ring-1 focus:ring-[#8b4513]"
-                                            rows={2}
-                                            value={description}
-                                            onChange={e => setDescription(e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="pt-2">
-                                        <Button
-                                            type="submit"
-                                            disabled={uploading}
-                                            className="w-full bg-[#5c4033] hover:bg-[#4a332a] text-[#e6dccf]"
-                                        >
-                                            {uploading ? 'Processing...' : 'Upload to Library'}
-                                        </Button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Books Grid */}
                     {loading ? (
-                        <div className="flex justify-center py-20">
-                            <div className="animate-pulse text-[#8b4513] text-xl">Loading your collection...</div>
+                        <div className="flex flex-col items-center justify-center py-32 gap-space-4">
+                            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                            <Typography variant="body" className="text-text-muted">Curating your library...</Typography>
                         </div>
-                    ) : books.length === 0 ? (
-                        <div className="text-center py-20 text-[#d4c5b0]/50">
-                            <div className="text-6xl mb-4 text-[#5c4033]">📖</div>
-                            <h3 className="text-xl mb-2">Your library is empty</h3>
-                            <p>Upload an EPUB or JSON book to get started.</p>
+                    ) : filteredBooks.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-32 text-center border-2 border-dashed border-border rounded-radius-lg bg-background-muted/20">
+                            <div className="h-16 w-16 rounded-full bg-background-muted flex items-center justify-center mb-space-4">
+                                <BookIcon size={32} className="text-text-muted" />
+                            </div>
+                            <Typography variant="h4" className="mb-space-2">No books found</Typography>
+                            <Typography variant="body" className="text-text-muted max-w-md">
+                                {searchQuery ? "We couldn't find any books matching your search." : "Your collection is currently empty. Start by adding an EPUB or JSON book."}
+                            </Typography>
+                            {!searchQuery && (
+                                <Button variant="outline" className="mt-space-6" onClick={() => setShowUploadModal(true)} leftIcon={<Plus size={16} />}>
+                                    Upload First Book
+                                </Button>
+                            )}
                         </div>
                     ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-8">
-                            {books.map((book) => (
-                                <div
+                        <Grid cols={{ sm: 2, md: 3, lg: 4, xl: 6 }} gap="space-8">
+                            {filteredBooks.map((book) => (
+                                <BookCard
                                     key={book.id}
-                                    className="group relative perspective-1000 cursor-pointer"
-                                    onClick={() => router.push(`/books/${book.id}/read`)}
-                                >
-                                    <div
-                                        className="relative w-full aspect-[2/3] rounded-r-lg shadow-xl transition-transform duration-300 group-hover:transform group-hover:-translate-y-2 group-hover:rotate-y-[-10deg] lg:group-hover:rotate-y-[-15deg] origin-left bg-[#1a110d]"
-                                        title={book.description || book.title}
-                                    >
-                                        {/* Book Spine Effect */}
-                                        <div className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-[#5c4033] to-[#3e2b22] z-10 rounded-l-sm"></div>
-
-                                        {/* Cover Image or Fallback */}
-                                        {book.cover ? (
-                                            <div className="absolute inset-0 pl-3 overflow-hidden rounded-r-lg">
-                                                <img
-                                                    src={book.cover}
-                                                    alt={book.title}
-                                                    className="w-full h-full object-cover"
-                                                    loading="lazy"
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div className="absolute inset-0 pl-3 bg-[#3e2b22] flex flex-col items-center justify-center p-4 text-center rounded-r-lg border-l border-[#5c4033]">
-                                                <h4 className="font-serif font-bold text-[#e6dccf] line-clamp-3">{book.title}</h4>
-                                                <div className="w-full h-[1px] bg-[#d4c5b0]/20 my-3"></div>
-                                                <p className="text-xs text-[#d4c5b0]/60 line-clamp-2">{book.description || 'No description'}</p>
-                                            </div>
-                                        )}
-
-                                        {/* Overlay gradient for depth */}
-                                        <div className="absolute inset-0 pl-3 bg-gradient-to-r from-black/40 to-transparent pointer-events-none rounded-r-lg"></div>
-
-                                        {/* Action Buttons */}
-                                        <div className="absolute top-2 right-2 flex flex-col gap-2 z-50">
-                                            {/* Listen Button */}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    router.push(`/books/${book.id}/listen`);
-                                                }}
-                                                className="p-2 bg-[#4a5568] text-white rounded-full hover:bg-[#2d3748] shadow-lg backdrop-blur-sm transition-transform hover:scale-110"
-                                                title="Listen as Audiobook"
-                                            >
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                            </button>
-
-                                            {/* Download Button */}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    window.open(`/api/books/${book.id}/download`, '_blank');
-                                                }}
-                                                className="p-2 bg-[#2d3748] text-white rounded-full hover:bg-[#1a202c] shadow-lg backdrop-blur-sm transition-transform hover:scale-110"
-                                                title="Download EPUB"
-                                            >
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                            </button>
-
-                                            {/* Delete button */}
-                                            <button
-                                                onClick={(e) => deleteBook(e, book.id)}
-                                                className="p-2 bg-red-600 text-white rounded-full hover:bg-red-700 shadow-lg backdrop-blur-sm transition-transform hover:scale-110"
-                                                title="Delete"
-                                            >
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Shelf Shadow & Details */}
-                                    <div className="mt-4 text-center pb-2">
-                                        <h5 className="font-medium text-[#e6dccf] truncate text-sm px-1 mb-2">{book.title}</h5>
-                                        {book._count?.chapters !== undefined && book._count.chapters > 0 ? (
-                                            <div className="mt-1 px-2">
-                                                <div
-                                                    className="w-full bg-[#5c4033]/50 rounded-full h-1.5 mb-1 overflow-hidden pointer-events-auto border border-[#3e2b22] cursor-pointer hover:border-[#8b4513] transition-colors"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setShowProgressFor(showProgressFor === book.id ? null : book.id);
-                                                    }}
-                                                    title="Click for details"
-                                                >
-                                                    <div className="bg-[#8b4513] h-1.5 rounded-full shadow-[0_0_5px_#8b4513] transition-all duration-300" style={{ width: `${Math.min(100, Math.max(0, ((book.chapterId || 0) / book._count.chapters) * 100))}%` }}></div>
-                                                </div>
-                                                {showProgressFor === book.id && (
-                                                    <div className="text-xs text-[#d4c4b4] mt-1 fade-in">
-                                                        Chapter {book.chapterId || 0} of {book._count.chapters} ({Math.round(((book.chapterId || 0) / book._count.chapters) * 100)}%)
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                </div>
+                                    book={book}
+                                    onDelete={deleteBook}
+                                />
                             ))}
-                        </div>
+                        </Grid>
                     )}
-                </main>
-            </div>
+
+                    <Modal
+                        isOpen={showUploadModal}
+                        onClose={() => setShowUploadModal(false)}
+                        title="Add to Collection"
+                        description="Upload an EPUB or JSON book file to your personal digital library."
+                    >
+                        <form onSubmit={handleUpload} className="space-y-space-6 pt-space-4">
+                            <div className="space-y-space-2">
+                                <label className="text-small font-medium text-text-primary">Source File</label>
+                                <div className="border-2 border-dashed border-border rounded-radius-md p-space-8 flex flex-col items-center justify-center bg-background-muted/30 hover:bg-background-muted/50 transition-colors cursor-pointer relative">
+                                    <input
+                                        type="file"
+                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                        accept=".epub,.json"
+                                        onChange={handleFileChange}
+                                        required
+                                    />
+                                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-space-3 text-primary">
+                                        <Download size={24} />
+                                    </div>
+                                    <Typography variant="small" className="font-medium text-text-primary">
+                                        {file ? file.name : "Click to browse or drag and drop"}
+                                    </Typography>
+                                    <Typography variant="caption" className="text-text-muted mt-space-1">
+                                        Supports .epub and .json files (max 50MB)
+                                    </Typography>
+                                </div>
+                            </div>
+
+                            <Grid cols={{ sm: 1, md: 1 }} gap="space-4">
+                                <Input
+                                    label="Custom Title (Optional)"
+                                    placeholder="Auto-detected if left blank"
+                                    value={title}
+                                    onChange={e => setTitle(e.target.value)}
+                                />
+                                <Textarea
+                                    label="Short Description (Optional)"
+                                    placeholder="Brief summary of the book..."
+                                    value={description}
+                                    onChange={e => setDescription(e.target.value)}
+                                    rows={3}
+                                />
+                            </Grid>
+
+                            <div className="flex gap-space-3 pt-space-4">
+                                <Button type="button" variant="ghost" className="flex-1" onClick={() => setShowUploadModal(false)}>
+                                    Cancel
+                                </Button>
+                                <Button type="submit" variant="primary" className="flex-1" isLoading={uploading}>
+                                    {uploading ? 'Processing...' : 'Upload Book'}
+                                </Button>
+                            </div>
+                        </form>
+                    </Modal>
+                </Section>
+            </DashboardLayout>
         </ProtectedRoute>
     );
 }

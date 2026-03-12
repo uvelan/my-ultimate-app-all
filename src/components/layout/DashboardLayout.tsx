@@ -1,8 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
+import { cn } from '@/lib/utils';
+import { Menu } from 'lucide-react';
 
 export default function DashboardLayout({
     children,
@@ -11,9 +14,11 @@ export default function DashboardLayout({
 }) {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
+    const pathname = usePathname();
+    const isDashboard = pathname === '/dashboard';
 
     return (
-        <div className="flex h-screen bg-[#EAE9E4] font-sans overflow-hidden">
+        <div className="flex h-screen bg-background text-text-primary font-sans overflow-hidden">
             {/* Sidebar */}
             <Sidebar
                 isCollapsed={isCollapsed}
@@ -23,33 +28,34 @@ export default function DashboardLayout({
             />
 
             {/* Main Content Wrapper */}
-            <main className={`flex-1 flex flex-col h-full transition-all duration-300 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
-
+            <main className={cn(
+                "flex-1 flex flex-col h-full min-w-0 transition-all duration-premium",
+                isCollapsed ? "md:ml-20" : "md:ml-64"
+            )}>
                 {/* Fixed Header Portion */}
-                <div className="flex-none p-4 md:p-8 pb-0">
-                    <div className="flex items-center gap-4 mb-6">
+                <div className={cn(
+                    "sticky top-0 z-30 flex-none px-space-4 py-space-2 md:px-space-8 md:py-space-2 backdrop-blur-xl bg-background/80",
+                    isDashboard ? "border-b border-border" : "border-none md:hidden"
+                )}>
+                    <div className="flex items-center gap-space-4">
                         <button
                             onClick={() => setIsMobileOpen(true)}
-                            className="md:hidden p-2 text-gray-600 hover:bg-white/50 rounded-lg"
+                            className="md:hidden p-space-2 text-text-secondary hover:bg-background-muted rounded-radius-md transition-premium"
                         >
-                            <MenuIcon />
+                            <Menu className="h-6 w-6" />
                         </button>
 
                         <div className="flex-1">
-                            <Header />
+                            {isDashboard && <Header />}
                         </div>
                     </div>
                 </div>
 
                 {/* Scrollable Content Portion */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-8 pt-0">
+                <div className="flex-1 overflow-y-auto p-space-4 pt-0 md:p-space-8 md:pt-0 no-scrollbar">
                     {children}
                 </div>
             </main>
         </div>
     );
-}
-
-function MenuIcon() {
-    return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>;
 }

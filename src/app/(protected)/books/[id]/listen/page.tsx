@@ -71,17 +71,37 @@ export default function ListenPage() {
                     chapters: data.chapters || []
                 });
 
+                let finalChapterIndex = 0;
+                let needsDbUpdate = false;
+
+                if (typeof data.chapterId === 'number') {
+                    finalChapterIndex = data.chapterId;
+                }
+
                 // Check stored progress
                 const savedProgress = localStorage.getItem(`listen-progress-${id}`);
                 if (savedProgress) {
                     try {
                         const parsed = JSON.parse(savedProgress);
                         if (typeof parsed.chapterIndex === 'number') {
-                            setCurrentChapterIndex(parsed.chapterIndex);
+                            if (parsed.chapterIndex > finalChapterIndex) {
+                                finalChapterIndex = parsed.chapterIndex;
+                                needsDbUpdate = true;
+                            }
                         }
                     } catch (e) {
                         console.error("Parse error for listen progress", e);
                     }
+                }
+
+                setCurrentChapterIndex(finalChapterIndex);
+
+                if (needsDbUpdate) {
+                    fetch(`/api/books/${id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: 0 })
+                    }).catch(console.error);
                 }
             } else {
                 toast.error('Failed to load book');
@@ -465,7 +485,7 @@ export default function ListenPage() {
                             {/* Empty state for search */}
                             {searchQuery && !book.chapters.some(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())) && (
                                 <div className="text-center text-[#a0aec0] text-sm py-8 italic">
-                                    No chapters found matching "{searchQuery}"
+                                    No chapters found matching &quot;{searchQuery}&quot;
                                 </div>
                             )}
                         </div>

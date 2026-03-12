@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { Bell, ChevronDown, LogOut, Search } from 'lucide-react';
+import { Typography } from '@/components/ui/Typography';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 
 // Mock Notifications
 const MOCK_NOTIFICATIONS = [
@@ -30,70 +35,80 @@ export default function Header() {
     }, []);
 
     return (
-        <header className="flex justify-between items-center mb-2 pt-2 relative gap-4">
-            <div>
-                <h1 className="text-2xl font-bold text-gray-800">My Complete Apps</h1>
+        <header className="flex justify-between items-center mb-space-2 pt-space-2 relative gap-space-4">
+            <div className="flex-1">
+                <Typography variant="h1" className="text-text-primary hidden sm:block">
+                    Dashboard
+                </Typography>
             </div>
-            {/* User Profile & Notifications */}
-            <div className="flex items-center gap-4">
-                {/* User Profile Dropdown */}
-                <div className="relative" ref={profileDropdownRef}>
-                    <div
-                        onClick={() => setShowProfileMenu(!showProfileMenu)}
-                        className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+            
+            <div className="flex items-center gap-space-4">
+                {/* Notification Bell */}
+                <div className="relative" ref={dropdownRef}>
+                    <button
+                        onClick={() => setShowNotifications(!showNotifications)}
+                        className={cn(
+                            "relative p-space-2 text-text-secondary hover:bg-background-muted rounded-radius-full transition-premium",
+                            showNotifications && "bg-background-muted text-text-primary"
+                        )}
                     >
-                        <div className="w-10 h-10 rounded-full bg-yellow-200 overflow-hidden border-2 border-white shadow-sm flex items-center justify-center text-[#1D3430] font-bold">
-                            {user?.name?.[0]?.toUpperCase() || 'U'}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-700 text-sm hidden sm:block">{user?.name || 'User'}</span>
-                            <ChevronDownIcon />
-                        </div>
-                    </div>
+                        <Bell className="h-5 w-5" />
+                        <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-background-surface animate-pulse"></span>
+                    </button>
 
-                    {/* Profile Menu */}
-                    {showProfileMenu && (
-                        <div className="absolute right-0 mt-3 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                            <div className="p-2">
-                                <button
-                                    onClick={logout}
-                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors text-left"
-                                >
-                                    <LogoutIcon />
-                                    Logout
-                                </button>
+                    {/* Dropdown Menu */}
+                    {showNotifications && (
+                        <div className="absolute right-0 mt-space-3 w-80 bg-background-surface rounded-radius-lg shadow-shadow-xl border border-border z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-premium">
+                            <div className="p-space-4 border-b border-border flex justify-between items-center">
+                                <Typography variant="small" className="font-semibold">Notifications</Typography>
+                                <Badge variant="success">3 New</Badge>
+                            </div>
+                            <div className="max-h-96 overflow-y-auto no-scrollbar">
+                                {MOCK_NOTIFICATIONS.map((notif) => (
+                                    <div key={notif.id} className={cn(
+                                        "p-space-4 hover:bg-background-muted transition-premium cursor-pointer border-b border-border last:border-0",
+                                        !notif.read && "bg-primary/5"
+                                    )}>
+                                        <Typography variant="small" className="leading-snug mb-space-1 text-text-primary">{notif.text}</Typography>
+                                        <Typography variant="caption" className="text-text-muted">{notif.time}</Typography>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="p-space-3 text-center border-t border-border">
+                                <button className="text-caption font-semibold text-primary hover:underline">Mark all as read</button>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* Notification Bell */}
-                <div className="relative" ref={dropdownRef}>
-                    <button
-                        onClick={() => setShowNotifications(!showNotifications)}
-                        className={`relative p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors ${showNotifications ? 'bg-gray-100 text-gray-900' : ''}`}
+                {/* User Profile Dropdown */}
+                <div className="relative" ref={profileDropdownRef}>
+                    <div
+                        onClick={() => setShowProfileMenu(!showProfileMenu)}
+                        className="flex items-center gap-space-3 cursor-pointer hover:bg-background-muted p-space-1 pr-space-2 rounded-radius-full transition-premium"
                     >
-                        <BellIcon />
-                        <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-                    </button>
+                        <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 shadow-shadow-sm flex items-center justify-center text-primary font-bold text-small">
+                            {user?.name?.[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <div className="flex items-center gap-space-2">
+                            <Typography variant="small" className="font-medium text-text-secondary hidden md:block">
+                                {user?.name || 'User'}
+                            </Typography>
+                            <ChevronDown className={cn("h-4 w-4 text-text-muted transition-premium", showProfileMenu && "rotate-180")} />
+                        </div>
+                    </div>
 
-                    {/* Dropdown Menu */}
-                    {showNotifications && (
-                        <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                            <div className="p-4 border-b border-gray-50 flex justify-between items-center">
-                                <h3 className="font-semibold text-gray-800">Notifications</h3>
-                                <span className="text-xs text-[#1D3430] bg-green-50 px-2 py-1 rounded-full font-medium">3 New</span>
-                            </div>
-                            <div className="max-h-96 overflow-y-auto">
-                                {MOCK_NOTIFICATIONS.map((notif) => (
-                                    <div key={notif.id} className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 last:border-0 ${!notif.read ? 'bg-blue-50/30' : ''}`}>
-                                        <p className="text-sm text-gray-700 leading-snug mb-1">{notif.text}</p>
-                                        <p className="text-xs text-gray-400">{notif.time}</p>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="p-3 text-center border-t border-gray-50">
-                                <button className="text-xs font-semibold text-[#1D3430] hover:underline">Mark all as read</button>
+                    {/* Profile Menu */}
+                    {showProfileMenu && (
+                        <div className="absolute right-0 mt-space-3 w-48 bg-background-surface rounded-radius-lg shadow-shadow-xl border border-border z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-premium">
+                            <div className="p-space-2">
+                                <button
+                                    onClick={logout}
+                                    className="w-full flex items-center gap-space-3 px-space-4 py-space-2 text-small text-text-secondary hover:bg-error/5 hover:text-error rounded-radius-md transition-premium text-left"
+                                >
+                                    <LogOut className="h-4 w-4" />
+                                    Logout
+                                </button>
                             </div>
                         </div>
                     )}
@@ -101,21 +116,4 @@ export default function Header() {
             </div>
         </header>
     );
-}
-
-// Icons
-function ChevronDownIcon() {
-    return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>;
-}
-
-function SearchIcon() {
-    return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-0"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>;
-}
-
-function BellIcon() {
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="text-gray-800"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>;
-}
-
-function LogoutIcon() {
-    return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>;
 }

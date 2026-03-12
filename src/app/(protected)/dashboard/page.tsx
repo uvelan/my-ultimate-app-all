@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import AppCard from '@/components/ui/AppCard';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import toast from 'react-hot-toast';
+import { Grid, Section } from '@/components/layout/Primitives';
+import { Loader2 } from 'lucide-react';
+import { Typography } from '@/components/ui/Typography';
 
 interface MyApp {
     id: string;
@@ -19,7 +21,6 @@ interface MyApp {
 export default function DashboardPage() {
     const [apps, setApps] = useState<MyApp[]>([]);
     const [loading, setLoading] = useState(true);
-    const router = useRouter();
 
     useEffect(() => {
         const fetchApps = async () => {
@@ -42,7 +43,7 @@ export default function DashboardPage() {
 
     const handleAppClick = (app: MyApp) => {
         if (app.isNative) {
-            router.push(app.appLink);
+            window.location.href = app.appLink;
         } else {
             window.open(app.appLink, '_blank', 'noopener,noreferrer');
         }
@@ -51,30 +52,30 @@ export default function DashboardPage() {
     return (
         <ProtectedRoute>
             <DashboardLayout>
-                {/* Hero / Discovery Section */}
-                <section>
+                <Section className="pt-0 md:pt-0" title="Explore Apps" description="Discover and manage your connected accounts and services.">
                     {loading ? (
-                        <div className="flex justify-center items-center h-64 text-gray-500">
-                            Loading your apps...
+                        <div className="flex flex-col items-center justify-center h-64 text-text-muted gap-space-4">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <Typography variant="small">Loading your apps...</Typography>
                         </div>
                     ) : apps.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                            <p className="mb-4">No apps found.</p>
+                        <div className="flex flex-col items-center justify-center h-64 text-text-muted">
+                            <Typography variant="body">No apps found.</Typography>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pb-8">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-space-6 pb-space-8 w-full">
                             {apps.map((app) => (
-                                <div key={app.id} onClick={() => handleAppClick(app)} className="cursor-pointer">
-                                    <AppCard
-                                        name={app.name}
-                                        description={app.description}
-                                        image={app.imageLink}
-                                    />
-                                </div>
+                                <AppCard
+                                    key={app.id}
+                                    name={app.name}
+                                    description={app.description}
+                                    image={app.imageLink}
+                                    onClick={() => handleAppClick(app)}
+                                />
                             ))}
                         </div>
                     )}
-                </section>
+                </Section>
             </DashboardLayout>
         </ProtectedRoute>
     );

@@ -1,54 +1,62 @@
 import Link from 'next/link';
-import { Card } from '@/components/ui/components';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Typography } from '@/components/ui/Typography';
+import { Container, Grid } from '@/components/layout/Primitives';
 
 export default function Home() {
     return (
-        <div className="row justify-content-center align-items-center min-vh-75">
-            <div className="col-md-8 text-center">
-                <h1 className="display-3 fw-bold text-white mb-4 animate-fade-in">
-                    Modern Authentication
-                </h1>
-                <p className="lead text-white mb-5 opacity-75">
-                    Secure, scalable, and beautiful authentication system built with Next.js 16,
-                    Prisma, MongoDB, and Bootstrap 5.
-                </p>
+        <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
+            {/* Background elements for premium feel */}
+            <div className="absolute top-0 w-full h-full bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(139,92,246,0.15),rgba(255,255,255,0))] pointer-events-none" />
 
-                <div className="d-flex gap-3 justify-content-center">
-                    <Link href="/login" className="btn btn-light btn-lg fw-bold px-5">
-                        Get Started
-                    </Link>
-                    <Link href="/register" className="btn btn-outline-light btn-lg px-5">
-                        Learn More
-                    </Link>
+            <Container className="relative z-10 py-24 text-center space-y-space-12">
+                <div className="max-w-3xl mx-auto space-y-space-6 animate-in slide-in-from-bottom duration-premium flex flex-col items-center">
+                    <Typography variant="display" className="text-text-primary tracking-tight">
+                        Modern Authentication
+                    </Typography>
+                    <Typography variant="body" className="text-text-secondary text-lg max-w-2xl text-balance">
+                        Secure, scalable, and premium authentication system built with Next.js,
+                        Prisma, MongoDB, and a bespoke Dark Luxury UI design.
+                    </Typography>
+
+                    <div className="flex gap-space-4 pt-space-4">
+                        <Link href="/login">
+                            <Button size="lg" className="min-w-32">Get Started</Button>
+                        </Link>
+                        <Link href="/register">
+                            <Button variant="outline" size="lg" className="min-w-32">Learn More</Button>
+                        </Link>
+                    </div>
                 </div>
 
-                <div className="row mt-5 g-4">
-                    <div className="col-md-4">
-                        <Card className="h-100 bg-white/10 border-0">
-                            <h3 className="h5 text-white mb-3">Secure</h3>
-                            <p className="text-white/70 mb-0">
-                                JWT-based authentication with HttpOnly cookies and CSRF protection.
-                            </p>
-                        </Card>
-                    </div>
-                    <div className="col-md-4">
-                        <Card className="h-100 bg-white/10 border-0">
-                            <h3 className="h5 text-white mb-3">Modern</h3>
-                            <p className="text-white/70 mb-0">
-                                Built with the latest tech stack: Next.js 16, React 19, and Server Actions.
-                            </p>
-                        </Card>
-                    </div>
-                    <div className="col-md-4">
-                        <Card className="h-100 bg-white/10 border-0">
-                            <h3 className="h5 text-white mb-3">Role-Based</h3>
-                            <p className="text-white/70 mb-0">
-                                Granular access control with Admin and User roles.
-                            </p>
-                        </Card>
-                    </div>
-                </div>
-            </div>
+                <Grid cols={{ sm: 1, md: 3 }} gap="space-6" className="pt-space-12 text-left">
+                    <Card className="h-full bg-background-surface/80 backdrop-blur-md">
+                        <CardContent className="p-space-6 space-y-space-3 pt-space-6">
+                            <Typography variant="h3" className="text-text-primary">Secure</Typography>
+                            <Typography variant="small" className="text-text-secondary leading-relaxed">
+                                JWT-based authentication with HttpOnly cookies, seamless session management, and CSRF protection.
+                            </Typography>
+                        </CardContent>
+                    </Card>
+                    <Card className="h-full bg-background-surface/80 backdrop-blur-md">
+                        <CardContent className="p-space-6 space-y-space-3 pt-space-6">
+                            <Typography variant="h3" className="text-text-primary">Modern</Typography>
+                            <Typography variant="small" className="text-text-secondary leading-relaxed">
+                                Built natively with the latest tech stack: Next.js App Router, React 19, and pure Tailwind Design Tokens.
+                            </Typography>
+                        </CardContent>
+                    </Card>
+                    <Card className="h-full bg-background-surface/80 backdrop-blur-md">
+                        <CardContent className="p-space-6 space-y-space-3 pt-space-6">
+                            <Typography variant="h3" className="text-text-primary">Role-Based</Typography>
+                            <Typography variant="small" className="text-text-secondary leading-relaxed">
+                                Granular access control securely integrating Admin and User roles directly into the React tree.
+                            </Typography>
+                        </CardContent>
+                    </Card>
+                </Grid>
+            </Container>
         </div>
     );
 }

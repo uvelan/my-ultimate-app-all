@@ -1,0 +1,4 @@
+
+> my-ultimate-app-all@0.1.0 lint
+> next lint
+

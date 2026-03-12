@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { ShieldCheck, User as UserIcon, LogOut, Settings } from 'lucide-react-native';
+import { ShieldCheck, User as UserIcon, LogOut, Settings, Users, LayoutGrid } from 'lucide-react-native';
 import { authService, User } from '@/src/services/auth.service';
 import { Card } from '@/src/components/ui/Card';
 import { useRouter } from 'expo-router';
@@ -70,6 +70,22 @@ export default function AdminScreen() {
                 </Card>
 
                 <Text className="text-[#e6dccf] font-bold text-lg mb-4">Quick Actions</Text>
+
+                <TouchableOpacity
+                    className="bg-[#1a110d] p-4 rounded-xl border border-[#5c4033] mb-3 flex-row items-center"
+                    onPress={() => router.push('/(protected)/admin/users' as any)}
+                >
+                    <Users size={20} color="#8b4513" />
+                    <Text className="text-white font-bold ml-3">Manage Users</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    className="bg-[#1a110d] p-4 rounded-xl border border-[#5c4033] mb-3 flex-row items-center"
+                    onPress={() => router.push('/(protected)/admin/apps' as any)}
+                >
+                    <LayoutGrid size={20} color="#8b4513" />
+                    <Text className="text-white font-bold ml-3">Manage Apps</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity
                     className="bg-[#1a110d] p-4 rounded-xl border border-[#5c4033] mb-3 flex-row items-center"

@@ -1,9 +1,17 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Outfit } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ 
+    subsets: ['latin'],
+    variable: '--font-body',
+});
+
+const outfit = Outfit({ 
+    subsets: ['latin'],
+    variable: '--font-display',
+});
 
 export const metadata: Metadata = {
     title: 'My Complete Apps',
@@ -12,8 +20,6 @@ export const metadata: Metadata = {
 
 import ClientLayout from '@/components/layout/ClientLayout';
 
-// ... (Metadata export)
-
 export default function RootLayout({
     children,
 }: {
@@ -21,7 +27,7 @@ export default function RootLayout({
 }) {
     return (
         <html lang="en">
-            <body className={inter.className}>
+            <body className={`${inter.variable} ${outfit.variable} font-sans antialiased bg-background text-text-primary`}>
                 <ClientLayout>
                     {children}
                 </ClientLayout>

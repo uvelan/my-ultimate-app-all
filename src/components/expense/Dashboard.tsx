@@ -3,8 +3,44 @@
 import { useEffect, useState } from 'react'
 import { getDashboardStats, updateMonthlyBudget, getHistoricalStats } from '@/actions/stats'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend as RechartsLegend } from 'recharts'
-import { format, startOfMonth, endOfMonth, isWithinInterval, startOfYear, endOfYear, startOfQuarter, endOfQuarter } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfQuarter, endOfQuarter } from 'date-fns'
 import toast from 'react-hot-toast'
+import { 
+    Grid, 
+    Stack 
+} from '@/components/layout/Primitives'
+import { 
+    Card, 
+    CardHeader, 
+    CardTitle, 
+    CardContent 
+} from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Typography } from '@/components/ui/Typography'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { Alert } from '@/components/ui/Alert'
+import { Badge } from '@/components/ui/Badge'
+import { 
+    Table, 
+    TableHeader, 
+    TableBody, 
+    TableHead, 
+    TableRow, 
+    TableCell,
+    TableFooter
+} from '@/components/ui/Table'
+import { 
+    TrendingUp, 
+    TrendingDown, 
+    Wallet, 
+    Target, 
+    Calendar,
+    ArrowRight,
+    AlertTriangle,
+    Loader2
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const Legend = RechartsLegend as any;
 
@@ -34,13 +70,8 @@ export default function Dashboard() {
     const [groupingMode, setGroupingMode] = useState<'category' | 'method'>('category')
     const [activeDate, setActiveDate] = useState(new Date())
 
-    useEffect(() => {
-        loadStats()
-    }, [dateRange, activeDate])
-
-    useEffect(() => {
-        loadHistorical()
-    }, [dateRange, groupingMode])
+    useEffect(() => { loadStats() }, [dateRange, activeDate])
+    useEffect(() => { loadHistorical() }, [dateRange, groupingMode])
 
     async function loadStats() {
         setLoading(true)
@@ -71,7 +102,6 @@ export default function Dashboard() {
                 window.location.href = '/login';
                 return;
             }
-            console.error(e)
             toast.error('Failed to load dashboard data')
         } finally {
             setLoading(false)
@@ -112,8 +142,8 @@ export default function Dashboard() {
     const renderCustomLegend = (props: any) => {
         const { payload } = props;
         return (
-            <div className="d-flex justify-content-center w-100 mt-2">
-                <ul className="d-flex flex-wrap justify-content-center m-0 p-0" style={{ listStyle: 'none', gap: '16px' }}>
+            <div className="flex justify-center w-full mt-space-2 max-h-32 overflow-y-auto scrollbar-thin">
+                <ul className="flex flex-wrap justify-center gap-x-space-3 gap-y-space-2 pb-space-2">
                     {payload?.map((entry: any, index: number) => {
                         const key = String(entry.dataKey || entry.value);
                         const isHidden = hiddenCategories.has(key);
@@ -122,12 +152,19 @@ export default function Dashboard() {
                         return (
                             <li
                                 key={`item-${index}`}
-                                className="d-flex align-items-center"
-                                style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
+                                className="flex items-center cursor-pointer transition-premium hover:opacity-80"
                                 onClick={() => handleLegendClick(entry)}
                             >
-                                <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: boxColor, marginRight: 6, borderRadius: '3px' }}></span>
-                                <span style={{ fontSize: '13px', color: isHidden ? '#adb5bd' : '#495057', fontWeight: 500 }}>{entry.value}</span>
+                                <span 
+                                    className="w-3 h-3 rounded-radius-sm mr-2" 
+                                    style={{ backgroundColor: boxColor }}
+                                />
+                                <Typography 
+                                    variant="caption" 
+                                    className={cn("font-medium", isHidden ? "text-text-muted" : "text-text-secondary")}
+                                >
+                                    {entry.value}
+                                </Typography>
                             </li>
                         );
                     })}
@@ -155,37 +192,65 @@ export default function Dashboard() {
 
     if (loading) {
         return (
-            <div className="text-center py-5">
-                <div className="spinner-border text-primary" role="status">
-                    <span className="visually-hidden">Loading...</span>
-                </div>
+            <div className="flex flex-col items-center justify-center py-32 gap-space-4">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <Typography variant="body" className="text-text-muted">Analyzing your finances...</Typography>
             </div>
         )
     }
 
-    if (!data) return <div>Failed to load data.</div>
+    if (!data) return (
+        <Alert variant="error" title="Data Error">
+            We couldn't load your dashboard data. Please try again later.
+        </Alert>
+    )
+
+    const isOverBudget = dateRange === 'month' && data.monthlyBudget > 0 && data.totalExpense > data.monthlyBudget;
 
     return (
-        <div className="dashboard-container">
+        <Stack gap="space-6" align="stretch" className="w-full">
             {/* Top Date Filter Controls */}
-            <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
-                <div className="d-flex flex-wrap gap-2">
-                    <div className="btn-group shadow-sm w-100 mb-2 mb-md-0 d-flex" role="group">
-                        <button onClick={() => setDateRange('month')} className={`btn flex-fill ${dateRange === 'month' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Monthly</button>
-                        <button onClick={() => setDateRange('quarter')} className={`btn flex-fill ${dateRange === 'quarter' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Quarterly</button>
-                        <button onClick={() => setDateRange('half')} className={`btn flex-fill d-none d-sm-block ${dateRange === 'half' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Half-Yearly</button>
-                        <button onClick={() => setDateRange('year')} className={`btn flex-fill ${dateRange === 'year' ? 'btn-primary' : 'btn-outline-primary bg-white'}`}>Yearly</button>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-space-4">
+                <div className="flex flex-wrap gap-space-2 w-full md:w-auto">
+                    <div className="flex bg-background-muted rounded-radius-md p-1 shadow-shadow-sm border border-border">
+                        {['month', 'quarter', 'half', 'year'].map((range) => (
+                            <button
+                                key={range}
+                                onClick={() => setDateRange(range as any)}
+                                className={cn(
+                                    "px-space-4 py-space-1.5 rounded-radius-sm text-small font-medium transition-premium",
+                                    dateRange === range 
+                                        ? "bg-primary text-white shadow-shadow-sm" 
+                                        : "text-text-muted hover:text-text-primary"
+                                )}
+                            >
+                                {range.charAt(0).toUpperCase() + range.slice(1)}
+                            </button>
+                        ))}
                     </div>
 
-                    <div className="btn-group shadow-sm ms-md-2 w-100 d-flex" role="group">
-                        <button onClick={() => setGroupingMode('category')} className={`btn flex-fill ${groupingMode === 'category' ? 'btn-secondary' : 'btn-outline-secondary bg-white'}`}>By Category</button>
-                        <button onClick={() => setGroupingMode('method')} className={`btn flex-fill ${groupingMode === 'method' ? 'btn-secondary' : 'btn-outline-secondary bg-white'}`}>By Method</button>
+                    <div className="flex bg-background-muted rounded-radius-md p-1 shadow-shadow-sm border border-border">
+                        {['category', 'method'].map((mode) => (
+                            <button
+                                key={mode}
+                                onClick={() => setGroupingMode(mode as any)}
+                                className={cn(
+                                    "px-space-4 py-space-1.5 rounded-radius-sm text-small font-medium transition-premium",
+                                    groupingMode === mode 
+                                        ? "bg-secondary text-white shadow-shadow-sm" 
+                                        : "text-text-muted hover:text-text-primary"
+                                )}
+                            >
+                                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
-                <div className="d-flex flex-wrap align-items-center gap-2 w-100 justify-content-md-end">
-                    <select
-                        className="form-select form-select-sm shadow-sm flex-grow-1 flex-md-grow-0" style={{ minWidth: '100px', width: 'auto' }}
+                <div className="flex gap-space-3 w-full md:w-auto">
+                    <Select
+                        className="w-32"
+                        wrapperClassName="w-fit"
                         value={activeDate.getFullYear()}
                         onChange={(e) => {
                             const newDate = new Date(activeDate)
@@ -196,11 +261,12 @@ export default function Dashboard() {
                         {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 5 + i).map(y => (
                             <option key={y} value={y}>{y}</option>
                         ))}
-                    </select>
+                    </Select>
 
                     {dateRange === 'month' && (
-                        <select
-                            className="form-select form-select-sm shadow-sm flex-grow-1 flex-md-grow-0" style={{ minWidth: '100px', width: 'auto' }}
+                        <Select
+                            className="w-32"
+                            wrapperClassName="w-fit"
                             value={activeDate.getMonth()}
                             onChange={(e) => {
                                 const newDate = new Date(activeDate)
@@ -211,12 +277,13 @@ export default function Dashboard() {
                             {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => (
                                 <option key={i} value={i}>{m}</option>
                             ))}
-                        </select>
+                        </Select>
                     )}
 
                     {dateRange === 'quarter' && (
-                        <select
-                            className="form-select form-select-sm shadow-sm" style={{ width: 'auto' }}
+                        <Select
+                            className="w-48"
+                            wrapperClassName="w-fit"
                             value={Math.floor(activeDate.getMonth() / 3)}
                             onChange={(e) => {
                                 const newDate = new Date(activeDate)
@@ -227,12 +294,13 @@ export default function Dashboard() {
                             {['Q1 (Jan-Mar)', 'Q2 (Apr-Jun)', 'Q3 (Jul-Sep)', 'Q4 (Oct-Dec)'].map((q, i) => (
                                 <option key={i} value={i}>{q}</option>
                             ))}
-                        </select>
+                        </Select>
                     )}
 
                     {dateRange === 'half' && (
-                        <select
-                            className="form-select form-select-sm shadow-sm" style={{ width: 'auto' }}
+                        <Select
+                            className="w-40"
+                            wrapperClassName="w-fit"
                             value={Math.floor(activeDate.getMonth() / 6)}
                             onChange={(e) => {
                                 const newDate = new Date(activeDate)
@@ -243,213 +311,275 @@ export default function Dashboard() {
                             {['H1 (Jan-Jun)', 'H2 (Jul-Dec)'].map((h, i) => (
                                 <option key={i} value={i}>{h}</option>
                             ))}
-                        </select>
+                        </Select>
                     )}
                 </div>
             </div>
 
             {/* Summary Cards */}
-            <div className="row g-3 mb-4">
-                <div className="col-12 col-sm-6 col-md-3">
-                    <div className="card text-white bg-success h-100 border-0 shadow-sm">
-                        <div className="card-body">
-                            <h6 className="card-title text-white-50">Total Income</h6>
-                            <h3 className="mb-0 fw-bold">₹{data.totalIncome.toFixed(2)}</h3>
-                        </div>
-                    </div>
-                </div>
-                <div className="col-12 col-sm-6 col-md-3">
-                    <div className="card text-white bg-danger h-100 border-0 shadow-sm">
-                        <div className="card-body">
-                            <h6 className="card-title text-white-50">Total Expense</h6>
-                            <h3 className="mb-0 fw-bold">₹{data.totalExpense.toFixed(2)}</h3>
-                        </div>
-                    </div>
-                </div>
-                <div className="col-12 col-sm-6 col-md-3">
-                    <div className={`card text-white h-100 border-0 shadow-sm ${data.balance >= 0 ? 'bg-primary' : 'bg-warning'}`}>
-                        <div className="card-body">
-                            <h6 className="card-title text-white-50">Remaining Balance</h6>
-                            <h3 className="mb-0 fw-bold">₹{data.balance.toFixed(2)}</h3>
-                        </div>
-                    </div>
-                </div>
-                <div className="col-12 col-sm-6 col-md-3">
-                    <div className="card bg-white text-dark h-100 border-0 shadow-sm">
-                        <div className="card-body d-flex flex-column justify-content-between">
-                            <div className="d-flex justify-content-between align-items-center mb-2">
-                                <h6 className="card-title text-muted mb-0">Monthly Limit</h6>
-                                <button onClick={() => { setTempLimit(data.monthlyBudget.toString()); setEditingLimit(!editingLimit) }} className="btn btn-sm btn-link text-decoration-none p-0">
-                                    {editingLimit ? 'Cancel' : 'Edit'}
-                                </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-4">
+                <Card className="bg-success/10 border-success/20">
+                    <CardContent className="p-space-5 pt-space-5 flex flex-col gap-space-2">
+                        <div className="flex items-center justify-between">
+                            <Typography variant="small" className="text-success font-medium">Total Income</Typography>
+                            <div className="p-2 bg-success/20 rounded-radius-md">
+                                <TrendingUp className="text-success" size={20} />
                             </div>
-                            {editingLimit ? (
-                                <div className="input-group input-group-sm">
-                                    <span className="input-group-text">₹</span>
-                                    <input type="number" className="form-control" value={tempLimit} onChange={e => setTempLimit(e.target.value)} />
-                                    <button onClick={handleSaveLimit} className="btn btn-primary">Save</button>
-                                </div>
-                            ) : (
-                                <div>
-                                    <h3 className="mb-1 fw-bold">₹{data.monthlyBudget > 0 ? data.monthlyBudget.toFixed(2) : '0.00'}</h3>
-                                    {data.monthlyBudget === 0 && <small className="text-muted">No limit set</small>}
-                                </div>
-                            )}
                         </div>
-                    </div>
-                </div>
+                        <Typography variant="h3" className="text-success">₹{data.totalIncome.toFixed(2).toLocaleString()}</Typography>
+                    </CardContent>
+                </Card>
+
+                <Card className="bg-error/10 border-error/20">
+                    <CardContent className="p-space-5 pt-space-5 flex flex-col gap-space-2">
+                        <div className="flex items-center justify-between">
+                            <Typography variant="small" className="text-error font-medium">Total Expense</Typography>
+                            <div className="p-2 bg-error/20 rounded-radius-md">
+                                <TrendingDown className="text-error" size={20} />
+                            </div>
+                        </div>
+                        <Typography variant="h3" className="text-error">₹{data.totalExpense.toFixed(2).toLocaleString()}</Typography>
+                    </CardContent>
+                </Card>
+
+                <Card className={cn("border-none", data.balance >= 0 ? "bg-primary/10" : "bg-warning/10")}>
+                    <CardContent className="p-space-5 pt-space-5 flex flex-col gap-space-2">
+                        <div className="flex items-center justify-between">
+                            <Typography variant="small" className={cn("font-medium", data.balance >= 0 ? "text-primary" : "text-warning")}>Remaining Balance</Typography>
+                            <div className={cn("p-2 rounded-radius-md", data.balance >= 0 ? "bg-primary/20" : "bg-warning/20")}>
+                                <Wallet className={cn(data.balance >= 0 ? "text-primary" : "text-warning")} size={20} />
+                            </div>
+                        </div>
+                        <Typography variant="h3" className={cn(data.balance >= 0 ? "text-primary" : "text-warning")}>₹{data.balance.toFixed(2).toLocaleString()}</Typography>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardContent className="p-space-5 pt-space-5 flex flex-col gap-space-2 h-full">
+                        <div className="flex items-center justify-between">
+                            <Typography variant="small" className="text-text-secondary font-medium">Monthly Limit</Typography>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-auto p-0 text-primary hover:bg-transparent"
+                                onClick={() => { setTempLimit(data.monthlyBudget.toString()); setEditingLimit(!editingLimit) }}
+                            >
+                                {editingLimit ? 'Cancel' : 'Edit'}
+                            </Button>
+                        </div>
+                        {editingLimit ? (
+                            <div className="flex gap-2">
+                                <Input 
+                                    type="number" 
+                                    value={tempLimit} 
+                                    onChange={e => setTempLimit(e.target.value)} 
+                                    className="h-9"
+                                    leftIcon={<span className="text-small">₹</span>}
+                                />
+                                <Button size="sm" onClick={handleSaveLimit}>Save</Button>
+                            </div>
+                        ) : (
+                            <div>
+                                <Typography variant="h3">₹{data.monthlyBudget > 0 ? data.monthlyBudget.toFixed(2).toLocaleString() : '0.00'}</Typography>
+                                {data.monthlyBudget === 0 && <Typography variant="caption" className="text-text-muted">No limit set</Typography>}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
             </div>
 
-            {
-                (dateRange === 'month' && data.monthlyBudget > 0 && data.totalExpense > data.monthlyBudget) && (
-                    <div className="alert alert-danger fw-bold d-flex align-items-center shadow-sm" role="alert">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" className="bi bi-exclamation-triangle-fill flex-shrink-0 me-2" viewBox="0 0 16 16">
-                            <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
-                        </svg>
-                        <div>
-                            Warning: You have exceeded your monthly budget for this period! (Spent: ₹{data.totalExpense.toFixed(2)} / Limit: ₹{data.monthlyBudget.toFixed(2)})
-                        </div>
-                    </div>
-                )
-            }
+            {isOverBudget && (
+                <Alert 
+                    variant="error" 
+                    title="Budget Exceeded"
+                >
+                    Warning: You have exceeded your monthly budget for this period! (Spent: ₹{data.totalExpense.toFixed(2)} / Limit: ₹{data.monthlyBudget.toFixed(2)})
+                </Alert>
+            )}
 
-            <div className="row g-4 mb-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-space-6">
                 {/* Category Split Chart */}
-                <div className="col-12 col-lg-6">
-                    <div className="card h-100 border-0 shadow-sm">
-                        <div className="card-body">
-                            <h5 className="card-title mb-3">Expense Breakdown</h5>
-                            {data.categorySplit.length > 0 || data.methodSplit.length > 0 ? (() => {
-                                const splitData = groupingMode === 'category' ? data.categorySplit : data.methodSplit
-                                const activePieData = splitData.filter(cat => !hiddenCategories.has(cat.name))
-                                const pieLegendPayload = splitData.map(entry => ({
-                                    id: entry.name,
-                                    type: 'square',
-                                    value: entry.name,
-                                    color: hiddenCategories.has(entry.name) ? '#ccc' : entry.color,
-                                    dataKey: entry.name
-                                }))
-                                return (
-                                    <div style={{ height: 300 }}>
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
-                                                <Pie
-                                                    data={activePieData}
-                                                    cx="50%"
-                                                    cy="50%"
-                                                    innerRadius={60}
-                                                    outerRadius={100}
-                                                    paddingAngle={5}
-                                                    dataKey="value"
-                                                >
-                                                    {activePieData.map((entry, index) => (
-                                                        <Cell key={`cell-${index}`} fill={entry.color} />
-                                                    ))}
-                                                </Pie>
-                                                <Tooltip formatter={(value: any) => `₹${Number(value).toFixed(2)}`} />
-                                                <Legend
-                                                    verticalAlign="bottom"
-                                                    content={renderCustomLegend}
-                                                    payload={pieLegendPayload}
-                                                />
-                                            </PieChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                )
-                            })() : (
-                                <p className="text-muted text-center py-5">No expense data available</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Period Transactions */}
-                <div className="col-12 col-lg-6">
-                    <div className="card h-100 border-0 shadow-sm d-flex flex-column">
-                        <div className="card-body p-0 d-flex flex-column">
-                            <h5 className="card-title p-3 mb-0 border-bottom">Period Expenses Summary</h5>
-                            <div className="table-responsive flex-grow-1" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                                <table className="table table-hover table-sm mb-0 align-middle">
-                                    <thead className="table-light position-sticky top-0 z-1 border-bottom">
-                                        <tr>
-                                            <th className="ps-3 border-0">{groupingMode === 'category' ? 'Category' : 'Payment Method'}</th>
-                                            <th className="text-end pe-3 border-0">Amount</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(() => {
-                                            const splitData = groupingMode === 'category' ? data.categorySplit : data.methodSplit;
-                                            const visibleData = splitData.filter((item: any) => !hiddenCategories.has(item.name));
-
-                                            if (visibleData.length === 0) {
-                                                return <tr><td colSpan={2} className="text-center py-5 text-muted">No expenses found</td></tr>;
-                                            }
-                                            return visibleData
-                                                .sort((a, b) => b.value - a.value)
-                                                .map((item: any, idx: number) => (
-                                                    <tr key={idx}>
-                                                        <td className="ps-3">
-                                                            <span className="badge rounded-pill" style={{ backgroundColor: item.color || '#6c757d' }}>
-                                                                {item.name}
-                                                            </span>
-                                                        </td>
-                                                        <td className="text-end pe-3 fw-bold text-danger">
-                                                            -₹{item.value.toFixed(2)}
-                                                        </td>
-                                                    </tr>
-                                                ));
-                                        })()}
-                                    </tbody>
-                                    <tfoot className="table-light position-sticky bottom-0 z-1 border-top">
-                                        <tr>
-                                            <td className="text-end fw-bold py-2 border-0">Total Expenses:</td>
-                                            <td className="text-end pe-3 fw-bold py-2 border-0 text-danger">
-                                                -₹{(() => {
-                                                    const splitData = groupingMode === 'category' ? data.categorySplit : data.methodSplit;
-                                                    const visibleData = splitData.filter((item: any) => !hiddenCategories.has(item.name));
-                                                    return visibleData.reduce((sum: number, item: any) => sum + item.value, 0).toFixed(2);
-                                                })()}
-                                            </td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="row g-4 mb-4">
-                {/* Historical Trend Chart */}
-                <div className="col-12">
-                    <div className="card border-0 shadow-sm">
-                        <div className="card-body">
-                            <h5 className="card-title mb-3">Historical Expense Trend</h5>
-                            <p className="text-muted small mb-4">Click on any bar to filter the Dashboard cards above to that specific period.</p>
-
-                            {historicalData.length > 0 ? (
-                                <div style={{ height: 350 }}>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={historicalData} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                            <XAxis dataKey="period" />
-                                            <YAxis />
-                                            <Tooltip formatter={(val: any) => `₹${Number(val || 0).toFixed(2)}`} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                                            <Legend verticalAlign="bottom" content={renderCustomLegend} />
-                                            {historicalCategories.map(cat => (
-                                                <Bar key={cat.name} dataKey={cat.name} name={cat.name} stackId="a" fill={cat.color} barSize={40} hide={hiddenCategories.has(cat.name)} />
-                                            ))}
-                                            <Line type="monotone" dataKey="expense" name="Expense Trend" stroke="#ffc107" strokeWidth={3} dot={{ r: 4 }} hide={hiddenCategories.has("expense")} />
-                                        </ComposedChart>
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-h4">Expense Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {data.categorySplit.length > 0 || data.methodSplit.length > 0 ? (() => {
+                            const splitData = groupingMode === 'category' ? data.categorySplit : data.methodSplit
+                            const activePieData = splitData.filter(cat => !hiddenCategories.has(cat.name))
+                            const pieLegendPayload = splitData.map(entry => ({
+                                id: entry.name,
+                                type: 'square',
+                                value: entry.name,
+                                color: hiddenCategories.has(entry.name) ? '#ccc' : entry.color,
+                                dataKey: entry.name
+                            }))
+                            return (
+                                <div style={{ height: 400 }} className="flex flex-col w-full">
+                                    <ResponsiveContainer width="100%" height={400}>
+                                        <PieChart>
+                                            <Pie
+                                                data={activePieData}
+                                                cx="50%"
+                                                cy="45%"
+                                                innerRadius={80}
+                                                outerRadius={125}
+                                                paddingAngle={2}
+                                                dataKey="value"
+                                            >
+                                                {activePieData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={entry.color} className="stroke-background-surface transition-all duration-300 hover:opacity-80" />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip 
+                                                contentStyle={{ backgroundColor: 'var(--background-surface)', borderColor: 'var(--border)', borderRadius: 'var(--radius-md)' }}
+                                                itemStyle={{ color: 'var(--text-primary)' }}
+                                                formatter={(value: any) => `₹${Number(value).toFixed(2)}`} 
+                                            />
+                                            <Legend
+                                                verticalAlign="bottom"
+                                                content={renderCustomLegend}
+                                                payload={pieLegendPayload}
+                                            />
+                                        </PieChart>
                                     </ResponsiveContainer>
                                 </div>
-                            ) : (
-                                <p className="text-muted text-center py-5">No historical data available</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                            )
+                        })() : (
+                            <div className="flex flex-col items-center justify-center py-24 text-center">
+                                <AlertTriangle className="text-text-muted mb-space-3" size={40} />
+                                <Typography variant="body" className="text-text-muted">No expense data available for this range</Typography>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Period Transactions */}
+                <Card className="flex flex-col">
+                    <CardHeader className="border-b border-border pb-space-4">
+                        <CardTitle className="text-h4">Period Expenses Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0 overflow-auto max-h-[450px]">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="pl-space-6">{groupingMode === 'category' ? 'Category' : 'Method'}</TableHead>
+                                    <TableHead className="text-right pr-space-6">Amount</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {(() => {
+                                    const splitData = groupingMode === 'category' ? data.categorySplit : data.methodSplit;
+                                    const visibleData = splitData.filter((item: any) => !hiddenCategories.has(item.name));
+
+                                    if (visibleData.length === 0) {
+                                        return (
+                                            <TableRow>
+                                                <TableCell colSpan={2} className="h-32 text-center text-text-muted">No expenses found</TableCell>
+                                            </TableRow>
+                                        );
+                                    }
+                                    return visibleData
+                                        .sort((a, b) => b.value - a.value)
+                                        .map((item: any, idx: number) => (
+                                            <TableRow key={idx}>
+                                                <TableCell className="pl-space-6">
+                                                    <Badge className="bg-background-muted text-text-primary px-3 py-1 border-none flex items-center gap-2 w-fit">
+                                                        <div className="w-2 h-2 rounded-full min-w-[8px]" style={{ backgroundColor: item.color || '#6c757d' }} />
+                                                        {item.name}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right pr-space-6 font-semibold text-error">
+                                                    -₹{item.value.toFixed(2)}
+                                                </TableCell>
+                                            </TableRow>
+                                        ));
+                                })()}
+                            </TableBody>
+                            <TableFooter className="bg-background-muted/50">
+                                <TableRow>
+                                    <TableCell className="font-bold pl-space-6 h-12">Total Expenses</TableCell>
+                                    <TableCell className="text-right pr-space-6 font-bold text-error h-12">
+                                        -₹{(() => {
+                                            const splitData = groupingMode === 'category' ? data.categorySplit : data.methodSplit;
+                                            const visibleData = splitData.filter((item: any) => !hiddenCategories.has(item.name));
+                                            return visibleData.reduce((sum: number, item: any) => sum + item.value, 0).toFixed(2);
+                                        })()}
+                                    </TableCell>
+                                </TableRow>
+                            </TableFooter>
+                        </Table>
+                    </CardContent>
+                </Card>
             </div>
-        </div >
+
+            {/* Historical Trend Chart */}
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col gap-1">
+                        <CardTitle className="text-h4">Historical Expense Trend</CardTitle>
+                        <Typography variant="caption" className="text-text-muted">Click on any bar to filter the Dashboard cards above to that specific period.</Typography>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {historicalData.length > 0 ? (
+                        <div style={{ height: 400 }} className="w-full">
+                            <ResponsiveContainer width="100%" height={400}>
+                                <ComposedChart data={historicalData} onClick={handleBarClick} style={{ cursor: 'pointer' }} margin={{ top: 10, right: 10, bottom: 10, left: 20 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                    <XAxis 
+                                        dataKey="period" 
+                                        stroke="var(--color-text)" 
+                                        fontSize={12} 
+                                        tickLine={false} 
+                                        axisLine={false}
+                                    />
+                                    <YAxis 
+                                        stroke="var(--color-text)" 
+                                        fontSize={12} 
+                                        tickLine={false} 
+                                        axisLine={false}
+                                        tickFormatter={(val) => `₹${val}`}
+                                        width={80}
+                                    />
+                                    <Tooltip 
+                                        contentStyle={{ backgroundColor: 'var(--background-surface)', borderColor: 'var(--border)', borderRadius: 'var(--radius-md)' }}
+                                        itemStyle={{ color: 'var(--text-primary)' }}
+                                        formatter={(val: any) => `₹${Number(val || 0).toFixed(2)}`} 
+                                        cursor={{ fill: 'var(--background-muted)', opacity: 0.1 }} 
+                                    />
+                                    <Legend verticalAlign="bottom" content={renderCustomLegend} />
+                                    {historicalCategories.map(cat => (
+                                        <Bar 
+                                            key={cat.name} 
+                                            dataKey={cat.name} 
+                                            name={cat.name} 
+                                            stackId="a" 
+                                            fill={cat.color} 
+                                            hide={hiddenCategories.has(cat.name)} 
+                                            className="transition-all duration-300 hover:opacity-80"
+                                        />
+                                    ))}
+                                    <Line 
+                                        type="monotone" 
+                                        dataKey="expense" 
+                                        name="Expense Trend" 
+                                        stroke="#f59e0b" 
+                                        strokeWidth={3} 
+                                        dot={{ r: 4, fill: '#f59e0b', strokeWidth: 2, stroke: 'var(--color-surface)' }} 
+                                        hide={hiddenCategories.has("expense")} 
+                                    />
+                                </ComposedChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-24 text-center">
+                            <Calendar className="text-text-muted mb-space-3" size={40} />
+                            <Typography variant="body" className="text-text-muted">No historical data available yet</Typography>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        </Stack>
     )
 }

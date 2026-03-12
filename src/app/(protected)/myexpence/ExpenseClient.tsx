@@ -6,75 +6,59 @@ import ExpenseList from '@/components/expense/ExpenseList'
 import CategoryManager from '@/components/expense/CategoryManager'
 import IncomeList from '@/components/expense/IncomeList'
 import CalendarView from '@/components/expense/CalendarView'
-import { LayoutDashboard, Receipt, Wallet, Tags, ArrowLeft, Calendar } from 'lucide-react'
-import Link from 'next/link'
+import { LayoutDashboard, Receipt, Wallet, Tags, Calendar } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/Card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { Section } from '@/components/layout/Primitives'
+
+type TabValue = 'dashboard' | 'expenses' | 'income' | 'categories' | 'calendar';
 
 export default function ExpenseClient() {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'expenses' | 'income' | 'categories' | 'calendar'>('dashboard')
+    const [activeTab, setActiveTab] = useState<TabValue>('dashboard')
 
     return (
-        <div className="card shadow-sm border-0">
-            <div className="card-header bg-white border-bottom-0 pt-3 pb-0">
-                <ul className="nav nav-tabs border-bottom-0 w-100 d-flex">
-                    <li className="nav-item">
-                        <button
-                            className={`nav-link border-0 text-dark ${activeTab === 'dashboard' ? 'active fw-bold border-bottom border-primary border-3' : ''}`}
-                            onClick={() => setActiveTab('dashboard')}
-                            style={{ backgroundColor: 'transparent' }}
-                        >
-                            <LayoutDashboard className="me-2" size={18} /> Dashboard
-                        </button>
-                    </li>
-                    <li className="nav-item">
-                        <button
-                            className={`nav-link border-0 text-dark ${activeTab === 'expenses' ? 'active fw-bold border-bottom border-primary border-3' : ''}`}
-                            onClick={() => setActiveTab('expenses')}
-                            style={{ backgroundColor: 'transparent' }}
-                        >
-                            <Receipt className="me-2" size={18} /> Expenses
-                        </button>
-                    </li>
-                    <li className="nav-item">
-                        <button
-                            className={`nav-link border-0 text-dark ${activeTab === 'income' ? 'active fw-bold border-bottom border-primary border-3' : ''}`}
-                            onClick={() => setActiveTab('income')}
-                            style={{ backgroundColor: 'transparent' }}
-                        >
-                            <Wallet className="me-2" size={18} /> Income
-                        </button>
-                    </li>
-                    <li className="nav-item">
-                        <button
-                            className={`nav-link border-0 text-dark ${activeTab === 'calendar' ? 'active fw-bold border-bottom border-primary border-3' : ''}`}
-                            onClick={() => setActiveTab('calendar')}
-                            style={{ backgroundColor: 'transparent' }}
-                        >
-                            <Calendar className="me-2" size={18} /> Calendar
-                        </button>
-                    </li>
-                    <li className="nav-item">
-                        <button
-                            className={`nav-link border-0 text-dark ${activeTab === 'categories' ? 'active fw-bold border-bottom border-primary border-3' : ''}`}
-                            onClick={() => setActiveTab('categories')}
-                            style={{ backgroundColor: 'transparent' }}
-                        >
-                            <Tags className="me-2" size={18} /> Categories
-                        </button>
-                    </li>
-                    <li className="nav-item ms-auto d-flex align-items-center mb-1">
-                        <Link href="/dashboard" className="btn btn-outline-secondary btn-sm d-flex align-items-center shadow-sm">
-                            <ArrowLeft size={16} className="me-1" /> Back to Main Dashboard
-                        </Link>
-                    </li>
-                </ul>
-            </div>
-            <div className="card-body bg-light rounded-bottom p-4">
-                {activeTab === 'dashboard' && <Dashboard />}
-                {activeTab === 'expenses' && <ExpenseList />}
-                {activeTab === 'income' && <IncomeList />}
-                {activeTab === 'categories' && <CategoryManager />}
-                {activeTab === 'calendar' && <CalendarView />}
-            </div>
-        </div>
+        <Section className="pt-0 md:pt-0" title="Expense Tracker" description="Manage your personal finances, track spending, and analyze income.">
+            <Card className="border-none bg-background-surface shadow-shadow-sm overflow-hidden">
+                <CardContent className="p-0">
+                    <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as TabValue)}>
+                        <TabsList className="bg-background-surface border-b border-border overflow-x-auto no-scrollbar flex-nowrap">
+                            <TabsTrigger value="dashboard" className="flex items-center gap-space-2">
+                                <LayoutDashboard size={16} /> Dashboard
+                            </TabsTrigger>
+                            <TabsTrigger value="expenses" className="flex items-center gap-space-2">
+                                <Receipt size={16} /> Expenses
+                            </TabsTrigger>
+                            <TabsTrigger value="income" className="flex items-center gap-space-2">
+                                <Wallet size={16} /> Income
+                            </TabsTrigger>
+                            <TabsTrigger value="calendar" className="flex items-center gap-space-2">
+                                <Calendar size={16} /> Calendar
+                            </TabsTrigger>
+                            <TabsTrigger value="categories" className="flex items-center gap-space-2">
+                                <Tags size={16} /> Categories
+                            </TabsTrigger>
+                        </TabsList>
+
+                        <div className="p-space-6 bg-background-muted/30">
+                            <TabsContent value="dashboard" activeValue={activeTab}>
+                                <Dashboard />
+                            </TabsContent>
+                            <TabsContent value="expenses" activeValue={activeTab}>
+                                <ExpenseList />
+                            </TabsContent>
+                            <TabsContent value="income" activeValue={activeTab}>
+                                <IncomeList />
+                            </TabsContent>
+                            <TabsContent value="categories" activeValue={activeTab}>
+                                <CategoryManager />
+                            </TabsContent>
+                            <TabsContent value="calendar" activeValue={activeTab}>
+                                <CalendarView />
+                            </TabsContent>
+                        </div>
+                    </Tabs>
+                </CardContent>
+            </Card>
+        </Section>
     )
 }

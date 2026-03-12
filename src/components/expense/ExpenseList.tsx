@@ -5,6 +5,45 @@ import { getExpenses, addExpense, deleteExpense, updateExpense } from '@/actions
 import { getCategories } from '@/actions/category'
 import toast from 'react-hot-toast'
 import { format, isWithinInterval, startOfMonth, endOfMonth, parseISO } from 'date-fns'
+import { 
+    Grid, 
+    Stack 
+} from '@/components/layout/Primitives'
+import { 
+    Card, 
+    CardHeader, 
+    CardTitle, 
+    CardContent 
+} from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Typography } from '@/components/ui/Typography'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { Badge } from '@/components/ui/Badge'
+import { 
+    Table, 
+    TableHeader, 
+    TableBody, 
+    TableHead, 
+    TableRow, 
+    TableCell,
+    TableFooter
+} from '@/components/ui/Table'
+import { 
+    Plus, 
+    Filter, 
+    Download, 
+    ChevronDown, 
+    Edit2, 
+    Trash2, 
+    Check, 
+    X,
+    ArrowUpDown,
+    ArrowUp,
+    ArrowDown,
+    Loader2
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export default function ExpenseList() {
     const [expenses, setExpenses] = useState<any[]>([])
@@ -30,31 +69,6 @@ export default function ExpenseList() {
     const [showCatDrop, setShowCatDrop] = useState(false)
     const [showMethodDrop, setShowMethodDrop] = useState(false)
 
-    // Filter panel actions
-    const checkAllCategories = () => setSelectedCategories(new Set(categories.map(c => c.id)))
-    const uncheckAllCategories = () => setSelectedCategories(new Set())
-
-    const checkAllMethods = () => setSelectedMethods(new Set(['Cash', 'Card', 'UPI', 'Bank Transfer']))
-    const uncheckAllMethods = () => setSelectedMethods(new Set())
-
-    const handleCategoryFilterChange = (categoryId: string) => {
-        setSelectedCategories(prev => {
-            const next = new Set(prev)
-            if (next.has(categoryId)) next.delete(categoryId)
-            else next.add(categoryId)
-            return next
-        })
-    }
-
-    const handleMethodFilterChange = (method: string) => {
-        setSelectedMethods(prev => {
-            const next = new Set(prev)
-            if (next.has(method)) next.delete(method)
-            else next.add(method)
-            return next
-        })
-    }
-
     // Inline Edit States
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editAmount, setEditAmount] = useState('')
@@ -63,9 +77,7 @@ export default function ExpenseList() {
     const [editDate, setEditDate] = useState('')
     const [editNotes, setEditNotes] = useState('')
 
-    useEffect(() => {
-        loadData()
-    }, [])
+    useEffect(() => { loadData() }, [])
 
     async function loadData() {
         setLoading(true)
@@ -169,14 +181,13 @@ export default function ExpenseList() {
         } else if (filterType === 'range' && filterStart && filterEnd) {
             const start = new Date(filterStart)
             const end = new Date(filterEnd)
-            end.setHours(23, 59, 59, 999) // include end of day
+            end.setHours(23, 59, 59, 999)
             result = result.filter(e => {
                 const d = new Date(e.date)
                 return d >= start && d <= end
             })
         }
 
-        // Checkbox Filtering
         if (selectedCategories.size > 0) {
             result = result.filter(e => selectedCategories.has(e.categoryId))
         }
@@ -184,7 +195,6 @@ export default function ExpenseList() {
             result = result.filter(e => selectedMethods.has(e.paymentMethod))
         }
 
-        // Sorting
         if (sortConfig !== null) {
             result.sort((a, b) => {
                 if (sortConfig.key === 'date') {
@@ -216,8 +226,8 @@ export default function ExpenseList() {
     }
 
     const SortIcon = ({ column }: { column: string }) => {
-        if (!sortConfig || sortConfig.key !== column) return <span className="text-muted ms-1 small opacity-50">↕</span>
-        return <span className="ms-1 small">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+        if (!sortConfig || sortConfig.key !== column) return <ArrowUpDown size={14} className="ml-1 opacity-50" />
+        return sortConfig.direction === 'asc' ? <ArrowUp size={14} className="ml-1 text-primary" /> : <ArrowDown size={14} className="ml-1 text-primary" />
     }
 
     function handleExportCSV() {
@@ -250,239 +260,297 @@ export default function ExpenseList() {
         document.body.removeChild(link)
     }
 
-    if (loading) return <div>Loading...</div>
+    if (loading) return (
+        <div className="flex flex-col items-center justify-center py-24 gap-space-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <Typography variant="caption" className="text-text-muted">Loading expenses...</Typography>
+        </div>
+    )
 
     return (
-        <div>
-            <div className="row mb-4">
-                <div className="col-12">
-                    <div className="card shadow-sm border-0">
-                        <div className="card-body">
-                            <h5 className="card-title mb-3">Add Expense</h5>
-                            <form onSubmit={handleAdd} className="row g-3">
-                                <div className="col-md-3">
-                                    <label className="form-label">Amount</label>
-                                    <div className="input-group">
-                                        <span className="input-group-text">₹</span>
-                                        <input type="number" step="0.01" className="form-control" value={amount} onChange={e => setAmount(e.target.value)} required />
-                                    </div>
-                                </div>
-                                <div className="col-md-3">
-                                    <label className="form-label">Category</label>
-                                    <select className="form-select" value={categoryId} onChange={e => setCategoryId(e.target.value)} required>
-                                        <option value="" disabled>Select Category</option>
-                                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
-                                </div>
-                                <div className="col-md-3">
-                                    <label className="form-label">Payment Method</label>
-                                    <select className="form-select" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                                        <option value="Cash">Cash</option>
-                                        <option value="Card">Card</option>
-                                        <option value="UPI">UPI</option>
-                                        <option value="Bank Transfer">Bank Transfer</option>
-                                    </select>
-                                </div>
-                                <div className="col-md-3">
-                                    <label className="form-label">Date</label>
-                                    <input type="date" className="form-control" value={date} onChange={e => setDate(e.target.value)} required />
-                                </div>
-                                <div className="col-md-9">
-                                    <label className="form-label">Notes (Optional)</label>
-                                    <input type="text" className="form-control" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Lunch at subways" />
-                                </div>
-                                <div className="col-md-3 d-flex align-items-end">
-                                    <button type="submit" className="btn btn-danger w-100" disabled={categories.length === 0}>
-                                        {categories.length === 0 ? 'Create a Category First' : 'Add Expense'}
-                                    </button>
-                                </div>
-                            </form>
+        <Stack gap="space-8" align="stretch" className="w-full">
+            {/* Add Expense Form */}
+            <Card className="border-none shadow-shadow-md">
+                <CardHeader>
+                    <CardTitle className="text-h4">Add Expense</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <form onSubmit={handleAdd}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-4 items-end">
+                            <Input 
+                                label="Amount" 
+                                type="number" 
+                                step="0.01" 
+                                value={amount} 
+                                onChange={e => setAmount(e.target.value)} 
+                                required 
+                                leftIcon={<span className="text-small">₹</span>}
+                            />
+                            <Select 
+                                label="Category" 
+                                value={categoryId} 
+                                onChange={e => setCategoryId(e.target.value)} 
+                                required
+                            >
+                                <option value="" disabled>Select Category</option>
+                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </Select>
+                            <Select 
+                                label="Payment Method" 
+                                value={paymentMethod} 
+                                onChange={e => setPaymentMethod(e.target.value)}
+                            >
+                                <option value="Cash">Cash</option>
+                                <option value="Card">Card</option>
+                                <option value="UPI">UPI</option>
+                                <option value="Bank Transfer">Bank Transfer</option>
+                            </Select>
+                            <Input 
+                                label="Date" 
+                                type="date" 
+                                value={date} 
+                                onChange={e => setDate(e.target.value)} 
+                                required 
+                            />
+                            <div className="lg:col-span-3">
+                                <Input 
+                                    label="Notes (Optional)" 
+                                    value={notes} 
+                                    onChange={e => setNotes(e.target.value)} 
+                                    placeholder="e.g. Lunch at subways" 
+                                />
+                            </div>
+                            <Button type="submit" variant="primary" className="w-full" disabled={categories.length === 0} leftIcon={categories.length > 0 ? <Plus size={18} /> : null}>
+                                {categories.length === 0 ? 'Create a Category First' : 'Add Expense'}
+                            </Button>
                         </div>
+                    </form>
+                </CardContent>
+            </Card>
+
+            {/* List Controls */}
+            <Stack gap="space-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-space-4">
+                    <Typography variant="h4">Recent Expenses</Typography>
+
+                    <div className="flex flex-wrap gap-2 items-center">
+                        <Select className="w-32" wrapperClassName="w-fit" value={filterType} onChange={e => setFilterType(e.target.value as any)}>
+                            <option value="all">All Time</option>
+                            <option value="month">By Month</option>
+                            <option value="range">Custom Range</option>
+                        </Select>
+
+                        {filterType === 'month' && (
+                            <Input type="month" className="w-40" wrapperClassName="w-fit gap-0" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
+                        )}
+
+                        {filterType === 'range' && (
+                            <>
+                                <Input type="date" className="w-40" wrapperClassName="w-fit gap-0" value={filterStart} onChange={e => setFilterStart(e.target.value)} />
+                                <Typography variant="caption" className="text-text-muted">to</Typography>
+                                <Input type="date" className="w-40" wrapperClassName="w-fit gap-0" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} />
+                            </>
+                        )}
+
+                        <Button variant="outline" size="sm" onClick={handleExportCSV} leftIcon={<Download size={14} />}>
+                            Export CSV
+                        </Button>
                     </div>
                 </div>
-            </div>
 
-            <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-3">
-                <h5 className="mb-0">Recent Expenses</h5>
-
-                <div className="d-flex flex-wrap gap-2 align-items-center">
-                    <select className="form-select form-select-sm w-auto shadow-sm" value={filterType} onChange={e => setFilterType(e.target.value as any)}>
-                        <option value="all">All Time</option>
-                        <option value="month">By Month</option>
-                        <option value="range">Custom Range</option>
-                    </select>
-
-                    {filterType === 'month' && (
-                        <input type="month" className="form-control form-control-sm w-auto shadow-sm" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
-                    )}
-
-                    {filterType === 'range' && (
-                        <>
-                            <input type="date" className="form-control form-control-sm w-auto shadow-sm" value={filterStart} onChange={e => setFilterStart(e.target.value)} />
-                            <span className="text-muted small px-1">to</span>
-                            <input type="date" className="form-control form-control-sm w-auto shadow-sm" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} />
-                        </>
-                    )}
-
-                    <button onClick={handleExportCSV} className="btn btn-outline-secondary btn-sm ms-md-2 d-flex align-items-center shadow-sm">
-                        Export CSV
-                    </button>
-                </div>
-            </div>
-
-            <div className="d-flex flex-wrap gap-2 mb-3">
-                <div className="dropdown position-relative">
-                    <button className="btn btn-outline-secondary btn-sm dropdown-toggle" onClick={() => setShowCatDrop(!showCatDrop)}>
-                        Categories {selectedCategories.size > 0 && `(${selectedCategories.size})`}
-                    </button>
-                    {showCatDrop && (
-                        <div className="dropdown-menu show p-3 shadow-sm border" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 1000, minWidth: '240px', maxHeight: '400px', overflowY: 'auto' }}>
-                            <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
-                                <span className="fw-bold small">Categories</span>
-                                <div>
-                                    <button onClick={checkAllCategories} className="btn btn-link btn-sm text-decoration-none p-0 me-2 small">All</button>
-                                    <button onClick={uncheckAllCategories} className="btn btn-link btn-sm text-decoration-none text-muted p-0 small">None</button>
-                                </div>
-                            </div>
-                            <div className="mb-3">
-                                {categories.map(c => (
-                                    <div key={c.id} className="form-check mb-2">
-                                        <input className="form-check-input mt-1" type="checkbox" id={`cat-${c.id}`} checked={selectedCategories.has(c.id)} onChange={() => handleCategoryFilterChange(c.id)} />
-                                        <label className="form-check-label small" htmlFor={`cat-${c.id}`}>{c.name}</label>
+                <div className="flex flex-wrap gap-space-3">
+                    {/* Category Filter Dropdown */}
+                    <div className="relative group">
+                        <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            className="bg-background-muted text-text-primary border-border" 
+                            onClick={() => setShowCatDrop(!showCatDrop)}
+                            rightIcon={<ChevronDown size={14} />}
+                        >
+                            Categories {selectedCategories.size > 0 && `(${selectedCategories.size})`}
+                        </Button>
+                        {showCatDrop && (
+                            <div className="absolute top-full left-0 mt-2 w-64 bg-background-surface border border-border rounded-radius-md shadow-shadow-lg z-50 p-space-4 animate-in fade-in slide-in-from-top-1 px-space-2">
+                                <div className="flex justify-between items-center mb-space-3 px-space-2 pb-space-2 border-b border-border">
+                                    <Typography variant="small" className="font-bold">Filter Categories</Typography>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setSelectedCategories(new Set(categories.map(c => c.id)))} className="text-caption text-primary hover:underline">All</button>
+                                        <button onClick={() => setSelectedCategories(new Set())} className="text-caption text-text-muted hover:underline">None</button>
                                     </div>
-                                ))}
-                                {categories.length === 0 && <div className="small text-muted py-2">No categories</div>}
-                            </div>
-                            <div className="text-end border-top pt-2">
-                                <button onClick={() => setShowCatDrop(false)} className="btn btn-sm btn-light w-100">Close</button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="dropdown position-relative">
-                    <button className="btn btn-outline-secondary btn-sm dropdown-toggle" onClick={() => setShowMethodDrop(!showMethodDrop)}>
-                        Payment Methods {selectedMethods.size > 0 && `(${selectedMethods.size})`}
-                    </button>
-                    {showMethodDrop && (
-                        <div className="dropdown-menu show p-3 shadow-sm border" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 1000, minWidth: '240px' }}>
-                            <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
-                                <span className="fw-bold small">Methods</span>
-                                <div>
-                                    <button onClick={checkAllMethods} className="btn btn-link btn-sm text-decoration-none p-0 me-2 small">All</button>
-                                    <button onClick={uncheckAllMethods} className="btn btn-link btn-sm text-decoration-none text-muted p-0 small">None</button>
                                 </div>
+                                <div className="max-h-60 overflow-auto scrollbar-thin px-space-2 space-y-1">
+                                    {categories.map(c => (
+                                        <label key={c.id} className="flex items-center gap-2 py-1 px-2 hover:bg-background-muted rounded-radius-sm cursor-pointer transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                                                checked={selectedCategories.has(c.id)} 
+                                                onChange={() => {
+                                                    const next = new Set(selectedCategories)
+                                                    if (next.has(c.id)) next.delete(c.id)
+                                                    else next.add(c.id)
+                                                    setSelectedCategories(next)
+                                                }}
+                                            />
+                                            <Typography variant="caption">{c.name}</Typography>
+                                        </label>
+                                    ))}
+                                    {categories.length === 0 && <Typography variant="caption" className="text-text-muted italic">No categories available</Typography>}
+                                </div>
+                                <Button size="sm" variant="ghost" className="w-full mt-space-3" onClick={() => setShowCatDrop(false)}>Close</Button>
                             </div>
-                            <div className="mb-3">
-                                {['Cash', 'Card', 'UPI', 'Bank Transfer'].map(m => (
-                                    <div key={m} className="form-check mb-2">
-                                        <input className="form-check-input mt-1" type="checkbox" id={`method-${m}`} checked={selectedMethods.has(m)} onChange={() => handleMethodFilterChange(m)} />
-                                        <label className="form-check-label small" htmlFor={`method-${m}`}>{m}</label>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="text-end border-top pt-2">
-                                <button onClick={() => setShowMethodDrop(false)} className="btn btn-sm btn-light w-100">Close</button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
+                        )}
+                    </div>
 
-            <div className="bg-white rounded shadow-sm border mb-4">
-                <div className="table-responsive" style={{ maxHeight: '450px', overflowY: 'auto' }}>
-                    <table className="table table-hover mb-0 align-middle">
-                        <thead className="table-light position-sticky top-0 z-1">
-                            <tr>
-                                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('date')}>
-                                    Date <SortIcon column="date" />
-                                </th>
-                                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('category')}>
-                                    Category <SortIcon column="category" />
-                                </th>
-                                <th>Notes</th>
-                                <th>Method</th>
-                                <th className="text-end" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('amount')}>
-                                    Amount <SortIcon column="amount" />
-                                </th>
-                                <th className="text-end">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {processedExpenses.length === 0 && (
-                                <tr><td colSpan={6} className="text-center py-5 text-muted">No expenses matching your criteria.</td></tr>
-                            )}
-                            {processedExpenses.map(exp => {
-                                if (editingId === exp.id) {
-                                    return (
-                                        <tr key={exp.id}>
-                                            <td>
-                                                <input type="date" className="form-control form-control-sm" value={editDate} onChange={e => setEditDate(e.target.value)} />
-                                            </td>
-                                            <td>
-                                                <select className="form-select form-select-sm" value={editCategoryId} onChange={e => setEditCategoryId(e.target.value)}>
-                                                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <input type="text" className="form-control form-control-sm" value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" />
-                                            </td>
-                                            <td>
-                                                <select className="form-select form-select-sm" value={editPaymentMethod} onChange={e => setEditPaymentMethod(e.target.value)}>
-                                                    <option value="Cash">Cash</option>
-                                                    <option value="Card">Card</option>
-                                                    <option value="UPI">UPI</option>
-                                                    <option value="Bank Transfer">Bank Transfer</option>
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <div className="input-group input-group-sm">
-                                                    <span className="input-group-text">₹</span>
-                                                    <input type="number" step="0.01" className="form-control" value={editAmount} onChange={e => setEditAmount(e.target.value)} />
-                                                </div>
-                                            </td>
-                                            <td className="text-end text-nowrap">
-                                                <button onClick={() => handleUpdate(exp.id)} className="btn btn-sm btn-success me-2">Save</button>
-                                                <button onClick={() => setEditingId(null)} className="btn btn-sm btn-secondary">Cancel</button>
-                                            </td>
-                                        </tr>
-                                    )
-                                }
+                    {/* Method Filter Dropdown */}
+                    <div className="relative group">
+                        <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            className="bg-background-muted text-text-primary border-border" 
+                            onClick={() => setShowMethodDrop(!showMethodDrop)}
+                            rightIcon={<ChevronDown size={14} />}
+                        >
+                            Methods {selectedMethods.size > 0 && `(${selectedMethods.size})`}
+                        </Button>
+                        {showMethodDrop && (
+                            <div className="absolute top-full left-0 mt-2 w-64 bg-background-surface border border-border rounded-radius-md shadow-shadow-lg z-50 p-space-4 animate-in fade-in slide-in-from-top-1 px-space-2">
+                                <div className="flex justify-between items-center mb-space-3 px-space-2 pb-space-2 border-b border-border">
+                                    <Typography variant="small" className="font-bold">Filter Methods</Typography>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setSelectedMethods(new Set(['Cash', 'Card', 'UPI', 'Bank Transfer']))} className="text-caption text-primary hover:underline">All</button>
+                                        <button onClick={() => setSelectedMethods(new Set())} className="text-caption text-text-muted hover:underline">None</button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1 px-space-2">
+                                    {['Cash', 'Card', 'UPI', 'Bank Transfer'].map(m => (
+                                        <label key={m} className="flex items-center gap-2 py-1 px-2 hover:bg-background-muted rounded-radius-sm cursor-pointer transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                                                checked={selectedMethods.has(m)} 
+                                                onChange={() => {
+                                                    const next = new Set(selectedMethods)
+                                                    if (next.has(m)) next.delete(m)
+                                                    else next.add(m)
+                                                    setSelectedMethods(next)
+                                                }}
+                                            />
+                                            <Typography variant="caption">{m}</Typography>
+                                        </label>
+                                    ))}
+                                </div>
+                                <Button size="sm" variant="ghost" className="w-full mt-space-3" onClick={() => setShowMethodDrop(false)}>Close</Button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </Stack>
+
+            {/* Expenses Table */}
+            <Card className="border-none shadow-shadow-md overflow-hidden">
+                <Table className="relative">
+                    <TableHeader className="bg-background-muted/50">
+                        <TableRow>
+                            <TableHead className="cursor-pointer hover:bg-background-muted transition-colors pl-space-6" onClick={() => handleSort('date')}>
+                                <div className="flex items-center">Date <SortIcon column="date" /></div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-background-muted transition-colors" onClick={() => handleSort('category')}>
+                                <div className="flex items-center">Category <SortIcon column="category" /></div>
+                            </TableHead>
+                            <TableHead>Notes</TableHead>
+                            <TableHead>Method</TableHead>
+                            <TableHead className="text-right cursor-pointer hover:bg-background-muted transition-colors" onClick={() => handleSort('amount')}>
+                                <div className="flex items-center justify-end">Amount <SortIcon column="amount" /></div>
+                            </TableHead>
+                            <TableHead className="text-right pr-space-6">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {processedExpenses.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={6} className="h-48 text-center text-text-muted">
+                                    <Stack gap="space-2" className="items-center">
+                                        <Typography variant="body">No expenses matching your criteria.</Typography>
+                                        <Button variant="ghost" size="sm" onClick={() => {
+                                            setFilterType('all');
+                                            setSelectedCategories(new Set());
+                                            setSelectedMethods(new Set());
+                                        }}>Clear filters</Button>
+                                    </Stack>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                        {processedExpenses.map(exp => {
+                            if (editingId === exp.id) {
                                 return (
-                                    <tr key={exp.id}>
-                                        <td>{format(new Date(exp.date), 'MMM dd, yyyy')}</td>
-                                        <td>
-                                            <span className="badge rounded-pill" style={{ backgroundColor: exp.category?.color || '#3b82f6' }}>
-                                                {exp.category?.name || 'Unknown'}
-                                            </span>
-                                        </td>
-                                        <td>{exp.notes || '-'}</td>
-                                        <td>{exp.paymentMethod}</td>
-                                        <td className="text-end fw-bold text-danger">-₹{exp.amount.toFixed(2)}</td>
-                                        <td className="text-end text-nowrap">
-                                            <button onClick={() => startEdit(exp)} className="btn btn-sm btn-outline-primary border-0 me-1">
-                                                Edit
-                                            </button>
-                                            <button onClick={() => handleDelete(exp.id)} className="btn btn-sm btn-outline-secondary border-0 text-danger">
-                                                Delete
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    <TableRow key={exp.id} className="bg-primary/5">
+                                        <TableCell className="pl-space-6">
+                                            <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="h-9" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Select value={editCategoryId} onChange={e => setEditCategoryId(e.target.value)} className="h-9">
+                                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </Select>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" className="h-9" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Select value={editPaymentMethod} onChange={e => setEditPaymentMethod(e.target.value)} className="h-9">
+                                                <option value="Cash">Cash</option>
+                                                <option value="Card">Card</option>
+                                                <option value="UPI">UPI</option>
+                                                <option value="Bank Transfer">Bank Transfer</option>
+                                            </Select>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input type="number" step="0.01" value={editAmount} onChange={e => setEditAmount(e.target.value)} className="h-9" leftIcon={<span className="text-small">₹</span>} />
+                                        </TableCell>
+                                        <TableCell className="text-right pr-space-6">
+                                            <div className="flex justify-end gap-1">
+                                                <Button size="icon" variant="ghost" onClick={() => handleUpdate(exp.id)} className="text-success hover:bg-success/10"><Check size={16} /></Button>
+                                                <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="text-text-muted hover:bg-background-muted"><X size={16} /></Button>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
                                 )
-                            })}
-                        </tbody>
-                        <tfoot className="table-light position-sticky bottom-0 z-1 border-top">
-                            <tr>
-                                <td colSpan={4} className="text-end fw-bold py-3 border-0">Total:</td>
-                                <td className="text-end fw-bold text-danger py-3 border-0">
-                                    -₹{processedExpenses.reduce((sum, exp) => sum + exp.amount, 0).toFixed(2)}
-                                </td>
-                                <td className="border-0"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-            </div>
-        </div>
+                            }
+                            return (
+                                <TableRow key={exp.id} className="hover:bg-background-muted/30 transition-colors">
+                                    <TableCell className="pl-space-6">{format(new Date(exp.date), 'MMM dd, yyyy')}</TableCell>
+                                    <TableCell>
+                                        <Badge className="bg-primary/10 text-primary border-none">
+                                            {exp.category?.name || 'Unknown'}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-text-secondary italic">{exp.notes || '-'}</TableCell>
+                                    <TableCell>
+                                        <Typography variant="caption" className="font-medium">{exp.paymentMethod}</Typography>
+                                    </TableCell>
+                                    <TableCell className="text-right font-bold text-error">-₹{exp.amount.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right pr-space-6">
+                                        <div className="flex justify-end">
+                                            <Button size="icon" variant="ghost" onClick={() => startEdit(exp)} className="hover:text-primary"><Edit2 size={14} /></Button>
+                                            <Button size="icon" variant="ghost" onClick={() => handleDelete(exp.id)} className="hover:text-error"><Trash2 size={14} /></Button>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            )
+                        })}
+                    </TableBody>
+                    <TableFooter className="bg-background-muted/80">
+                        <TableRow>
+                            <TableCell colSpan={4} className="text-right font-bold h-12 pl-space-6">Total for this view</TableCell>
+                            <TableCell className="text-right font-bold text-error h-12">
+                                -₹{processedExpenses.reduce((sum, exp) => sum + exp.amount, 0).toFixed(2).toLocaleString()}
+                            </TableCell>
+                            <TableCell className="pr-space-6 h-12"></TableCell>
+                        </TableRow>
+                    </TableFooter>
+                </Table>
+            </Card>
+        </Stack>
     )
 }
