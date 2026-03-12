@@ -3,8 +3,9 @@ import { deleteCategory } from '@/actions/category';
 
 export async function DELETE(
     request: Request,
-    { params }: { params: { id: string } }
+    context: { params: Promise<{ id: string }> }
 ) {
+    const params = await context.params;
     try {
         await deleteCategory(params.id);
         return NextResponse.json({ success: true });

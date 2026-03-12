@@ -3,8 +3,9 @@ import { deleteExpense } from '@/actions/expense';
 
 export async function DELETE(
     request: Request,
-    { params }: { params: { id: string } }
+    context: { params: Promise<{ id: string }> }
 ) {
+    const params = await context.params;
     try {
         await deleteExpense(params.id);
         return NextResponse.json({ success: true });

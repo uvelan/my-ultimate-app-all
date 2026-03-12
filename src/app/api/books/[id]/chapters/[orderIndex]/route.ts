@@ -4,9 +4,10 @@ import { verifyAuth } from '@/lib/auth-server';
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { id: string, orderIndex: string } }
+    context: { params: Promise<{ id: string, orderIndex: string }> }
 ) {
     try {
+        const params = await context.params;
         const auth = await verifyAuth();
         if (!auth.isAuthenticated || !auth.user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -34,9 +35,10 @@ export async function GET(
 
 export async function PATCH(
     req: NextRequest,
-    { params }: { params: { id: string, orderIndex: string } }
+    context: { params: Promise<{ id: string, orderIndex: string }> }
 ) {
     try {
+        const params = await context.params;
         const auth = await verifyAuth();
         if (!auth.isAuthenticated || !auth.user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
