@@ -499,23 +499,23 @@ export default function ReaderScreen() {
 
     // ─── Render ─────────────────────────────────────────────────────────────────
     return (
-        <View className="flex-1 bg-[#f4e4bc]" style={{ paddingTop: Platform.OS === 'ios' ? 44 : 24 }}>
+        <View className="flex-1 bg-background" style={{ paddingTop: Platform.OS === 'ios' ? 44 : 24 }}>
 
             {/* Header */}
-            <View className="px-4 py-3 flex-row justify-between items-center bg-[#f4e4bc] border-b border-black/5">
+            <View className="px-4 py-3 flex-row justify-between items-center bg-background-surface border-b border-border">
                 <Pressable onPress={() => router.back()} className="p-1">
-                    <ChevronLeft size={24} color="#5c4033" />
+                    <ChevronLeft size={24} color="#a39b98" />
                 </Pressable>
 
                 <View className="items-center flex-1 mx-2">
-                    <Text className="text-[#5c4033] font-bold font-serif text-sm" numberOfLines={1}>
+                    <Text className="text-text-primary font-bold font-serif text-sm" numberOfLines={1}>
                         {chapterTitle}
                     </Text>
                     <View className="flex-row items-center gap-1">
                         {isOffline && (
                             <View className="flex-row items-center">
-                                <CloudOff size={9} color="#8b4513" />
-                                <Text className="text-[#8b4513] text-[8px] font-bold ml-0.5 uppercase">Offline</Text>
+                                <CloudOff size={9} color="#f59e0b" />
+                                <Text className="text-amber-400 text-[8px] font-bold ml-0.5 uppercase">Offline</Text>
                             </View>
                         )}
                         {remainingSeconds !== null && (
@@ -528,36 +528,36 @@ export default function ReaderScreen() {
                         )}
                         {bulkLoading && (
                             <View className="flex-row items-center ml-1">
-                                <ActivityIndicator size="small" color="#8b4513" style={{ transform: [{ scale: 0.5 }] }} />
-                                <Text className="text-[#8b4513] text-[8px] ml-0.5">Caching…</Text>
+                                <ActivityIndicator size="small" color="#8b5cf6" style={{ transform: [{ scale: 0.5 }] }} />
+                                <Text className="text-accent text-[8px] ml-0.5">Caching…</Text>
                             </View>
                         )}
                     </View>
                 </View>
 
                 <View className="flex-row items-center gap-2">
-                    <Pressable onPress={toggleTTS} className="flex-row items-center bg-[#8b4513]/10 px-2 py-1.5 rounded-full">
-                        <Headphones size={16} color={isSpeaking ? '#8b4513' : '#5c4033'} />
-                        {isSpeaking && <View className="w-1.5 h-1.5 rounded-full bg-[#8b4513] ml-1" />}
+                    <Pressable onPress={toggleTTS} className="flex-row items-center bg-accent/10 px-2 py-1.5 rounded-full">
+                        <Headphones size={16} color={isSpeaking ? '#8b5cf6' : '#a39b98'} />
+                        {isSpeaking && <View className="w-1.5 h-1.5 rounded-full bg-accent ml-1" />}
                     </Pressable>
 
                     {isSpeaking && (
-                        <View className="bg-[#8b4513]/20 px-2 py-0.5 rounded-full">
-                            <Text className="text-[#8b4513] text-[10px] font-bold">{rate}x</Text>
+                        <View className="bg-accent/20 px-2 py-0.5 rounded-full">
+                            <Text className="text-accent text-[10px] font-bold">{rate}x</Text>
                         </View>
                     )}
 
-                    <Pressable onPress={handleGrammarCorrection} disabled={isCorrecting} className={`bg-[#8b4513]/10 p-1.5 rounded-full ${isCorrecting ? 'opacity-50' : ''}`}>
-                        {isCorrecting ? <ActivityIndicator size="small" color="#5c4033" /> : <Wand2 size={16} color="#5c4033" />}
+                    <Pressable onPress={handleGrammarCorrection} disabled={isCorrecting} className={`bg-accent/10 p-1.5 rounded-full ${isCorrecting ? 'opacity-50' : ''}`}>
+                        {isCorrecting ? <ActivityIndicator size="small" color="#8b5cf6" /> : <Wand2 size={16} color="#a39b98" />}
                     </Pressable>
 
                     <Pressable onPress={() => setIsSettingsOpen(true)} className="p-1.5">
-                        <Settings size={18} color="#5c4033" />
+                        <Settings size={18} color="#a39b98" />
                     </Pressable>
 
                     {/* Chapter list sidebar toggle */}
                     <Pressable onPress={openSidebar} className="p-1.5">
-                        <List size={18} color="#5c4033" />
+                        <List size={18} color="#a39b98" />
                     </Pressable>
                 </View>
             </View>
@@ -565,8 +565,8 @@ export default function ReaderScreen() {
             {/* Content */}
             {loading ? (
                 <View className="flex-1 items-center justify-center">
-                    <ActivityIndicator color="#8b4513" />
-                    <Text className="text-[#8b4513] text-xs mt-2">Loading chapter…</Text>
+                    <ActivityIndicator color="#8b5cf6" />
+                    <Text className="text-accent text-xs mt-2">Loading chapter…</Text>
                 </View>
             ) : (
                 <FlatList
@@ -598,7 +598,7 @@ export default function ReaderScreen() {
                                                     sentenceYPositions.current[globalIdx] = e.nativeEvent.layout.y;
                                                 }}
                                                 style={{ 
-                                                    backgroundColor: isHighlighted ? 'rgba(139, 69, 19, 0.15)' : 'transparent', 
+                                                    backgroundColor: isHighlighted ? 'rgba(139, 92, 246, 0.18)' : 'transparent', 
                                                     borderRadius: 4, 
                                                     paddingHorizontal: 2,
                                                     marginRight: 4,
@@ -606,7 +606,7 @@ export default function ReaderScreen() {
                                                 }}
                                             >
                                                 <Text
-                                                    className="text-[#2e1d15] font-serif leading-8"
+                                                    className="text-text-primary font-serif leading-8"
                                                     style={{ fontSize }}
                                                 >
                                                     {sentence}
@@ -620,7 +620,7 @@ export default function ReaderScreen() {
                     }}
                     ListEmptyComponent={
                         <View className="p-10">
-                            <Text className="text-[#2e1d15] font-serif leading-8 text-center" style={{ fontSize }}>
+                            <Text className="text-text-primary font-serif leading-8 text-center" style={{ fontSize }}>
                                 {content || 'No content found for this chapter.'}
                             </Text>
                         </View>
@@ -634,48 +634,50 @@ export default function ReaderScreen() {
                     style={{ 
                         position: 'absolute', bottom: 85, left: 16, right: 16, 
                         flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: '#2e1d15', borderRadius: 16, padding: 12,
-                        shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 8
+                        backgroundColor: '#1a1412', borderRadius: 16, padding: 12,
+                        shadowColor: '#8b5cf6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 8,
+                        borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)',
                     }}
                 >
                     <TouchableOpacity onPress={skipBackward} className="p-3 mx-1">
-                        <SkipBack size={24} color="#e6dccf" />
+                        <SkipBack size={24} color="#a39b98" />
                     </TouchableOpacity>
 
                     <TouchableOpacity 
                         onPress={toggleTTS}
-                        className="p-4 mx-2 bg-[#8b4513] rounded-full"
+                        className="p-4 mx-2 bg-accent rounded-full"
+                        style={{ shadowColor: '#8b5cf6', shadowOpacity: 0.4, shadowRadius: 8, elevation: 5 }}
                     >
-                        {isPaused ? <Play size={24} color="#e6dccf" /> : <PauseIcon size={24} color="#e6dccf" />}
+                        {isPaused ? <Play size={24} color="#fff" /> : <PauseIcon size={24} color="#fff" />}
                     </TouchableOpacity>
 
                     <TouchableOpacity onPress={skipForward} className="p-3 mx-1">
-                        <SkipForward size={24} color="#e6dccf" />
+                        <SkipForward size={24} color="#a39b98" />
                     </TouchableOpacity>
 
-                    <View className="w-px h-8 bg-[#5c4033] mx-3" />
+                    <View className="w-px h-8 bg-border mx-3" />
 
                     <TouchableOpacity 
                         onPress={stopTTS}
                         className="p-3"
                     >
-                        <X size={24} color="#e6dccf" />
+                        <X size={24} color="#a39b98" />
                     </TouchableOpacity>
                 </Animated.View>
             )}
 
             {/* Footer navigation */}
-            <View className="absolute bottom-0 left-0 right-0 bg-[#f4e4bc] border-t border-black/5 px-6 py-4 flex-row justify-between items-center">
+            <View className="absolute bottom-0 left-0 right-0 bg-background-surface border-t border-border px-6 py-4 flex-row justify-between items-center">
                 <Pressable
                     className="flex-row items-center"
                     onPress={() => setChapterId(String(Math.max(0, currentChapterNum - 1)))}
                     disabled={currentChapterNum <= 0}
                 >
-                    <ChevronLeft size={20} color={currentChapterNum <= 0 ? '#5c4033/30' : '#5c4033'} />
-                    <Text className={`ml-1 font-bold ${currentChapterNum <= 0 ? 'text-[#5c4033]/30' : 'text-[#5c4033]'}`}>Prev</Text>
+                    <ChevronLeft size={20} color={currentChapterNum <= 0 ? '#3a3330' : '#8b5cf6'} />
+                    <Text className={`ml-1 font-bold ${currentChapterNum <= 0 ? 'text-border' : 'text-accent'}`}>Prev</Text>
                 </Pressable>
 
-                <Text className="text-[#5c4033]/60 text-xs italic">
+                <Text className="text-text-muted text-xs italic">
                     {currentChapterNum + 1}{totalChapters > 0 ? ` / ${totalChapters}` : ''}
                 </Text>
 
@@ -684,8 +686,8 @@ export default function ReaderScreen() {
                     onPress={() => setChapterId(String(currentChapterNum + 1))}
                     disabled={totalChapters > 0 && currentChapterNum >= totalChapters - 1}
                 >
-                    <Text className={`mr-1 font-bold ${totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? 'text-[#5c4033]/30' : 'text-[#5c4033]'}`}>Next</Text>
-                    <ChevronRight size={20} color={totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? '#5c4033/30' : '#5c4033'} />
+                    <Text className={`mr-1 font-bold ${totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? 'text-border' : 'text-accent'}`}>Next</Text>
+                    <ChevronRight size={20} color={totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? '#3a3330' : '#8b5cf6'} />
                 </Pressable>
             </View>
 
@@ -712,19 +714,19 @@ export default function ReaderScreen() {
                 }}
             >
                 <View
-                    className="flex-1 bg-[#1a110d] border-l border-[#5c4033]"
+                    className="flex-1 bg-background-surface border-l border-border"
                     style={{ paddingTop: Platform.OS === 'ios' ? 50 : 40 }}
                 >
                     {/* Sidebar header */}
-                    <View className="px-4 pb-4 border-b border-[#5c4033]/50 flex-row items-center justify-between">
+                    <View className="px-4 pb-4 border-b border-border/50 flex-row items-center justify-between">
                         <View className="flex-row items-center gap-2">
-                            <BookOpen size={18} color="#d4c5b0" />
-                            <Text className="text-[#e6dccf] text-base font-bold font-serif">
+                            <BookOpen size={18} color="#8b5cf6" />
+                            <Text className="text-text-primary text-base font-bold font-serif">
                                 Chapters {totalChapters > 0 ? `(${totalChapters})` : ''}
                             </Text>
                         </View>
                         <TouchableOpacity onPress={closeSidebar} className="p-1">
-                            <X size={20} color="#d4c5b0" />
+                            <X size={20} color="#a39b98" />
                         </TouchableOpacity>
                     </View>
 
@@ -743,11 +745,11 @@ export default function ReaderScreen() {
                                             setChapterId(String(item.order));
                                             closeSidebar();
                                         }}
-                                        className={`px-4 py-3 border-b border-[#5c4033]/20 ${isActive ? 'bg-[#5c4033]/30' : ''}`}
+                                        className={`px-4 py-3 border-b border-border/20 ${isActive ? 'bg-accent/20 border-l-2 border-l-accent pl-3' : ''}`}
                                         activeOpacity={0.6}
                                     >
                                         <Text
-                                            className={`text-sm font-serif ${isActive ? 'text-[#e6dccf] font-bold' : 'text-[#d4c5b0]/80'}`}
+                                            className={`text-sm font-serif ${isActive ? 'text-accent font-bold' : 'text-text-secondary'}`}
                                             numberOfLines={2}
                                         >
                                             {item.order + 1}. {item.title}
@@ -758,8 +760,8 @@ export default function ReaderScreen() {
                         />
                     ) : (
                         <View className="flex-1 items-center justify-center p-6">
-                            <ActivityIndicator color="#8b4513" />
-                            <Text className="text-[#d4c5b0]/60 text-sm mt-3 text-center">Loading chapter list…</Text>
+                            <ActivityIndicator color="#8b5cf6" />
+                            <Text className="text-text-muted text-sm mt-3 text-center">Loading chapter list…</Text>
                         </View>
                     )}
                 </View>
@@ -767,64 +769,64 @@ export default function ReaderScreen() {
 
             {/* ── Settings Modal ──────────────────────────────────────────────── */}
             <Modal visible={isSettingsOpen} animationType="slide" transparent={true}>
-                <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[40%] border-t border-[#5c4033]">
+                <View className="flex-1 justify-end bg-black/60">
+                    <View className="bg-background-surface rounded-t-3xl p-6 min-h-[40%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Reader Settings</Text>
+                            <Text className="text-2xl font-bold text-text-primary font-serif">Reader Settings</Text>
                             <Pressable onPress={() => setIsSettingsOpen(false)}>
-                                <X size={24} color="#d4c5b0" />
+                                <X size={24} color="#a39b98" />
                             </Pressable>
                         </View>
 
-                        <Text className="text-[#d4c5b0] font-bold mb-3">Font Size</Text>
-                        <View className="flex-row items-center justify-between bg-[#1a110d] p-3 rounded-xl border border-[#5c4033] mb-6">
-                            <Pressable onPress={() => setFontSize(Math.max(12, fontSize - 2))} className="p-3 bg-[#5c4033] rounded-lg">
-                                <Minus size={20} color="#e6dccf" />
+                        <Text className="text-text-secondary font-bold mb-3">Font Size</Text>
+                        <View className="flex-row items-center justify-between bg-background p-3 rounded-xl border border-border mb-6">
+                            <Pressable onPress={() => setFontSize(Math.max(12, fontSize - 2))} className="p-3 bg-accent/20 rounded-lg">
+                                <Minus size={20} color="#8b5cf6" />
                             </Pressable>
-                            <Text className="text-[#e6dccf] font-bold text-lg">{fontSize}px</Text>
-                            <Pressable onPress={() => setFontSize(Math.min(32, fontSize + 2))} className="p-3 bg-[#5c4033] rounded-lg">
-                                <Plus size={20} color="#e6dccf" />
+                            <Text className="text-text-primary font-bold text-lg">{fontSize}px</Text>
+                            <Pressable onPress={() => setFontSize(Math.min(32, fontSize + 2))} className="p-3 bg-accent/20 rounded-lg">
+                                <Plus size={20} color="#8b5cf6" />
                             </Pressable>
                         </View>
 
                         <View className="flex-row items-center justify-between mb-6">
                             <View>
-                                <Text className="text-[#d4c5b0] font-bold">Custom Replacements</Text>
-                                <Text className="text-[#d4c5b0]/60 text-xs">Apply {replacements.length} custom text rules</Text>
+                                <Text className="text-text-secondary font-bold">Custom Replacements</Text>
+                                <Text className="text-text-muted text-xs">Apply {replacements.length} custom text rules</Text>
                             </View>
                             <Switch
                                 value={replacementsEnabled}
                                 onValueChange={setReplacementsEnabled}
-                                trackColor={{ false: '#1a110d', true: '#8b4513' }}
-                                thumbColor="#e6dccf"
+                                trackColor={{ false: '#2a2a2a', true: '#6d28d9' }}
+                                thumbColor="#8b5cf6"
                             />
                         </View>
 
-                        <View className="border-t border-[#5c4033]/30 pt-4">
-                            <Text className="text-xl font-bold text-[#e6dccf] font-serif mb-4">Speech Settings</Text>
+                        <View className="border-t border-border/30 pt-4">
+                            <Text className="text-xl font-bold text-text-primary font-serif mb-4">Speech Settings</Text>
                             
-                            <Text className="text-[#d4c5b0] font-bold mb-3">Speech Rate</Text>
+                            <Text className="text-text-secondary font-bold mb-3">Speech Rate</Text>
                             <View className="flex-row flex-wrap gap-2 mb-6">
                                 {[0.75, 1.0, 1.25, 1.5, 2.0].map(r => (
                                     <TouchableOpacity 
                                         key={r}
                                         onPress={() => setRate(r)}
-                                        className={`px-4 py-2 rounded-lg border ${rate === r ? 'bg-[#8b4513] border-[#8b4513]' : 'bg-[#1a110d] border-[#5c4033]'}`}
+                                        className={`px-4 py-2 rounded-lg border ${rate === r ? 'bg-accent border-accent' : 'bg-background border-border'}`}
                                     >
-                                        <Text className={`font-bold ${rate === r ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{r}x</Text>
+                                        <Text className={`font-bold ${rate === r ? 'text-white' : 'text-text-secondary'}`}>{r}x</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
 
-                            <Text className="text-[#d4c5b0] font-bold mb-3">Sleep Timer</Text>
+                            <Text className="text-text-secondary font-bold mb-3">Sleep Timer</Text>
                             <View className="flex-row gap-2">
                                 {[15, 30, 60].map(m => (
                                     <TouchableOpacity 
                                         key={m}
                                         onPress={() => startSleepTimer(m)}
-                                        className={`flex-1 px-4 py-3 rounded-xl border items-center ${selectedTimerMinutes === m ? 'bg-[#8b4513] border-[#8b4513]' : 'bg-[#1a110d] border-[#5c4033]'}`}
+                                        className={`flex-1 px-4 py-3 rounded-xl border items-center ${selectedTimerMinutes === m ? 'bg-accent border-accent' : 'bg-background border-border'}`}
                                     >
-                                        <Text className={`font-bold ${selectedTimerMinutes === m ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{m}m</Text>
+                                        <Text className={`font-bold ${selectedTimerMinutes === m ? 'text-white' : 'text-text-secondary'}`}>{m}m</Text>
                                     </TouchableOpacity>
                                 ))}
                                 <TouchableOpacity 
@@ -834,13 +836,13 @@ export default function ReaderScreen() {
                                         setSelectedTimerMinutes(null);
                                         setRemainingSeconds(null);
                                     }}
-                                    className="flex-1 px-4 py-3 rounded-xl border border-[#5c4033] bg-[#1a110d] items-center"
+                                    className="flex-1 px-4 py-3 rounded-xl border border-border bg-background items-center"
                                 >
-                                    <Text className="text-[#d4c5b0] font-bold">Off</Text>
+                                    <Text className="text-text-secondary font-bold">Off</Text>
                                 </TouchableOpacity>
                             </View>
                             {remainingSeconds !== null && (
-                                <Text className="text-[#8b4513] text-sm mt-3 font-bold italic text-center">
+                                <Text className="text-accent text-sm mt-3 font-bold italic text-center">
                                     Stopping in {Math.floor(remainingSeconds / 60)}m {remainingSeconds % 60}s
                                 </Text>
                             )}

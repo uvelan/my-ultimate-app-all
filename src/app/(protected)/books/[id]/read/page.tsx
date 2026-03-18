@@ -847,26 +847,24 @@ export default function ReadBookPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#f3eacb] flex items-center justify-center text-[#5c4033]">
-                <div className="animate-pulse text-xl font-serif">Loading Chapter...</div>
+            <div className="min-h-screen bg-background flex items-center justify-center text-text-secondary">
+                <div className="animate-pulse text-xl font-serif text-accent">Loading Chapter...</div>
             </div>
         );
     }
 
     if (!book) return null;
 
-    if (!book) return null;
-
     // Button Styles
-    const topBtnStyle = "px-3 py-2 bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded shadow-sm border border-[#8c7b60] flex items-center gap-2 transition-colors text-sm whitespace-nowrap shrink-0";
-    const iconBtnStyle = "p-2 bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] rounded-full shadow-sm border border-[#8c7b60] transition-colors flex items-center justify-center shrink-0";
+    const topBtnStyle = "px-3 py-2 bg-background-surface hover:bg-border text-text-primary font-semibold rounded-lg shadow-sm border border-border flex items-center gap-2 transition-colors text-sm whitespace-nowrap shrink-0";
+    const iconBtnStyle = "p-2 bg-background-surface hover:bg-border text-text-primary rounded-full shadow-sm border border-border transition-colors flex items-center justify-center shrink-0";
 
     return (
         <ProtectedRoute>
-            <div className="flex flex-col h-screen bg-[#f3eacb] text-[#3e2b22] font-serif overflow-hidden">
+            <div className="flex flex-col h-screen bg-background text-text-primary font-serif overflow-hidden">
 
-                {/* Top Control Bar - Redesigned */}
-                <header className="bg-[#dccbb3] border-b border-[#bfae95] px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between gap-2 overflow-hidden">
+                {/* Top Control Bar */}
+                <header className="bg-background-surface border-b border-border px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between gap-2 overflow-hidden">
 
                     {/* Left: Navigation & Context */}
                     <div className="flex items-center gap-2 md:gap-3 min-w-0 shrink">
@@ -877,8 +875,8 @@ export default function ReadBookPage() {
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             <span className="hidden sm:inline">Chapters</span>
                         </button>
-                        <div className="h-6 w-px bg-[#bfae95] mx-2 hidden sm:block shrink-0"></div>
-                        <span className="text-sm font-bold text-[#5c4033] hidden md:block truncate min-w-0">
+                        <div className="h-6 w-px bg-border mx-2 hidden sm:block shrink-0"></div>
+                        <span className="text-sm font-bold text-text-secondary hidden md:block truncate min-w-0">
                             {book.title}
                         </span>
                     </div>
@@ -895,7 +893,7 @@ export default function ReadBookPage() {
 
                         <button
                             onClick={handlePlay}
-                            className="p-2 md:p-3 bg-[#8b7a60] hover:bg-[#6f5f4b] text-[#f3eacb] rounded-full shadow-md border border-[#5c4033] transition-transform hover:scale-105"
+                            className="p-2 md:p-3 bg-accent hover:bg-accent/80 text-white rounded-full shadow-md shadow-accent/30 border border-accent/50 transition-transform hover:scale-105"
                             title={isPlaying ? "Pause" : "Play"}
                         >
                             {isPlaying ? (
@@ -916,7 +914,7 @@ export default function ReadBookPage() {
 
                     {/* Right: Settings */}
                     <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-                        <span className="text-sm font-medium text-[#5c4033] hidden lg:block border-r border-[#bfae95] pr-3 mr-1 max-w-[160px] truncate" title={currentChapter?.title}>
+                        <span className="text-sm font-medium text-text-secondary hidden lg:block border-r border-border pr-3 mr-1 max-w-[160px] truncate" title={currentChapter?.title}>
                             {currentChapter?.title}
                         </span>
 
@@ -925,7 +923,7 @@ export default function ReadBookPage() {
                             <select
                                 value={aiModel}
                                 onChange={handleAiModelChange}
-                                className="bg-[#fffdf5] border border-[#bfae95] text-[#3e2b22] text-sm px-2 py-1.5 rounded-l border-r-0 focus:outline-none focus:ring-1 focus:ring-[#8b7a60] h-[34px] md:h-[38px] cursor-pointer max-w-[130px] md:max-w-none"
+                                className="bg-background border border-border text-text-primary text-sm px-2 py-1.5 rounded-l border-r-0 focus:outline-none focus:ring-1 focus:ring-accent h-[34px] md:h-[38px] cursor-pointer max-w-[130px] md:max-w-none"
                                 title="Select AI Model"
                             >
                                 <option value="OFF">Grammar: OFF</option>
@@ -937,7 +935,7 @@ export default function ReadBookPage() {
                             <button
                                 onClick={handleGrammarCorrection}
                                 disabled={isCorrectingGrammar || aiModel === 'OFF'}
-                                className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-[#b09e80] hover:bg-[#a08d6f] text-[#3e2b22] font-semibold rounded-r shadow-sm border border-[#8c7b60] flex items-center gap-1.5 transition-colors text-sm whitespace-nowrap shrink-0 ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                className={`px-3 py-1.5 h-[34px] md:h-[38px] bg-background-surface hover:bg-border text-text-primary font-semibold rounded-r shadow-sm border border-border flex items-center gap-1.5 transition-colors text-sm whitespace-nowrap shrink-0 ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 title="Correct Grammar"
                             >
                                 {isCorrectingGrammar ? (
@@ -974,11 +972,11 @@ export default function ReadBookPage() {
                 <div className="flex flex-1 overflow-hidden relative">
                     {/* Collapsible Sidebar */}
                     <div
-                        className={`absolute inset-y-0 left-0 z-20 w-3/4 sm:w-80 bg-[#e8dbc3] border-r border-[#c2b091] transform transition-transform duration-300 ease-in-out shadow-lg flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                        className={`absolute inset-y-0 left-0 z-20 w-3/4 sm:w-80 bg-background-surface border-r border-border transform transition-transform duration-300 ease-in-out shadow-2xl shadow-black/50 flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
                     >
-                        <div className="p-3 border-b border-[#c2b091] bg-[#dccbb3] flex justify-between items-center">
-                            <h3 className="font-bold text-[#3e2b22]">Table of Contents</h3>
-                            <button onClick={toggleSidebar} className="p-1 hover:bg-[#c2b091] rounded">
+                        <div className="p-3 border-b border-border bg-background flex justify-between items-center">
+                            <h3 className="font-bold text-text-primary">Table of Contents</h3>
+                            <button onClick={toggleSidebar} className="p-1 hover:bg-border rounded text-text-secondary">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                             </button>
                         </div>
@@ -988,9 +986,9 @@ export default function ReadBookPage() {
                                     key={chapter.id}
                                     id={`toc-chapter-${index}`}
                                     onClick={() => handleJumpToChapter(index)}
-                                    className={`w-full text-left p-2 rounded mb-1 text-sm truncate ${currentChapterIndex === index
-                                        ? 'bg-[#b09e80] text-[#2e1d15] font-bold'
-                                        : 'hover:bg-[#dccbb3] text-[#5c4033]'
+                                    className={`w-full text-left p-2 rounded-lg mb-1 text-sm truncate transition-colors ${currentChapterIndex === index
+                                        ? 'bg-accent/20 text-accent font-bold border-l-2 border-accent pl-3'
+                                        : 'hover:bg-border text-text-secondary'
                                         }`}
                                 >
                                     {chapter.title}
@@ -1010,26 +1008,26 @@ export default function ReadBookPage() {
                     {/* Main Content Area */}
                     <main
                         ref={contentRef}
-                        className="flex-1 overflow-y-auto p-4 md:p-12 relative bg-[#f3eacb] min-h-0"
+                        className="flex-1 overflow-y-auto p-4 md:p-12 relative bg-background min-h-0"
                     >
                         <div className="w-full max-w-[95%] lg:max-w-4xl mx-auto">
                             {/* Chapter Title */}
-                            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-[#3e2b22] mb-6 md:mb-10 pb-4 border-b border-[#d4c5b0]">
+                            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-text-primary mb-6 md:mb-10 pb-4 border-b border-border">
                                 {currentChapter?.title}
                             </h2>
 
                             {/* Chapter Content */}
                             <div
-                                className={`prose prose-p:text-[#2e1d15] prose-p:leading-loose font-serif max-w-none text-justify ${crimsonText.className}`}
+                                className={`prose prose-invert prose-p:text-text-primary prose-p:leading-loose font-serif max-w-none text-justify ${crimsonText.className}`}
                                 style={{ fontSize: `${fontSize}px` }}
                             >
                                 {processedContent.map((paragraph, idx) => (
                                     <p
                                         key={idx}
                                         id={`paragraph-${idx}`}
-                                        className={`mb-6 md:mb-8 p-2 rounded transition-colors duration-300 ${isPlaying && currentParagraphIndex === idx
-                                            ? 'bg-[#e6d5b8] shadow-sm ring-1 ring-[#c2b091]'
-                                            : ''
+                                        className={`mb-6 md:mb-8 p-2 rounded-lg transition-colors duration-300 ${isPlaying && currentParagraphIndex === idx
+                                            ? 'bg-accent/10 shadow-sm ring-1 ring-accent/50 text-text-primary'
+                                            : 'text-text-primary'
                                             }`}
                                     >
                                         {paragraph}
@@ -1038,18 +1036,18 @@ export default function ReadBookPage() {
                             </div>
 
                             {/* Bottom Navigation */}
-                            <div className="flex items-center justify-between mt-10 md:mt-20 pt-6 md:pt-10 border-t border-[#d4c5b0] gap-4">
+                            <div className="flex items-center justify-between mt-10 md:mt-20 pt-6 md:pt-10 border-t border-border gap-4">
                                 <button
                                     onClick={handlePrevChapter}
                                     disabled={currentChapterIndex === 0}
-                                    className={`flex-1 px-4 py-3 md:px-8 md:py-3 rounded bg-[#b09e80] text-[#2e1d15] font-bold text-sm md:text-lg hover:bg-[#a08d6f] transition-colors shadow-sm whitespace-nowrap ${currentChapterIndex === 0 ? 'opacity-0 pointer-events-none' : ''}`}
+                                    className={`flex-1 px-4 py-3 md:px-8 md:py-3 rounded-lg bg-background-surface hover:bg-border text-text-primary font-bold text-sm md:text-lg border border-border transition-colors shadow-sm whitespace-nowrap ${currentChapterIndex === 0 ? 'opacity-0 pointer-events-none' : ''}`}
                                 >
                                     ← Previous
                                 </button>
                                 <button
                                     onClick={() => handleNextChapter(false)}
                                     disabled={currentChapterIndex === book.chapters.length - 1}
-                                    className={`flex-1 px-4 py-3 md:px-8 md:py-3 rounded bg-[#b09e80] text-[#2e1d15] font-bold text-sm md:text-lg hover:bg-[#a08d6f] transition-colors shadow-sm whitespace-nowrap ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-0 pointer-events-none' : ''}`}
+                                    className={`flex-1 px-4 py-3 md:px-8 md:py-3 rounded-lg bg-accent hover:bg-accent/80 text-white font-bold text-sm md:text-lg border border-accent/50 transition-colors shadow-sm shadow-accent/20 whitespace-nowrap ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-0 pointer-events-none' : ''}`}
                                 >
                                     Next →
                                 </button>
@@ -1060,11 +1058,11 @@ export default function ReadBookPage() {
 
                 {/* Book Settings Modal */}
                 {showReplacementModal && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <div className="bg-[#f3eacb] rounded-lg shadow-xl w-full max-w-2xl border border-[#bfae95] p-6 max-h-[80vh] overflow-y-auto">
+                    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-background-surface rounded-xl shadow-2xl w-full max-w-2xl border border-border p-6 max-h-[80vh] overflow-y-auto">
                             <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-xl font-bold text-[#3e2b22] font-serif">Book Settings</h3>
-                                <button onClick={() => setShowReplacementModal(false)} className="text-[#5c4033] hover:text-[#2e1d15]">
+                                <h3 className="text-xl font-bold text-text-primary font-serif">Book Settings</h3>
+                                <button onClick={() => setShowReplacementModal(false)} className="text-text-secondary hover:text-text-primary">
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                                 </button>
                             </div>
@@ -1073,34 +1071,34 @@ export default function ReadBookPage() {
 
                                 {/* Section: Display */}
                                 <div>
-                                    <h4 className="font-bold text-[#3e2b22] mb-3 border-b border-[#c2b091] pb-1 flex items-center gap-2">
+                                    <h4 className="font-bold text-text-primary mb-3 border-b border-border pb-1 flex items-center gap-2">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
                                         Display
                                     </h4>
-                                    <div className="p-4 bg-[#e8dbc3] rounded border border-[#c2b091] flex items-center justify-between">
-                                        <span className="font-semibold text-[#5c4033]">Font Size</span>
-                                        <div className="flex items-center gap-2 bg-[#fffdf5] border border-[#bfb29f] rounded px-2 py-1">
-                                            <button onClick={decreaseFontSize} className="px-3 py-1 font-bold text-[#5c4033] hover:text-[#3e2b22] border-r border-[#bfb29f]" title="Decrease Font Size">A-</button>
-                                            <span className="text-sm text-[#5c4033] w-12 text-center font-medium">{fontSize}px</span>
-                                            <button onClick={increaseFontSize} className="px-3 py-1 font-bold text-[#5c4033] hover:text-[#3e2b22] border-l border-[#bfb29f]" title="Increase Font Size">A+</button>
+                                    <div className="p-4 bg-background rounded-lg border border-border flex items-center justify-between">
+                                        <span className="font-semibold text-text-secondary">Font Size</span>
+                                        <div className="flex items-center gap-2 bg-background-surface border border-border rounded-lg px-2 py-1">
+                                            <button onClick={decreaseFontSize} className="px-3 py-1 font-bold text-text-secondary hover:text-text-primary border-r border-border" title="Decrease Font Size">A-</button>
+                                            <span className="text-sm text-text-secondary w-12 text-center font-medium">{fontSize}px</span>
+                                            <button onClick={increaseFontSize} className="px-3 py-1 font-bold text-text-secondary hover:text-text-primary border-l border-border" title="Increase Font Size">A+</button>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Section: Audio */}
                                 <div>
-                                    <h4 className="font-bold text-[#3e2b22] mb-3 border-b border-[#c2b091] pb-1 flex items-center gap-2">
+                                    <h4 className="font-bold text-text-primary mb-3 border-b border-border pb-1 flex items-center gap-2">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
                                         Audio
                                     </h4>
-                                    <div className="p-4 bg-[#e8dbc3] rounded border border-[#c2b091] space-y-4">
+                                    <div className="p-4 bg-background rounded-lg border border-border space-y-4">
                                         {/* Voice Selection */}
                                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                                            <label className="font-semibold text-[#5c4033]">Voice</label>
+                                            <label className="font-semibold text-text-secondary">Voice</label>
                                             <select
                                                 value={selectedVoice}
                                                 onChange={(e) => handleVoiceChange(e.target.value)}
-                                                className="bg-[#fffdf5] border border-[#bfb29f] text-[#3e2b22] px-3 py-2 rounded focus:outline-none focus:ring-1 focus:ring-[#8b7a60] w-full md:w-64"
+                                                className="bg-background-surface border border-border text-text-primary px-3 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-accent w-full md:w-64"
                                             >
                                                 {voices.length > 0 ? (
                                                     voices.map((voice) => (
@@ -1115,7 +1113,7 @@ export default function ReadBookPage() {
                                         </div>
                                         {/* Speed Control */}
                                         <div className="flex items-center justify-between">
-                                            <span className="font-semibold text-[#5c4033]">Speed ({playbackSpeed}x)</span>
+                                            <span className="font-semibold text-text-secondary">Speed ({playbackSpeed}x)</span>
                                             <input
                                                 type="range"
                                                 min="0.5"
@@ -1123,7 +1121,7 @@ export default function ReadBookPage() {
                                                 step="0.1"
                                                 value={playbackSpeed}
                                                 onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
-                                                className="w-32 md:w-48 h-2 bg-[#8b7a60] rounded-lg appearance-none cursor-pointer"
+                                                className="w-32 md:w-48 h-2 bg-accent rounded-lg appearance-none cursor-pointer accent-accent"
                                             />
                                         </div>
                                     </div>
@@ -1131,53 +1129,53 @@ export default function ReadBookPage() {
 
                                 {/* Section: Word Replacement */}
                                 <div>
-                                    <h4 className="font-bold text-[#3e2b22] mb-3 border-b border-[#c2b091] pb-1 flex items-center gap-2">
+                                    <h4 className="font-bold text-text-primary mb-3 border-b border-border pb-1 flex items-center gap-2">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                         Word Replacements
                                     </h4>
 
                                     {/* Add Rule Form */}
-                                    <div className="bg-[#e8dbc3] p-4 rounded mb-4 border border-[#c2b091]">
+                                    <div className="bg-background p-4 rounded-lg mb-4 border border-border">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                             <input
                                                 type="text"
                                                 placeholder="Search for..."
                                                 value={newRuleSearch}
                                                 onChange={(e) => setNewRuleSearch(e.target.value)}
-                                                className="p-2 rounded border border-[#bfb29f] bg-[#fffdf5] text-[#3e2b22] focus:outline-none focus:ring-1 focus:ring-[#8b7a60]"
+                                                className="p-2 rounded-lg border border-border bg-background-surface text-text-primary focus:outline-none focus:ring-1 focus:ring-accent placeholder:text-text-muted"
                                             />
                                             <input
                                                 type="text"
                                                 placeholder="Replace with..."
                                                 value={newRuleReplace}
                                                 onChange={(e) => setNewRuleReplace(e.target.value)}
-                                                className="p-2 rounded border border-[#bfb29f] bg-[#fffdf5] text-[#3e2b22] focus:outline-none focus:ring-1 focus:ring-[#8b7a60]"
+                                                className="p-2 rounded-lg border border-border bg-background-surface text-text-primary focus:outline-none focus:ring-1 focus:ring-accent placeholder:text-text-muted"
                                             />
                                         </div>
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-4">
-                                                <label className="flex items-center gap-2 text-[#5c4033] font-medium cursor-pointer">
+                                                <label className="flex items-center gap-2 text-text-secondary font-medium cursor-pointer">
                                                     <input
                                                         type="checkbox"
                                                         checked={newRuleIsRegex}
                                                         onChange={(e) => setNewRuleIsRegex(e.target.checked)}
-                                                        className="w-4 h-4 rounded border-[#bfb29f] text-[#8b7a60] focus:ring-[#8b7a60]"
+                                                        className="w-4 h-4 rounded border-border text-accent focus:ring-accent"
                                                     />
                                                     Use Regex
                                                 </label>
-                                                <label className="flex items-center gap-2 text-[#5c4033] font-medium cursor-pointer">
+                                                <label className="flex items-center gap-2 text-text-secondary font-medium cursor-pointer">
                                                     <input
                                                         type="checkbox"
                                                         checked={newRuleGlobal}
                                                         onChange={(e) => setNewRuleGlobal(e.target.checked)}
-                                                        className="w-4 h-4 rounded border-[#bfb29f] text-[#8b7a60] focus:ring-[#8b7a60]"
+                                                        className="w-4 h-4 rounded border-border text-accent focus:ring-accent"
                                                     />
                                                     Apply to ALL books
                                                 </label>
                                             </div>
                                             <button
                                                 onClick={handleAddRule}
-                                                className="px-4 py-2 bg-[#8b7a60] text-white rounded font-bold hover:bg-[#6f5f4b] transition-colors flex items-center gap-2"
+                                                className="px-4 py-2 bg-accent hover:bg-accent/80 text-white rounded-lg font-bold transition-colors flex items-center gap-2"
                                             >
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                                                 Add Rule
@@ -1188,24 +1186,24 @@ export default function ReadBookPage() {
                                     {/* Rules List */}
                                     <div className="space-y-2">
                                         {replacementRules.map((rule) => (
-                                            <div key={rule.id} className="flex items-center justify-between p-3 bg-[#e8dbc3] rounded border border-[#c2b091] group">
+                                            <div key={rule.id} className="flex items-center justify-between p-3 bg-background rounded-lg border border-border group">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-[#3e2b22]">{rule.search}</span>
-                                                        <span className="text-[#8c7b60]">→</span>
-                                                        <span className="font-bold text-[#3e2b22]">{rule.replace}</span>
+                                                        <span className="font-bold text-text-primary">{rule.search}</span>
+                                                        <span className="text-text-muted">→</span>
+                                                        <span className="font-bold text-text-primary">{rule.replace}</span>
                                                     </div>
-                                                    <div className="flex gap-2 text-xs text-[#5c4033] mt-1">
-                                                        {rule.isRegex && <span className="px-1.5 py-0.5 bg-[#d7c9b0] rounded border border-[#bfae95]">Regex</span>}
+                                                    <div className="flex gap-2 text-xs text-text-secondary mt-1">
+                                                        {rule.isRegex && <span className="px-1.5 py-0.5 bg-background-surface rounded border border-border">Regex</span>}
                                                         {rule.bookId === null
-                                                            ? <span className="px-1.5 py-0.5 bg-[#4a6b4a] text-white rounded">Global</span>
-                                                            : <span className="px-1.5 py-0.5 bg-[#8b7a60] text-white rounded">This Book</span>
+                                                            ? <span className="px-1.5 py-0.5 bg-emerald-600/20 text-emerald-400 rounded">Global</span>
+                                                            : <span className="px-1.5 py-0.5 bg-accent/20 text-accent rounded">This Book</span>
                                                         }
                                                     </div>
                                                 </div>
                                                 <button
                                                     onClick={() => handleDeleteRule(rule.id)}
-                                                    className="p-2 text-red-600 hover:bg-[#d7c9b0] rounded transition-colors"
+                                                    className="p-2 text-red-400 hover:bg-border rounded-lg transition-colors"
                                                     title="Delete Rule"
                                                 >
                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -1213,7 +1211,7 @@ export default function ReadBookPage() {
                                             </div>
                                         ))}
                                         {replacementRules.length === 0 && (
-                                            <div className="text-center py-8 text-[#8c7b60] italic">
+                                            <div className="text-center py-8 text-text-muted italic">
                                                 No replacement rules active.
                                             </div>
                                         )}
@@ -1222,15 +1220,15 @@ export default function ReadBookPage() {
 
                                 {/* Section: Advanced */}
                                 <div>
-                                    <h4 className="font-bold text-[#3e2b22] mb-3 border-b border-[#c2b091] pb-1 flex items-center gap-2">
+                                    <h4 className="font-bold text-red-400 mb-3 border-b border-red-900/30 pb-1 flex items-center gap-2">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                                         Danger Zone
                                     </h4>
-                                    <div className="p-4 bg-[#e8dbc3]/50 rounded border border-[#c2b091] flex justify-between items-center">
-                                        <span className="text-sm text-[#5c4033]">Clear cached chapters for this book</span>
+                                    <div className="p-4 bg-red-900/10 rounded-lg border border-red-900/30 flex justify-between items-center">
+                                        <span className="text-sm text-text-secondary">Clear cached chapters for this book</span>
                                         <button
                                             onClick={handleDeleteCache}
-                                            className="px-3 py-1 bg-red-800 hover:bg-red-700 text-[#f3eacb] text-sm font-bold rounded shadow-sm transition-colors"
+                                            className="px-3 py-1 bg-red-700 hover:bg-red-600 text-white text-sm font-bold rounded-lg shadow-sm transition-colors"
                                         >
                                             Delete Cache
                                         </button>
@@ -1244,12 +1242,12 @@ export default function ReadBookPage() {
 
                 {/* Grammar Diff Modal */}
                 {showDiffModal && correctedContent && currentChapter && (
-                    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-                        <div className="bg-[#f3eacb] rounded-lg shadow-2xl w-full max-w-4xl border border-[#bfae95] flex flex-col max-h-[90vh]">
-                            <div className="p-4 md:p-6 border-b border-[#c2b091] flex justify-between items-center bg-[#dccbb3] rounded-t-lg shrink-0">
+                    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-background-surface rounded-xl shadow-2xl w-full max-w-4xl border border-border flex flex-col max-h-[90vh]">
+                            <div className="p-4 md:p-6 border-b border-border flex justify-between items-center bg-background rounded-t-xl shrink-0">
                                 <div>
-                                    <h3 className="text-xl md:text-2xl font-bold text-[#3e2b22] font-serif">Review Grammar Changes</h3>
-                                    <p className="text-sm text-[#5c4033] mt-1">Review the AI-suggested corrections for {currentChapter.title}</p>
+                                    <h3 className="text-xl md:text-2xl font-bold text-text-primary font-serif">Review Grammar Changes</h3>
+                                    <p className="text-sm text-text-secondary mt-1">Review the AI-suggested corrections for {currentChapter.title}</p>
                                 </div>
                                 <button onClick={() => {
                                     setShowDiffModal(false);
@@ -1258,25 +1256,25 @@ export default function ReadBookPage() {
                                         window.speechSynthesis.resume();
                                         setIsPlaying(true);
                                     }
-                                }} className="text-[#5c4033] hover:text-[#2e1d15] bg-[#d7c9b0] p-2 rounded-full transition-colors">
+                                }} className="text-text-secondary hover:text-text-primary bg-border p-2 rounded-full transition-colors">
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                                 </button>
                             </div>
 
-                            <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-[#fdfaf2]">
-                                <div className="space-y-6 font-serif text-lg leading-relaxed text-[#2e1d15]">
+                            <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-background">
+                                <div className="space-y-6 font-serif text-lg leading-relaxed text-text-primary">
                                     {currentChapter.content.map((originalParagraph, idx) => {
                                         const correctedParagraph = correctedContent[idx];
                                         if (!correctedParagraph) return null;
 
                                         if (originalParagraph === correctedParagraph) {
-                                            return <p key={idx} className="text-[#5c4033] opacity-70">{originalParagraph}</p>;
+                                            return <p key={idx} className="text-text-secondary opacity-70">{originalParagraph}</p>;
                                         }
 
                                         const differences = diffWords(originalParagraph, correctedParagraph);
 
                                         return (
-                                            <div key={idx} className="p-4 bg-[#e8dbc3] rounded border border-[#c2b091] shadow-sm">
+                                            <div key={idx} className="p-4 bg-background-surface rounded-lg border border-border shadow-sm">
                                                 <p>
                                                     {differences.map((part, partIdx) => {
                                                         if (part.added) {
@@ -1294,7 +1292,7 @@ export default function ReadBookPage() {
                                 </div>
                             </div>
 
-                            <div className="p-4 md:p-6 border-t border-[#c2b091] bg-[#e8dbc3] rounded-b-lg shrink-0 flex items-center justify-end gap-3">
+                            <div className="p-4 md:p-6 border-t border-border bg-background-surface rounded-b-xl shrink-0 flex items-center justify-end gap-3">
                                 <button
                                     onClick={() => {
                                         setShowDiffModal(false);
@@ -1304,13 +1302,13 @@ export default function ReadBookPage() {
                                             setIsPlaying(true);
                                         }
                                     }}
-                                    className="px-5 py-2.5 bg-[#d7c9b0] hover:bg-[#c2b091] text-[#3e2b22] font-bold rounded transition-colors"
+                                    className="px-5 py-2.5 bg-background hover:bg-border text-text-primary font-bold rounded-lg transition-colors border border-border"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={confirmGrammarChanges}
-                                    className="px-5 py-2.5 bg-[#8b7a60] hover:bg-[#6f5f4b] text-[#f3eacb] font-bold rounded shadow-md transition-colors flex items-center gap-2"
+                                    className="px-5 py-2.5 bg-accent hover:bg-accent/80 text-white font-bold rounded-lg shadow-md shadow-accent/20 transition-colors flex items-center gap-2"
                                 >
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
                                     Save Changes
