@@ -7,34 +7,57 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
-interface InputProps extends TextInputProps {
+export interface InputProps extends TextInputProps {
     label?: string;
     error?: string;
+    helperText?: string;
+    leftIcon?: React.ReactNode;
+    rightIcon?: React.ReactNode;
     containerClassName?: string;
 }
 
 export const Input = React.forwardRef<TextInput, InputProps>(
-    ({ label, error, containerClassName, ...props }, ref) => {
+    ({ label, error, helperText, leftIcon, rightIcon, containerClassName, ...props }, ref) => {
         return (
-            <View className={cn("mb-4", containerClassName)}>
+            <View className={cn("w-full space-y-space-1 mb-4", containerClassName)}>
                 {label && (
-                    <Text className="text-[#d4c5b0] text-sm font-medium mb-1.5 ml-1">
+                    <Text className="text-small font-medium text-text-secondary mb-1">
                         {label}
                     </Text>
                 )}
-                <TextInput
-                    ref={ref}
-                    placeholderTextColor="#6f4e37"
-                    className={cn(
-                        "bg-[#2e1d15] border border-[#5c4033] rounded-xl px-4 py-3.5 text-[#e6dccf] text-base",
-                        error && "border-red-500",
-                        props.editable === false && "opacity-50"
+                
+                <View className="relative flex-row items-center w-full">
+                    {leftIcon && (
+                        <View className="absolute left-4 z-10 pointer-events-none">
+                            {leftIcon}
+                        </View>
                     )}
-                    {...props}
-                />
-                {error && (
-                    <Text className="text-red-500 text-xs mt-1 ml-1">{error}</Text>
-                )}
+                    
+                    <TextInput
+                        ref={ref}
+                        placeholderTextColor="#888888" /* text-muted */
+                        className={cn(
+                            "w-full px-4 py-3 rounded-radius-lg text-small bg-background-surface border border-border text-text-primary",
+                            leftIcon && "pl-11",
+                            rightIcon && "pr-11",
+                            error && "border-error text-error",
+                            props.editable === false && "opacity-50"
+                        )}
+                        {...props}
+                    />
+                    
+                    {rightIcon && (
+                        <View className="absolute right-4 z-10 pointer-events-none">
+                            {rightIcon}
+                        </View>
+                    )}
+                </View>
+
+                {error ? (
+                    <Text className="text-caption text-error mt-1">{error}</Text>
+                ) : helperText ? (
+                    <Text className="text-caption text-text-muted mt-1">{helperText}</Text>
+                ) : null}
             </View>
         );
     }

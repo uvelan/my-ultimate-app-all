@@ -30,7 +30,7 @@ export default function BookCard({ book, onDelete, showProgress = true }: BookCa
     return (
         <div className="group flex flex-col h-full">
             <div 
-                className="relative aspect-[2/3] w-full rounded-radius-md overflow-hidden bg-background-muted shadow-shadow-md group-hover:shadow-shadow-xl transition-all duration-500 cursor-pointer"
+                className="relative aspect-[2/3] w-full rounded-radius-md overflow-hidden bg-background-muted border border-transparent shadow-[0_4px_16px_rgba(0,0,0,0.4)] group-hover:border-accent/40 group-hover:shadow-shadow-glow transition-all duration-500 cursor-pointer"
                 onClick={() => router.push(`/books/${book.id}/read`)}
             >
                 {/* Spine Depth Effect */}
@@ -93,10 +93,10 @@ export default function BookCard({ book, onDelete, showProgress = true }: BookCa
                 </div>
             </div>
 
-            <div className="mt-space-4 flex-1">
+            <div className="mt-space-4 flex-1 min-w-0 w-full">
                 <Typography 
                     variant="small" 
-                    className="font-semibold text-text-primary truncate block hover:text-primary transition-colors cursor-pointer" 
+                    className="font-semibold text-text-primary line-clamp-2 hover:text-primary transition-colors cursor-pointer" 
                     onClick={() => router.push(`/books/${book.id}/read`)}
                 >
                     {book.title}

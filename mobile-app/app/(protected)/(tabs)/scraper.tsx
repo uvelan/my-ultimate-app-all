@@ -85,6 +85,16 @@ export default function ScraperScreen() {
         ]);
     };
 
+    const handleSync = async (id: string) => {
+        try {
+            await scraperService.syncScraperNovel(id);
+            Alert.alert("Success", "Novel synced successfully!");
+            fetchData();
+        } catch (error: any) {
+            Alert.alert("Error", error.message || "Failed to sync novel");
+        }
+    };
+
     const openSettings = (source: any) => {
         setSelectedSource(source);
         setSourceTags(settings[source.id]?.replacements || []);
@@ -156,7 +166,14 @@ export default function ScraperScreen() {
                                         Status: {novel.status}
                                     </Text>
                                 </View>
-                                <View className="flex-row items-center gap-3">
+                                <View className="flex-row items-center gap-2">
+                                    <TouchableOpacity 
+                                        onPress={() => handleSync(novel.id)} 
+                                        className="bg-[#5c4033] p-2 rounded-lg"
+                                        disabled={novel.status !== 'COMPLETED'}
+                                    >
+                                        <Text className={novel.status === 'COMPLETED' ? "text-[#e6dccf] text-xs font-bold" : "text-[#6f4e37] text-xs font-bold"}>Sync</Text>
+                                    </TouchableOpacity>
                                     <TouchableOpacity 
                                         onPress={() => handleAddToDb(novel)} 
                                         className="bg-[#5c4033] p-2 rounded-lg flex-row items-center"

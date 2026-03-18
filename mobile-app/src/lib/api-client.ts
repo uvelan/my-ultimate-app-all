@@ -1,9 +1,8 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-// Replace with your actual development machine IP (e.g., http://192.168.1.10:3000/api) 
-// or use 10.0.2.2 for Android emulator to talk to host machine
-const BASE_URL = 'http://192.168.68.53:3000/api';
+// Use Expo env variable or fallback to dev local network IP
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://my-ultimate-app-all.vercel.app/api';
 
 export const api = axios.create({
     baseURL: BASE_URL,

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Card } from '../ui/Card';
+import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useRouter } from 'expo-router';
@@ -46,27 +46,18 @@ export default function AuthForm({ type }: AuthFormProps) {
     const onSubmit = async (data: any) => {
         setLoading(true);
         try {
-            console.log('Submitting:', data);
-
             if (type === 'login') {
-                console.log('Attempting login...');
                 const response = await authService.login(data);
-                console.log('Login Response Keys:', Object.keys(response));
-                console.log('Login Response:', JSON.stringify(response, null, 2));
 
                 if (response.accessToken && response.refreshToken) {
-                    console.log('Tokens found, storing...');
                     await SecureStore.setItemAsync('accessToken', String(response.accessToken));
                     await SecureStore.setItemAsync('refreshToken', String(response.refreshToken));
-                    console.log('Tokens stored successfully');
                     router.replace('/(protected)/(tabs)/dashboard' as any);
                 } else {
                     console.error('Auth Error: Tokens missing in response body. Received keys:', Object.keys(response));
                 }
             } else {
-                console.log('Attempting registration...');
                 await authService.register(data);
-                console.log('Registration successful');
                 router.push('/(auth)/login' as any);
             }
         } catch (error: any) {
@@ -78,82 +69,97 @@ export default function AuthForm({ type }: AuthFormProps) {
     };
 
     return (
-        <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 60 }} className="bg-[#2e1d15] flex-1">
-            <Card className="w-full">
-                <Text className="text-3xl font-bold text-center mb-8 text-white font-serif">
-                    {type === 'login' ? 'Welcome Back' : 'Create Account'}
-                </Text>
+        <KeyboardAvoidingView 
+            style={{ flex: 1, backgroundColor: '#0a0a0a' }} 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 64, paddingBottom: 48 }} className="min-h-full justify-center">
+                <View className="relative w-full items-center justify-center">
+                    {/* Decorative Premium Glow */}
+                    <View className="absolute w-[150%] h-32 bg-accent/10 rounded-full top-0 opacity-80" style={{ transform: [{ scaleX: 1.5 }] }} />
+                    
+                    <Card className="w-full relative z-10 shadow-lg shadow-black/50">
+                        <CardHeader>
+                            <CardTitle className="text-center text-display">
+                                {type === 'login' ? 'Welcome Back' : 'Create Account'}
+                            </CardTitle>
+                        </CardHeader>
 
-                {type === 'register' && (
+                <CardContent>
+                    {type === 'register' && (
+                        <Controller
+                            control={control}
+                            name="name"
+                            render={({ field: { onChange, onBlur, value } }) => (
+                                <Input
+                                    label="Full Name"
+                                    placeholder="John Doe"
+                                    onBlur={onBlur}
+                                    onChangeText={onChange}
+                                    value={value}
+                                    error={(errors as any).name?.message}
+                                />
+                            )}
+                        />
+                    )}
+
                     <Controller
                         control={control}
-                        name="name"
+                        name="email"
                         render={({ field: { onChange, onBlur, value } }) => (
                             <Input
-                                label="Full Name"
-                                placeholder="John Doe"
+                                label="Email Address"
+                                placeholder="john@example.com"
+                                keyboardType="email-address"
+                                autoCapitalize="none"
                                 onBlur={onBlur}
                                 onChangeText={onChange}
                                 value={value}
-                                error={(errors as any).name?.message}
+                                error={errors.email?.message as any}
                             />
                         )}
                     />
-                )}
 
-                <Controller
-                    control={control}
-                    name="email"
-                    render={({ field: { onChange, onBlur, value } }) => (
-                        <Input
-                            label="Email Address"
-                            placeholder="john@example.com"
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            onBlur={onBlur}
-                            onChangeText={onChange}
-                            value={value}
-                            error={errors.email?.message as any}
-                        />
-                    )}
-                />
+                    <Controller
+                        control={control}
+                        name="password"
+                        render={({ field: { onChange, onBlur, value } }) => (
+                            <Input
+                                label="Password"
+                                placeholder="••••••••"
+                                secureTextEntry
+                                onBlur={onBlur}
+                                onChangeText={onChange}
+                                value={value}
+                                error={errors.password?.message as any}
+                            />
+                        )}
+                    />
 
-                <Controller
-                    control={control}
-                    name="password"
-                    render={({ field: { onChange, onBlur, value } }) => (
-                        <Input
-                            label="Password"
-                            placeholder="••••••••"
-                            secureTextEntry
-                            onBlur={onBlur}
-                            onChangeText={onChange}
-                            value={value}
-                            error={errors.password?.message as any}
-                        />
-                    )}
-                />
+                    <Button
+                        onPress={handleSubmit(onSubmit)}
+                        isLoading={loading}
+                        className="mt-4"
+                        variant="primary"
+                    >
+                        {type === 'login' ? 'Sign In' : 'Sign Up'}
+                    </Button>
 
-                <Button
-                    onPress={handleSubmit(onSubmit)}
-                    isLoading={loading}
-                    className="mt-4"
-                >
-                    {type === 'login' ? 'Sign In' : 'Sign Up'}
-                </Button>
-
-                <TouchableOpacity
-                    onPress={() => router.push(type === 'login' ? '/register' : '/login')}
-                    className="mt-6 flex-row justify-center"
-                >
-                    <Text className="text-[#d4c5b0] text-sm">
-                        {type === 'login' ? "Don't have an account? " : "Already have an account? "}
-                    </Text>
-                    <Text className="text-white font-bold text-sm underline">
-                        {type === 'login' ? 'Sign Up' : 'Sign In'}
-                    </Text>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={() => router.push(type === 'login' ? '/register' : '/login')}
+                        className="mt-6 flex-row justify-center"
+                    >
+                        <Text className="text-text-secondary text-sm">
+                            {type === 'login' ? "Don't have an account? " : "Already have an account? "}
+                        </Text>
+                        <Text className="text-accent font-bold text-sm underline">
+                            {type === 'login' ? 'Sign Up' : 'Sign In'}
+                        </Text>
+                    </TouchableOpacity>
+                </CardContent>
             </Card>
-        </ScrollView>
+            </View>
+            </ScrollView>
+        </KeyboardAvoidingView>
     );
 }

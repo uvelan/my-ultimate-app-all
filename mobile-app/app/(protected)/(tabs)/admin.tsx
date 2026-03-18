@@ -5,6 +5,7 @@ import { authService, User } from '@/src/services/auth.service';
 import { Card } from '@/src/components/ui/Card';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
+import { SidebarToggle } from '@/src/components/ui/Sidebar';
 
 export default function AdminScreen() {
     const [user, setUser] = useState<User | null>(null);
@@ -46,9 +47,12 @@ export default function AdminScreen() {
 
     return (
         <ScrollView className="flex-1 bg-[#2e1d15]">
-            <View className="px-6 pt-12 pb-4 border-b border-[#5c4033] bg-[#1a110d]/50">
-                <Text className="text-3xl font-bold text-[#e6dccf] font-serif">Admin Panel</Text>
-                <Text className="text-[#d4c5b0]/60 text-sm mt-1">System oversight and configuration</Text>
+            <View className="px-6 pt-12 pb-4 border-b border-[#5c4033] bg-[#1a110d]/50 flex-row items-center">
+                <SidebarToggle />
+                <View className="ml-3">
+                    <Text className="text-3xl font-bold text-[#e6dccf] font-serif">Admin Panel</Text>
+                    <Text className="text-[#d4c5b0]/60 text-sm mt-1">System oversight and configuration</Text>
+                </View>
             </View>
 
             <View className="p-6">

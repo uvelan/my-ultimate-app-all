@@ -187,7 +187,7 @@ export default function BooksPage() {
                             )}
                         </div>
                     ) : (
-                        <Grid cols={{ sm: 2, md: 3, lg: 4, xl: 6 }} gap="space-8">
+                        <Grid cols={{ base: 2, sm: 3, md: 4, lg: 5, xl: 6 }} gap="space-8">
                             {filteredBooks.map((book) => (
                                 <BookCard
                                     key={book.id}

@@ -1,220 +1,563 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, Switch } from 'react-native';
-import { ChevronLeft, ChevronRight, Settings, Headphones, Download, CloudOff, Wand2, X, Plus, Minus } from 'lucide-react-native';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+    View, Text, ScrollView, Pressable, ActivityIndicator,
+    Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList,
+} from 'react-native';
+import {
+    ChevronLeft, ChevronRight, Settings, Headphones, CloudOff,
+    Wand2, X, Plus, Minus, BookOpen, List,
+    SkipBack, SkipForward, Play, Pause as PauseIcon,
+} from 'lucide-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { bookService } from '@/src/services/book.service';
+import { bookService, ChapterMeta } from '@/src/services/book.service';
 import { replacementService } from '@/src/services/features.service';
 import { offlineService } from '@/src/services/offline.service';
 import { ttsService } from '@/src/services/tts.service';
+import { cacheService } from '@/src/lib/storage';
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
 
 export default function ReaderScreen() {
     const router = useRouter();
-    const { id, chapterId = '1' } = useLocalSearchParams<{ id: string, chapterId: string }>();
+    const idParam = useLocalSearchParams().id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
 
+    const chapterIdParam = useLocalSearchParams().chapterId;
+    const [chapterId, setChapterId] = useState<string>(
+        Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0')
+    );
+
+    // Sync state when URL param changes
+    useEffect(() => {
+        const newVal = Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0');
+        if (newVal !== chapterId) setChapterId(newVal);
+    }, [chapterIdParam]);
+
+    // Chapter list (for sidebar)
+    const [chapterList, setChapterList] = useState<{ order: number; title: string }[]>([]);
+    const [totalChapters, setTotalChapters] = useState(0);
+
+    // Content display states
     const [content, setContent] = useState<string>('');
     const [rawContent, setRawContent] = useState<string>('');
     const [replacements, setReplacements] = useState<any[]>([]);
     const [replacementsEnabled, setReplacementsEnabled] = useState(true);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [bulkLoading, setBulkLoading] = useState(false);
     const [isOffline, setIsOffline] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
     const [isCorrecting, setIsCorrecting] = useState(false);
     const [fontSize, setFontSize] = useState(18);
     const [rate, setRate] = useState(1.0);
-    const [sleepTimer, setSleepTimer] = useState<number | null>(null);
+    const [sleepTimer, setSleepTimer] = useState<any>(null);
+    const [selectedTimerMinutes, setSelectedTimerMinutes] = useState<number | null>(null);
+    const [loadError, setLoadError] = useState<string>('');
+    const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
-    const handleGrammarCorrection = async () => {
-        if (isOffline) {
-            alert("Grammar correction requires an internet connection.");
-            return;
+    // TTS Sentence States
+    const [sentences, setSentences] = useState<{ text: string; paraIdx: number }[]>([]);
+    const [paragraphStructure, setParagraphStructure] = useState<string[][]>([]);
+    const [currentSentenceIndex, setCurrentSentenceIndex] = useState<number>(-1);
+    const isSpeakingRef = useRef(false);
+    const shouldAutoStartTTSRef = useRef(false);
+    const sentencesRef = useRef<string[]>([]);
+    const currentIndexRef = useRef<number>(-1);
+    const ttsRateRef = useRef<number>(1.0);
+
+    // Scroll Ref for highlighting
+    const scrollViewRef = useRef<FlatList>(null);
+    const sentenceYPositions = useRef<{ [key: number]: number }>({});
+    const paragraphYPositions = useRef<{ [key: number]: number }>({});
+
+    // Chapter sidebar
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const sidebarAnim = useRef(new Animated.Value(SCREEN_W)).current;
+    const overlayAnim = useRef(new Animated.Value(0)).current;
+
+    const openSidebar = useCallback(() => {
+        setIsSidebarOpen(true);
+        Animated.parallel([
+            Animated.spring(sidebarAnim, { toValue: SCREEN_W - SIDEBAR_W, useNativeDriver: true, speed: 20, bounciness: 4 }),
+            Animated.timing(overlayAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+        ]).start();
+    }, []);
+
+    const closeSidebar = useCallback(() => {
+        Animated.parallel([
+            Animated.spring(sidebarAnim, { toValue: SCREEN_W, useNativeDriver: true, speed: 20, bounciness: 4 }),
+            Animated.timing(overlayAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+        ]).start(() => setIsSidebarOpen(false));
+    }, []);
+
+    // ─── Helpers ────────────────────────────────────────────────────────────────
+    const toStr = (val: any): any => {
+        if (!val) return '';
+        // If it's an array, return it as is to preserve paragraph structure
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+    };
+
+    const goToNextChapter = useCallback(() => {
+        const nextNum = parseInt(chapterId) + 1;
+        if (totalChapters > 0 && nextNum < totalChapters) {
+            setChapterId(String(nextNum));
+            return true;
         }
-        setIsCorrecting(true);
-        try {
-            const res = await bookService.proposeGrammarCorrection(id as string, chapterId as string, 'gemini-2.5-flash');
-            
-            if (res.correctedChapter) {
-                // We use Alert in React Native for simple confirmations
-                requestAnimationFrame(() => {
-                    alert("Grammar correction generated successfully! Applying now...");
-                    setRawContent(res.correctedChapter);
-                    bookService.updateChapterContent(id as string, chapterId as string, res.correctedChapter)
-                        .catch(err => console.error("Failed to save grammar on backend", err));
-                });
+        return false;
+    }, [chapterId, totalChapters]);
+
+    // ─── Bulk fetch + cache all chapters ────────────────────────────────────────
+    const bulkFetchAndCache = useCallback(async (bookId: string) => {
+        // Check if we already have ALL chapters cached
+        const cachedChapterIds = offlineService.getCachedChapterIds(bookId);
+        
+        // If we have some chapters, let's assume valid cache unless syncing is requested
+        // But the user said "do the network call only once for books, chapter and chapterindex rest from cache"
+        // So if we have cached chapters, we skip bulk fetch.
+        if (cachedChapterIds.length > 0) {
+            console.warn(`[Reader] Found ${cachedChapterIds.length} cached chapters, skipping bulk fetch.`);
+            // Still need to populate chapter list from cache or some other way? 
+            // Better to still have the chapter names etc. 
+            // In the real app, we might store the book/chapter list in cacheService too.
+            const bookMeta = cacheService.getObject<any>(`book_meta_${bookId}`);
+            if (bookMeta?.chapters) {
+                setChapterList(bookMeta.chapters);
+                setTotalChapters(bookMeta.chapters.length);
+                return;
             }
-        } catch (error: any) {
-            console.error(error);
-            alert(error.message || "Grammar correction failed.");
-        } finally {
-            setIsCorrecting(false);
         }
-    };
 
-    const toggleTTS = async () => {
-        if (isSpeaking) {
-            ttsService.stop();
-            setIsSpeaking(false);
-        } else {
-            setIsSpeaking(true);
-            ttsService.speak(content, rate, () => setIsSpeaking(false));
-        }
-    };
-
-    const startSleepTimer = (minutes: number) => {
-        if (sleepTimer) clearTimeout(sleepTimer);
-        const timer = setTimeout(() => {
-            ttsService.stop();
-            setIsSpeaking(false);
-            setSleepTimer(null);
-        }, minutes * 60000);
-        setSleepTimer(timer as any);
-    };
-
-    const nextRate = () => {
-        const rates = [0.75, 1.0, 1.25, 1.5, 2.0];
-        const currentIndex = rates.indexOf(rate);
-        const next = rates[(currentIndex + 1) % rates.length];
-        setRate(next);
-        if (isSpeaking) {
-            ttsService.stop();
-            ttsService.speak(content, next, () => setIsSpeaking(false));
-        }
-    };
-
-    const loadChapter = async () => {
-        setLoading(true);
+        setBulkLoading(true);
         try {
-            // 1. Try local cache first
-            const cachedContent = await offlineService.getChapter(id, chapterId);
-            if (cachedContent) {
-                setRawContent(cachedContent);
-                setIsOffline(true);
-            } else {
-                // 2. Fetch from API
-                const data = await bookService.getChapterContent(id, chapterId);
-                setRawContent(data.content);
+            console.warn(`[Reader] Bulk fetching all chapters for book ${bookId}`);
+            const { chapters } = await bookService.getAllChapters(bookId);
+            if (chapters && chapters.length > 0) {
+                await offlineService.saveAllChapters(bookId, chapters);
+                const list = chapters.map(c => ({ order: c.order, title: c.title || `Chapter ${c.order + 1}` }));
+                setChapterList(list);
+                setTotalChapters(chapters.length);
                 setIsOffline(false);
-                // 3. Silently save to cache for next time
-                await offlineService.saveChapter(id, chapterId, data.content);
+                
+                // Store metadata for future cache-only loads
+                cacheService.setObject(`book_meta_${bookId}`, { chapters: list });
+                
+                console.warn(`[Reader] Bulk cached ${chapters.length} chapters`);
             }
-        } catch (error) {
-            console.error("Failed to load chapter:", error);
+        } catch (err: any) {
+            console.warn('[Reader] Bulk fetch failed (will rely on existing cache):', err?.message);
+            setIsOffline(true);
+        } finally {
+            setBulkLoading(false);
+        }
+    }, []);
+
+    // ─── Load a single chapter from cache ───────────────────────────────────────
+    const loadChapterFromCache = useCallback(async (bookId: string, chapId: string) => {
+        setLoading(true);
+        setLoadError('');
+        try {
+            const cached = await offlineService.getChapter(bookId, chapId);
+            if (cached) {
+                setRawContent(toStr(cached));
+            } else {
+                // Fallback: individual network request if somehow not in cache
+                console.warn(`[Reader] Cache miss for chapter ${chapId}, fetching individually`);
+                const data = await bookService.getChapterContent(bookId, chapId);
+                const liveContent = toStr(data?.content);
+                if (liveContent) {
+                    setRawContent(liveContent);
+                    await offlineService.saveChapter(bookId, chapId, liveContent).catch(() => {});
+                } else {
+                    setLoadError(`Chapter ${chapId} not found in cache or network.`);
+                }
+            }
+        } catch (err: any) {
+            console.error('[Reader] Error loading chapter:', err);
+            setLoadError(`Error: ${err?.message || 'Unknown'}`);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    // ─── On book change: bulk fetch, then load first/current chapter ─────────────
+    useEffect(() => {
+        if (!id) return;
+
+        const init = async () => {
+            // First, load from cache so UI isn't blank
+            await loadChapterFromCache(id as string, chapterId);
+            // Then bulk fetch (updates cache in background)
+            await bulkFetchAndCache(id as string);
+            // Reload in case bulk fetch updated the content
+            await loadChapterFromCache(id as string, chapterId);
+        };
+
+        init();
+        fetchReplacements();
+    }, [id]);
+
+    // ─── On chapter change (after initial): load from cache ─────────────────────
+    const isFirstMount = useRef(true);
+    useEffect(() => {
+        if (isFirstMount.current) {
+            isFirstMount.current = false;
+            return;
+        }
+        if (id) loadChapterFromCache(id as string, chapterId);
+    }, [chapterId]);
 
     const fetchReplacements = async () => {
         try {
             const rules = await replacementService.getReplacements(id as string);
             setReplacements(rules);
         } catch (err) {
-            console.error("Failed to fetch replacements", err);
+            console.error('Failed to fetch replacements', err);
         }
     };
 
+    // Apply replacements and formatting
     useEffect(() => {
-        loadChapter();
-        fetchReplacements();
-    }, [id, chapterId]);
-
-    // Apply replacements whenever content or rules change
-    useEffect(() => {
-        if (!rawContent) {
-            setContent('');
-            return;
+        if (!rawContent) { setContent(''); setParagraphStructure([]); return; }
+        
+        let paragraphs: string[] = [];
+        if (Array.isArray(rawContent)) {
+            paragraphs = rawContent.map(p => String(p));
+        } else {
+            paragraphs = String(rawContent).split(/\n\s*\n/).filter(p => p.trim().length > 0);
         }
 
-        if (!replacementsEnabled || replacements.length === 0) {
-            setContent(rawContent);
-            return;
-        }
-
-        let processedContent = rawContent;
-        replacements.forEach(rule => {
-            try {
-                const searchValue = rule.isRegex ? new RegExp(rule.search, 'g') : rule.search;
-                const replaceValue = rule.replace || '';
-
-                if (rule.isRegex) {
-                    processedContent = processedContent.replace(searchValue, replaceValue);
-                } else {
-                    processedContent = processedContent.split(searchValue as string).join(replaceValue);
+        const processedParas = paragraphs.map(p => {
+            let processed = p.trim();
+            if (!replacementsEnabled || replacements.length === 0) return processed;
+            
+            replacements.forEach(rule => {
+                try {
+                    const searchValue = rule.isRegex ? new RegExp(rule.search, 'g') : rule.search;
+                    const replaceValue = rule.replace || '';
+                    processed = rule.isRegex
+                        ? processed.replace(searchValue, replaceValue)
+                        : processed.split(searchValue as string).join(replaceValue);
+                } catch (e) {
+                    console.error(`Invalid replacement rule: ${rule.search}`, e);
                 }
-            } catch (e) {
-                console.error(`Invalid replacement rule: ${rule.search}`, e);
-            }
+            });
+            return processed;
         });
 
-        setContent(processedContent);
+        setParagraphStructure(processedParas.map(p => {
+            const sentenceArray = p.match(/[^.!?]+[.!?]+|\s*[^.!?]+$/g) || [p];
+            return sentenceArray.map(s => s.trim()).filter(s => s.length > 0);
+        }));
+        
+        setContent(processedParas.join('\n\n\n'));
+        
+        // Auto-start TTS if we transitioned chapters
+        if (shouldAutoStartTTSRef.current) {
+            shouldAutoStartTTSRef.current = false;
+            // Small delay to ensure UI labels and sentences are updated
+            setTimeout(() => {
+                toggleTTS();
+            }, 500);
+        }
     }, [rawContent, replacements, replacementsEnabled]);
 
+    const flatSentences = useMemo(() => {
+        const flat: { text: string; paraIdx: number; globalIdx: number }[] = [];
+        let globalIdx = 0;
+        paragraphStructure.forEach((p: string[], pIdx: number) => {
+            p.forEach((s: string) => {
+                flat.push({ text: s, paraIdx: pIdx, globalIdx });
+                globalIdx++;
+            });
+        });
+        return flat;
+    }, [paragraphStructure]);
+
+    // Progress sync
     useEffect(() => {
-        const saveTimer = setTimeout(() => {
+        const timer = setTimeout(() => {
             if (id && chapterId) {
-                const cIndex = parseInt(chapterId as string);
+                const cIndex = parseInt(chapterId);
                 if (!isNaN(cIndex)) {
-                     bookService.updateProgress(id as string, cIndex, 0)
-                        .catch((err: any) => console.log('Silently failed to sync progress', err.message));
+                    bookService.updateProgress(id as string, cIndex, 0)
+                        .catch((err: any) => console.error('Failed to sync progress:', err.message));
                 }
             }
         }, 1500);
-
-        return () => clearTimeout(saveTimer);
+        return () => clearTimeout(timer);
     }, [id, chapterId]);
 
+    // ─── TTS ────────────────────────────────────────────────────────────────────
+    
+    // Sync refs for the callback loop
+    useEffect(() => {
+        sentencesRef.current = flatSentences.map((s: any) => s.text);
+    }, [flatSentences]);
+
+    useEffect(() => {
+        currentIndexRef.current = currentSentenceIndex;
+    }, [currentSentenceIndex]);
+
+    useEffect(() => {
+        ttsRateRef.current = rate;
+    }, [rate]);
+
+    const speakNextSentence = useCallback((replay = false) => {
+        if (!isSpeakingRef.current) return;
+        
+        const nextIndex = replay ? currentIndexRef.current : currentIndexRef.current + 1;
+        
+        if (nextIndex >= 0 && nextIndex < sentencesRef.current.length) {
+            currentIndexRef.current = nextIndex;
+            setCurrentSentenceIndex(nextIndex); // UI sync
+            
+            const sentence = sentencesRef.current[nextIndex];
+            const sentenceWithNewline = sentence + '\n';
+            
+            console.log(`[Reader] Speaking sentence ${nextIndex + 1}/${sentencesRef.current.length}${replay ? ' (replay)' : ''}`);
+            
+            ttsService.speak(
+                sentenceWithNewline, 
+                ttsRateRef.current, 
+                () => { // onDone
+                    const delay = Platform.OS === 'android' ? 250 : 100;
+                    setTimeout(() => {
+                        speakNextSentence(false); // Move to next
+                    }, delay);
+                },
+                (err) => { // onError
+                    console.warn('[Reader] TTS Error, skipping to next sentence', err);
+                    setTimeout(() => {
+                        speakNextSentence(false);
+                    }, 500);
+                }
+            );
+        } else if (nextIndex >= sentencesRef.current.length) {
+            console.log('[Reader] Finished all sentences, checking for next chapter');
+            const transitioned = goToNextChapter();
+            if (transitioned) {
+                // Set flag to auto-start on next chapter load
+                shouldAutoStartTTSRef.current = true;
+                
+                setIsSpeaking(false);
+                isSpeakingRef.current = false;
+                setCurrentSentenceIndex(-1);
+                currentIndexRef.current = -1;
+            } else {
+                setIsSpeaking(false);
+                isSpeakingRef.current = false;
+                setCurrentSentenceIndex(-1);
+                currentIndexRef.current = -1;
+            }
+        } else if (nextIndex < 0 && sentencesRef.current.length > 0) {
+            // Start from first if somehow negative
+            currentIndexRef.current = -1;
+            speakNextSentence(false);
+        }
+    }, [sentences]);
+
+    // Scroll to highlighted sentence
+    useEffect(() => {
+        if (currentSentenceIndex >= 0 && isSpeaking) {
+            const sentenceObj = flatSentences[currentSentenceIndex];
+            if (sentenceObj) {
+                const pY = paragraphYPositions.current[sentenceObj.paraIdx] || 0;
+                const sY = sentenceYPositions.current[currentSentenceIndex] || 0;
+                const totalY = pY + sY;
+                
+                const { height: viewH } = Dimensions.get('window');
+                // Center the sentence in the view
+                const scrollTo = Math.max(0, totalY - viewH / 3);
+                
+                scrollViewRef.current?.scrollToOffset({ offset: scrollTo, animated: true });
+            }
+        }
+    }, [currentSentenceIndex, isSpeaking, flatSentences]);
+
+    const skipForward = () => {
+        if (!isSpeaking) return;
+        ttsService.stop();
+        speakNextSentence();
+        setIsPaused(false);
+    };
+
+    const skipBackward = () => {
+        if (!isSpeaking) return;
+        ttsService.stop();
+        // Move back 2 because speakNextSentence increments by 1
+        currentIndexRef.current = Math.max(-1, currentIndexRef.current - 2);
+        speakNextSentence();
+        setIsPaused(false);
+    };
+
+    const toggleTTS = async () => {
+        if (isSpeaking) {
+            if (isPaused) {
+                // Resume
+                console.log('[Reader] Resuming TTS');
+                setIsPaused(false);
+                isSpeakingRef.current = true;
+                // Replay the current sentence to ensure continuity
+                speakNextSentence(true);
+            } else {
+                // Pause
+                console.log('[Reader] Pausing TTS');
+                ttsService.stop();
+                setIsPaused(true);
+                isSpeakingRef.current = false;
+            }
+        } else {
+            if (paragraphStructure.length === 0) {
+                alert('No content available for text-to-speech.');
+                return;
+            }
+
+            setSentences(flatSentences);
+            sentencesRef.current = flatSentences.map(s => s.text);
+            setCurrentSentenceIndex(-1);
+            currentIndexRef.current = -1;
+            
+            setIsSpeaking(true);
+            setIsPaused(false);
+            isSpeakingRef.current = true;
+            
+            // Small delay to ensure state updates are settled
+            setTimeout(() => {
+                speakNextSentence(false);
+            }, 100);
+        }
+    };
+
+    const stopTTS = useCallback(() => {
+        ttsService.stop();
+        setIsSpeaking(false);
+        setIsPaused(false);
+        isSpeakingRef.current = false;
+        setCurrentSentenceIndex(-1);
+        currentIndexRef.current = -1;
+    }, []);
+
+    const startSleepTimer = (minutes: number) => {
+        if (sleepTimer) clearInterval(sleepTimer);
+        setSelectedTimerMinutes(minutes);
+        
+        let secondsLeft = minutes * 60;
+        setRemainingSeconds(secondsLeft);
+        
+        const interval = setInterval(() => {
+            secondsLeft -= 1;
+            setRemainingSeconds(secondsLeft);
+            
+            if (secondsLeft <= 0) {
+                clearInterval(interval);
+                stopTTS();
+                setSleepTimer(null);
+                setSelectedTimerMinutes(null);
+                setRemainingSeconds(null);
+                console.log('[Reader] Sleep timer finished');
+            }
+        }, 1000);
+        
+        setSleepTimer(interval as any);
+    };
+
+    const nextRate = () => {
+        const rates = [0.75, 1.0, 1.25, 1.5, 2.0];
+        const next = rates[(rates.indexOf(rate) + 1) % rates.length];
+        setRate(next);
+        // No need to restart manually here as the next speakNextSentence call will use the ref value
+    };
+
+    // ─── Grammar correction ──────────────────────────────────────────────────────
+    const handleGrammarCorrection = async () => {
+        if (isOffline) { alert('Grammar correction requires an internet connection.'); return; }
+        setIsCorrecting(true);
+        try {
+            const res = await bookService.proposeGrammarCorrection(id as string, chapterId, 'gemini-2.5-flash');
+            if (res.correctedChapter) {
+                requestAnimationFrame(() => {
+                    alert('Grammar correction generated successfully! Applying now...');
+                    setRawContent(res.correctedChapter);
+                    bookService.updateChapterContent(id as string, chapterId, res.correctedChapter)
+                        .catch(err => console.error('Failed to save grammar on backend', err));
+                });
+            }
+        } catch (error: any) {
+            console.error(error);
+            alert(error.message || 'Grammar correction failed.');
+        } finally {
+            setIsCorrecting(false);
+        }
+    };
+
+    const currentChapterNum = parseInt(chapterId);
+    const chapterTitle = chapterList.find(c => c.order === currentChapterNum)?.title || `Chapter ${chapterId}`;
+
+    // ─── Render ─────────────────────────────────────────────────────────────────
     return (
-        <View className="flex-1 bg-[#f4e4bc] pt-12">
+        <View className="flex-1 bg-[#f4e4bc]" style={{ paddingTop: Platform.OS === 'ios' ? 44 : 24 }}>
+
             {/* Header */}
-            <View className="px-6 py-4 flex-row justify-between items-center bg-[#f4e4bc] border-b border-black/5">
-                <Pressable onPress={() => router.back()}>
+            <View className="px-4 py-3 flex-row justify-between items-center bg-[#f4e4bc] border-b border-black/5">
+                <Pressable onPress={() => router.back()} className="p-1">
                     <ChevronLeft size={24} color="#5c4033" />
                 </Pressable>
-                <View className="items-center">
-                    <Text className="text-[#5c4033] font-bold font-serif text-base">
-                        Chapter {chapterId}
+
+                <View className="items-center flex-1 mx-2">
+                    <Text className="text-[#5c4033] font-bold font-serif text-sm" numberOfLines={1}>
+                        {chapterTitle}
                     </Text>
-                    {isOffline && (
-                        <View className="flex-row items-center">
-                            <CloudOff size={10} color="#8b4513" />
-                            <Text className="text-[#8b4513] text-[8px] font-bold ml-1 uppercase">Offline Mode</Text>
-                        </View>
-                    )}
+                    <View className="flex-row items-center gap-1">
+                        {isOffline && (
+                            <View className="flex-row items-center">
+                                <CloudOff size={9} color="#8b4513" />
+                                <Text className="text-[#8b4513] text-[8px] font-bold ml-0.5 uppercase">Offline</Text>
+                            </View>
+                        )}
+                        {remainingSeconds !== null && (
+                            <View className="flex-row items-center ml-1">
+                                <View className="w-1 h-1 rounded-full bg-red-500 mr-1" />
+                                <Text className="text-red-800 text-[10px] font-bold">
+                                    {Math.floor(remainingSeconds / 60)}:{(remainingSeconds % 60).toString().padStart(2, '0')}
+                                </Text>
+                            </View>
+                        )}
+                        {bulkLoading && (
+                            <View className="flex-row items-center ml-1">
+                                <ActivityIndicator size="small" color="#8b4513" style={{ transform: [{ scale: 0.5 }] }} />
+                                <Text className="text-[#8b4513] text-[8px] ml-0.5">Caching…</Text>
+                            </View>
+                        )}
+                    </View>
                 </View>
-                <View className="flex-row gap-5 items-center">
-                    <Pressable onPress={toggleTTS} className="flex-row items-center">
-                        <Headphones size={22} color={isSpeaking ? "#8b4513" : "#5c4033"} />
-                        {isSpeaking && <View className="w-1.5 h-1.5 rounded-full bg-[#8b4513] absolute -top-1 -right-1" />}
+
+                <View className="flex-row items-center gap-2">
+                    <Pressable onPress={toggleTTS} className="flex-row items-center bg-[#8b4513]/10 px-2 py-1.5 rounded-full">
+                        <Headphones size={16} color={isSpeaking ? '#8b4513' : '#5c4033'} />
+                        {isSpeaking && <View className="w-1.5 h-1.5 rounded-full bg-[#8b4513] ml-1" />}
                     </Pressable>
 
                     {isSpeaking && (
-                        <>
-                            <Pressable onPress={nextRate} className="bg-[#5c4033]/10 px-2 py-0.5 rounded">
-                                <Text className="text-[#5c4033] text-[10px] font-bold">{rate}x</Text>
-                            </Pressable>
-
-                            <Pressable
-                                onPress={() => startSleepTimer(sleepTimer ? 0 : 30)}
-                                className={`p-1 rounded-full ${sleepTimer ? 'bg-[#8b4513]/10' : ''}`}
-                            >
-                                <View className="flex-row items-center">
-                                    <View className="w-4 h-4 items-center justify-center">
-                                        <View className="w-3 h-3 border border-[#5c4033] rounded-full" />
-                                        <View className="w-1.5 h-0.5 bg-[#5c4033] absolute" style={{ top: 8, left: 8, transform: [{ rotate: '45deg' }] }} />
-                                    </View>
-                                    {sleepTimer && <Text className="text-[#8b4513] text-[8px] font-bold ml-0.5">30m</Text>}
-                                </View>
-                            </Pressable>
-                        </>
+                        <View className="bg-[#8b4513]/20 px-2 py-0.5 rounded-full">
+                            <Text className="text-[#8b4513] text-[10px] font-bold">{rate}x</Text>
+                        </View>
                     )}
 
-                    <Pressable onPress={handleGrammarCorrection} disabled={isCorrecting} className={isCorrecting ? 'opacity-50' : ''}>
-                        {isCorrecting ? <ActivityIndicator size="small" color="#5c4033" /> : <Wand2 size={20} color="#5c4033" />}
+                    <Pressable onPress={handleGrammarCorrection} disabled={isCorrecting} className={`bg-[#8b4513]/10 p-1.5 rounded-full ${isCorrecting ? 'opacity-50' : ''}`}>
+                        {isCorrecting ? <ActivityIndicator size="small" color="#5c4033" /> : <Wand2 size={16} color="#5c4033" />}
                     </Pressable>
 
-                    <Download size={20} color="#5c4033" />
-                    <Pressable onPress={() => setIsSettingsOpen(true)}>
-                        <Settings size={22} color="#5c4033" />
+                    <Pressable onPress={() => setIsSettingsOpen(true)} className="p-1.5">
+                        <Settings size={18} color="#5c4033" />
+                    </Pressable>
+
+                    {/* Chapter list sidebar toggle */}
+                    <Pressable onPress={openSidebar} className="p-1.5">
+                        <List size={18} color="#5c4033" />
                     </Pressable>
                 </View>
             </View>
@@ -223,46 +566,206 @@ export default function ReaderScreen() {
             {loading ? (
                 <View className="flex-1 items-center justify-center">
                     <ActivityIndicator color="#8b4513" />
+                    <Text className="text-[#8b4513] text-xs mt-2">Loading chapter…</Text>
                 </View>
             ) : (
-                <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
-                    <Text
-                        className="text-[#2e1d15] font-serif leading-8"
-                        style={{ fontSize }}
-                    >
-                        {content || 'No content found for this chapter.'}
-                    </Text>
-                </ScrollView>
+                <FlatList
+                    ref={scrollViewRef as any}
+                    data={paragraphStructure}
+                    keyExtractor={(_, i) => `p-${i}`}
+                    contentContainerStyle={{ padding: 20, paddingBottom: 150 }}
+                    renderItem={({ item: sentencesInPara, index: pIdx }) => {
+                        let prevSentenceCount = 0;
+                        for (let i = 0; i < pIdx; i++) prevSentenceCount += paragraphStructure[i].length;
+
+                        return (
+                            <View 
+                                key={pIdx} 
+                                onLayout={(e) => {
+                                    paragraphYPositions.current[pIdx] = e.nativeEvent.layout.y;
+                                }}
+                                style={{ marginBottom: 44 }}
+                            >
+                                <View className="flex-row flex-wrap">
+                                    {sentencesInPara.map((sentence, sIdx) => {
+                                        const globalIdx = prevSentenceCount + sIdx;
+                                        const isHighlighted = isSpeaking && globalIdx === currentSentenceIndex;
+                                        
+                                        return (
+                                            <View 
+                                                key={sIdx} 
+                                                onLayout={(e) => {
+                                                    sentenceYPositions.current[globalIdx] = e.nativeEvent.layout.y;
+                                                }}
+                                                style={{ 
+                                                    backgroundColor: isHighlighted ? 'rgba(139, 69, 19, 0.15)' : 'transparent', 
+                                                    borderRadius: 4, 
+                                                    paddingHorizontal: 2,
+                                                    marginRight: 4,
+                                                    marginBottom: 4
+                                                }}
+                                            >
+                                                <Text
+                                                    className="text-[#2e1d15] font-serif leading-8"
+                                                    style={{ fontSize }}
+                                                >
+                                                    {sentence}
+                                                </Text>
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+                        );
+                    }}
+                    ListEmptyComponent={
+                        <View className="p-10">
+                            <Text className="text-[#2e1d15] font-serif leading-8 text-center" style={{ fontSize }}>
+                                {content || 'No content found for this chapter.'}
+                            </Text>
+                        </View>
+                    }
+                />
             )}
 
-            {/* Footer */}
-            <View className="absolute bottom-0 left-0 right-0 bg-[#f4e4bc] border-t border-black/5 p-6 flex-row justify-between items-center">
-                <Pressable
-                    className="flex-row items-center"
-                    onPress={() => {
-                        const prev = Math.max(1, parseInt(chapterId) - 1);
-                        router.setParams({ chapterId: prev.toString() });
+            {/* TTS Player Bar */}
+            {isSpeaking && (
+                <Animated.View 
+                    style={{ 
+                        position: 'absolute', bottom: 85, left: 16, right: 16, 
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: '#2e1d15', borderRadius: 16, padding: 12,
+                        shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 8
                     }}
                 >
-                    <ChevronLeft size={20} color="#5c4033" />
-                    <Text className="text-[#5c4033] ml-1 font-bold">Prev</Text>
+                    <TouchableOpacity onPress={skipBackward} className="p-3 mx-1">
+                        <SkipBack size={24} color="#e6dccf" />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                        onPress={toggleTTS}
+                        className="p-4 mx-2 bg-[#8b4513] rounded-full"
+                    >
+                        {isPaused ? <Play size={24} color="#e6dccf" /> : <PauseIcon size={24} color="#e6dccf" />}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity onPress={skipForward} className="p-3 mx-1">
+                        <SkipForward size={24} color="#e6dccf" />
+                    </TouchableOpacity>
+
+                    <View className="w-px h-8 bg-[#5c4033] mx-3" />
+
+                    <TouchableOpacity 
+                        onPress={stopTTS}
+                        className="p-3"
+                    >
+                        <X size={24} color="#e6dccf" />
+                    </TouchableOpacity>
+                </Animated.View>
+            )}
+
+            {/* Footer navigation */}
+            <View className="absolute bottom-0 left-0 right-0 bg-[#f4e4bc] border-t border-black/5 px-6 py-4 flex-row justify-between items-center">
+                <Pressable
+                    className="flex-row items-center"
+                    onPress={() => setChapterId(String(Math.max(0, currentChapterNum - 1)))}
+                    disabled={currentChapterNum <= 0}
+                >
+                    <ChevronLeft size={20} color={currentChapterNum <= 0 ? '#5c4033/30' : '#5c4033'} />
+                    <Text className={`ml-1 font-bold ${currentChapterNum <= 0 ? 'text-[#5c4033]/30' : 'text-[#5c4033]'}`}>Prev</Text>
                 </Pressable>
 
-                <Text className="text-[#5c4033]/60 text-xs italic">Chapter {chapterId}</Text>
+                <Text className="text-[#5c4033]/60 text-xs italic">
+                    {currentChapterNum + 1}{totalChapters > 0 ? ` / ${totalChapters}` : ''}
+                </Text>
 
                 <Pressable
                     className="flex-row items-center"
-                    onPress={() => {
-                        const next = parseInt(chapterId) + 1;
-                        router.setParams({ chapterId: next.toString() });
-                    }}
+                    onPress={() => setChapterId(String(currentChapterNum + 1))}
+                    disabled={totalChapters > 0 && currentChapterNum >= totalChapters - 1}
                 >
-                    <Text className="text-[#5c4033] mr-1 font-bold">Next</Text>
-                    <ChevronRight size={20} color="#5c4033" />
+                    <Text className={`mr-1 font-bold ${totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? 'text-[#5c4033]/30' : 'text-[#5c4033]'}`}>Next</Text>
+                    <ChevronRight size={20} color={totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? '#5c4033/30' : '#5c4033'} />
                 </Pressable>
             </View>
 
-            {/* Settings Modal */}
+            {/* ── Chapter List Sidebar ─────────────────────────────────────────── */}
+            {isSidebarOpen && (
+                <Animated.View
+                    style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        opacity: overlayAnim,
+                        zIndex: 998,
+                    }}
+                >
+                    <Pressable style={{ flex: 1 }} onPress={closeSidebar} />
+                </Animated.View>
+            )}
+
+            <Animated.View
+                style={{
+                    position: 'absolute', top: 0, bottom: 0, left: 0,
+                    width: SIDEBAR_W,
+                    transform: [{ translateX: sidebarAnim }],
+                    zIndex: 999,
+                }}
+            >
+                <View
+                    className="flex-1 bg-[#1a110d] border-l border-[#5c4033]"
+                    style={{ paddingTop: Platform.OS === 'ios' ? 50 : 40 }}
+                >
+                    {/* Sidebar header */}
+                    <View className="px-4 pb-4 border-b border-[#5c4033]/50 flex-row items-center justify-between">
+                        <View className="flex-row items-center gap-2">
+                            <BookOpen size={18} color="#d4c5b0" />
+                            <Text className="text-[#e6dccf] text-base font-bold font-serif">
+                                Chapters {totalChapters > 0 ? `(${totalChapters})` : ''}
+                            </Text>
+                        </View>
+                        <TouchableOpacity onPress={closeSidebar} className="p-1">
+                            <X size={20} color="#d4c5b0" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Chapter list */}
+                    {chapterList.length > 0 ? (
+                        <FlatList
+                            data={chapterList}
+                            keyExtractor={(item) => String(item.order)}
+                            initialScrollIndex={Math.max(0, currentChapterNum - 2)}
+                            getItemLayout={(_, index) => ({ length: 52, offset: 52 * index, index })}
+                            renderItem={({ item }) => {
+                                const isActive = item.order === currentChapterNum;
+                                return (
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            setChapterId(String(item.order));
+                                            closeSidebar();
+                                        }}
+                                        className={`px-4 py-3 border-b border-[#5c4033]/20 ${isActive ? 'bg-[#5c4033]/30' : ''}`}
+                                        activeOpacity={0.6}
+                                    >
+                                        <Text
+                                            className={`text-sm font-serif ${isActive ? 'text-[#e6dccf] font-bold' : 'text-[#d4c5b0]/80'}`}
+                                            numberOfLines={2}
+                                        >
+                                            {item.order + 1}. {item.title}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            }}
+                        />
+                    ) : (
+                        <View className="flex-1 items-center justify-center p-6">
+                            <ActivityIndicator color="#8b4513" />
+                            <Text className="text-[#d4c5b0]/60 text-sm mt-3 text-center">Loading chapter list…</Text>
+                        </View>
+                    )}
+                </View>
+            </Animated.View>
+
+            {/* ── Settings Modal ──────────────────────────────────────────────── */}
             <Modal visible={isSettingsOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
                     <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[40%] border-t border-[#5c4033]">
@@ -284,17 +787,63 @@ export default function ReaderScreen() {
                             </Pressable>
                         </View>
 
-                        <View className="flex-row items-center justify-between mb-2">
+                        <View className="flex-row items-center justify-between mb-6">
                             <View>
                                 <Text className="text-[#d4c5b0] font-bold">Custom Replacements</Text>
                                 <Text className="text-[#d4c5b0]/60 text-xs">Apply {replacements.length} custom text rules</Text>
                             </View>
-                            <Switch 
+                            <Switch
                                 value={replacementsEnabled}
                                 onValueChange={setReplacementsEnabled}
-                                trackColor={{ false: "#1a110d", true: "#8b4513" }}
+                                trackColor={{ false: '#1a110d', true: '#8b4513' }}
                                 thumbColor="#e6dccf"
                             />
+                        </View>
+
+                        <View className="border-t border-[#5c4033]/30 pt-4">
+                            <Text className="text-xl font-bold text-[#e6dccf] font-serif mb-4">Speech Settings</Text>
+                            
+                            <Text className="text-[#d4c5b0] font-bold mb-3">Speech Rate</Text>
+                            <View className="flex-row flex-wrap gap-2 mb-6">
+                                {[0.75, 1.0, 1.25, 1.5, 2.0].map(r => (
+                                    <TouchableOpacity 
+                                        key={r}
+                                        onPress={() => setRate(r)}
+                                        className={`px-4 py-2 rounded-lg border ${rate === r ? 'bg-[#8b4513] border-[#8b4513]' : 'bg-[#1a110d] border-[#5c4033]'}`}
+                                    >
+                                        <Text className={`font-bold ${rate === r ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{r}x</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+
+                            <Text className="text-[#d4c5b0] font-bold mb-3">Sleep Timer</Text>
+                            <View className="flex-row gap-2">
+                                {[15, 30, 60].map(m => (
+                                    <TouchableOpacity 
+                                        key={m}
+                                        onPress={() => startSleepTimer(m)}
+                                        className={`flex-1 px-4 py-3 rounded-xl border items-center ${selectedTimerMinutes === m ? 'bg-[#8b4513] border-[#8b4513]' : 'bg-[#1a110d] border-[#5c4033]'}`}
+                                    >
+                                        <Text className={`font-bold ${selectedTimerMinutes === m ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{m}m</Text>
+                                    </TouchableOpacity>
+                                ))}
+                                <TouchableOpacity 
+                                    onPress={() => { 
+                                        if (sleepTimer) clearInterval(sleepTimer); 
+                                        setSleepTimer(null); 
+                                        setSelectedTimerMinutes(null);
+                                        setRemainingSeconds(null);
+                                    }}
+                                    className="flex-1 px-4 py-3 rounded-xl border border-[#5c4033] bg-[#1a110d] items-center"
+                                >
+                                    <Text className="text-[#d4c5b0] font-bold">Off</Text>
+                                </TouchableOpacity>
+                            </View>
+                            {remainingSeconds !== null && (
+                                <Text className="text-[#8b4513] text-sm mt-3 font-bold italic text-center">
+                                    Stopping in {Math.floor(remainingSeconds / 60)}m {remainingSeconds % 60}s
+                                </Text>
+                            )}
                         </View>
                     </View>
                 </View>

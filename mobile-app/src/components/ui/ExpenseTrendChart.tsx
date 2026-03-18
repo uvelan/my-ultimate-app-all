@@ -1,19 +1,24 @@
 import React from 'react';
 import { View, Text, useWindowDimensions } from 'react-native';
-import { VictoryChart, VictoryBar, VictoryLine, VictoryAxis, VictoryGroup, VictoryTheme, VictoryTooltip } from 'victory-native';
+import { VictoryChart, VictoryBar, VictoryLine, VictoryAxis, VictoryGroup, VictoryTheme, VictoryTooltip, VictoryStack } from 'victory-native';
 
 interface TrendData {
     period: string;
     expense: number;
+    [key: string]: any;
 }
 
 interface ExpenseTrendChartProps {
     data: TrendData[];
+    categories?: { name: string, color: string }[];
+    hiddenCategories?: Set<string>;
 }
 
-export function ExpenseTrendChart({ data }: ExpenseTrendChartProps) {
+export function ExpenseTrendChart({ data, categories = [], hiddenCategories = new Set() }: ExpenseTrendChartProps) {
     const { width } = useWindowDimensions();
     const chartWidth = width - 32;
+
+    const visibleCategories = categories.filter(cat => !hiddenCategories.has(cat.name));
 
     return (
         <View>
@@ -41,18 +46,30 @@ export function ExpenseTrendChart({ data }: ExpenseTrendChartProps) {
                     }}
                 />
 
-                <VictoryBar
-                    data={data}
-                    x="period"
-                    y="expense"
-                    style={{
-                        data: { fill: '#8b4513', width: 20 }
-                    }}
-                    animate={{
-                        duration: 500,
-                        onLoad: { duration: 500 }
-                    }}
-                />
+                {visibleCategories.length > 0 ? (
+                    <VictoryStack>
+                        {visibleCategories.map((cat, idx) => (
+                            <VictoryBar
+                                key={`bar-${idx}`}
+                                data={data}
+                                x="period"
+                                y={(datum: any) => datum[cat.name] || 0}
+                                style={{
+                                    data: { fill: cat.color, width: 20 }
+                                }}
+                            />
+                        ))}
+                    </VictoryStack>
+                ) : (
+                    <VictoryBar
+                        data={data}
+                        x="period"
+                        y="expense"
+                        style={{
+                            data: { fill: '#8b4513', width: 20 }
+                        }}
+                    />
+                )}
 
                 <VictoryLine
                     data={data}

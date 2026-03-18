@@ -17,20 +17,20 @@ import Image from 'next/image';
 export default function AppCard({ name, description, image, onClick }: AppCardProps) {
     return (
         <Card 
-            className="group cursor-pointer overflow-hidden border-none bg-background-surface hover:shadow-shadow-md transition-premium h-full flex flex-col w-full"
+            className="group cursor-pointer overflow-hidden bg-background-surface border border-transparent hover:border-accent/30 hover:shadow-shadow-glow transition-all duration-300 h-full flex flex-col w-full"
             onClick={onClick}
         >
-            <div className="relative w-full h-40 md:h-48 overflow-hidden bg-background-muted flex flex-col items-center justify-center transition-premium group-hover:bg-primary/5">
+            <div className="relative w-full h-40 md:h-48 overflow-hidden bg-background-muted flex flex-col items-center justify-center transition-all duration-500 group-hover:bg-primary/10">
                 {image ? (
                     <Image
                         src={image}
                         alt={name}
                         fill
                         sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
-                        className="object-cover transition-premium group-hover:scale-105"
+                        className="object-cover transition-transform duration-700 group-hover:scale-110"
                     />
                 ) : (
-                    <AppWindow className="h-12 w-12 text-text-muted transition-premium group-hover:text-primary/40 group-hover:scale-110" />
+                    <AppWindow className="h-12 w-12 text-text-muted transition-all duration-500 group-hover:text-primary group-hover:scale-125 animate-pulse" />
                 )}
                 
                 {/* Subtle overlay on hover */}

@@ -1,5 +1,12 @@
 import { api } from '../lib/api-client';
 
+export interface ChapterMeta {
+    id: string;
+    title: string;
+    order: number;
+    content: string | string[];
+}
+
 export const bookService = {
     getBooks: async () => {
         const res = await api.get('/books');
@@ -11,6 +18,18 @@ export const bookService = {
         return res.data;
     },
 
+    downloadBook: async (id: string) => {
+        const res = await api.get(`/books/${id}/download`, { responseType: 'blob' });
+        return res.data;
+    },
+
+    /** Fetch ALL chapters for a book in one request. Returns { chapters: ChapterMeta[] } */
+    getAllChapters: async (bookId: string): Promise<{ chapters: ChapterMeta[] }> => {
+        const res = await api.get(`/books/${bookId}/chapters`);
+        return res.data;
+    },
+
+    /** Legacy: fetch a single chapter by order index */
     getChapterContent: async (bookId: string, chapterId: string) => {
         const res = await api.get(`/books/${bookId}/chapters/${chapterId}`);
         return res.data;

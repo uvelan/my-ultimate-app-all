@@ -101,15 +101,15 @@ export default function Sidebar({
                                         title={isCollapsed ? item.name : ''}
                                         onClick={closeMobile}
                                         className={cn(
-                                            "flex items-center gap-space-3 px-space-4 py-space-3 rounded-radius-lg transition-premium group",
+                                            "flex items-center gap-space-3 px-space-4 py-space-3 rounded-radius-lg transition-premium group relative",
                                             isActive
-                                                ? "bg-primary text-text-inverted shadow-shadow-md"
+                                                ? "bg-primary text-text-primary shadow-shadow-glow"
                                                 : "text-text-secondary hover:bg-secondary-hover hover:text-text-primary"
                                         )}
                                     >
                                         <Icon className={cn(
-                                            "h-5 w-5 shrink-0",
-                                            isActive ? "text-text-inverted" : "text-text-muted group-hover:text-primary"
+                                            "h-5 w-5 shrink-0 transition-premium",
+                                            isActive ? "text-text-primary" : "text-text-muted group-hover:text-primary"
                                         )} />
                                         {!isCollapsed && (
                                             <span className="font-medium whitespace-nowrap">{item.name}</span>

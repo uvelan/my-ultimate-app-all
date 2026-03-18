@@ -1,8 +1,8 @@
 import { api } from '../lib/api-client';
 
 export const expenseService = {
-    getExpenses: async () => {
-        const res = await api.get('/expense');
+    getExpenses: async (startDate?: string, endDate?: string) => {
+        const res = await api.get('/expense', { params: { startDate, endDate } });
         return res.data;
     },
 
@@ -18,6 +18,11 @@ export const expenseService = {
 
     addExpense: async (data: any) => {
         const res = await api.post('/expense', data);
+        return res.data;
+    },
+
+    updateExpense: async (id: string, data: any) => {
+        const res = await api.put(`/expense/${id}`, data);
         return res.data;
     },
 
@@ -54,6 +59,11 @@ export const scraperService = {
 
     deleteScrapedNovel: async (id: string) => {
         await api.delete(`/novelscraper/novels/${id}`);
+    },
+
+    syncScraperNovel: async (id: string) => {
+        const res = await api.post(`/novelscraper/novels/${id}/sync`);
+        return res.data;
     },
 
     getScraperSettings: async () => {

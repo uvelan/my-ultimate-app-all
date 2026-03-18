@@ -1,0 +1,107 @@
+--------- beginning of main
+03-17 22:12:04.284  8002  8002 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+03-17 22:12:04.291  8002  8002 I AndroidRuntime: Using default boot image
+03-17 22:12:04.291  8002  8002 I AndroidRuntime: Leaving lock profiling enabled
+03-17 22:12:04.293  8002  8002 D AndroidRuntime: addProductProperty not brand or 7
+03-17 22:12:04.580  8002  8002 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+03-17 22:12:06.179  8002  8002 D AndroidRuntime: Shutting down VM
+03-17 22:13:02.621 10566 10566 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+03-17 22:13:02.629 10566 10566 I AndroidRuntime: Using default boot image
+03-17 22:13:02.629 10566 10566 I AndroidRuntime: Leaving lock profiling enabled
+03-17 22:13:02.630 10566 10566 D AndroidRuntime: addProductProperty not brand or 7
+03-17 22:13:02.795 10566 10566 D AndroidRuntime: Calling main entry com.android.commands.monkey.Monkey
+03-17 22:13:02.929 10566 10566 I AndroidRuntime: VM exiting with result code 0.
+03-17 22:13:06.838 10591 10591 D AndroidRuntime: Shutting down VM
+--------- beginning of crash
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: FATAL EXCEPTION: main
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: Process: com.uvelan.ultimateapp, PID: 10591
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: java.lang.RuntimeException: Unable to load script.
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: Make sure you're running Metro or that your bundle 'index.android.bundle' is packaged correctly for release.
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: The device must either be USB connected (with bundler set to "localhost:8081") or be on the same Wi-Fi network as your computer (with bundler set to your computer IP) to connect to Metro.
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: If you're using USB on a physical device, make sure you also run this command:
+03-17 22:13:06.844 10591 10591 E AndroidRuntime:   adb reverse tcp:8081 tcp:8081
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance.loadJSBundleFromAssets(Native Method)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance.access$loadJSBundleFromAssets(ReactInstance.kt:84)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance$loadJSBundle$1.loadScriptFromAssets(ReactInstance.kt:324)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.bridge.JSBundleLoader$Companion$createAssetLoader$1.loadScript(JSBundleLoader.kt:33)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance.loadJSBundle(ReactInstance.kt:303)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactHostImpl.getOrCreateReactInstanceTask$lambda$44$lambda$40(ReactHostImpl.kt:1015)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactHostImpl.$r8$lambda$kGNcmxBxZbp8b1wWTaqIXDdkV8g(Unknown Source:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.ReactHostImpl$$ExternalSyntheticLambda24.then(D8$$SyntheticClass:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.completeImmediately$lambda$3(Task.kt:360)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.$r8$lambda$b7MTC0ufkn_2TjF4BGcNqGR9qK0(Unknown Source:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion$$ExternalSyntheticLambda3.run(D8$$SyntheticClass:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Executors$ImmediateExecutor.execute(Executors.kt:41)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.completeImmediately(Task.kt:358)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.access$completeImmediately(Task.kt:254)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.continueWith(Task.kt:133)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.continueWith$default(Task.kt:117)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.onSuccess$lambda$12(Task.kt:176)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.$r8$lambda$l0wwo5AvbHxlwfI1R7CH_codxoo(Unknown Source:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$$ExternalSyntheticLambda2.then(D8$$SyntheticClass:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.completeAfterTask$lambda$5(Task.kt:394)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.$r8$lambda$IPpysnehFwANEiW061YzapkMdoE(Unknown Source:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion$$ExternalSyntheticLambda4.run(D8$$SyntheticClass:0)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+03-17 22:13:06.844 10591 10591 E AndroidRuntime: 	at java.lang.Thread.run(Thread.java:1012)
+03-17 22:13:08.153 10712 10712 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+03-17 22:13:08.158 10712 10712 I AndroidRuntime: Using default boot image
+03-17 22:13:08.158 10712 10712 I AndroidRuntime: Leaving lock profiling enabled
+03-17 22:13:08.159 10712 10712 D AndroidRuntime: addProductProperty not brand or 7
+03-17 22:13:08.291 10712 10712 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+03-17 22:13:09.371 10712 10712 D AndroidRuntime: Shutting down VM
+03-17 22:14:01.738 11582 11582 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+03-17 22:14:01.743 11582 11582 I AndroidRuntime: Using default boot image
+03-17 22:14:01.743 11582 11582 I AndroidRuntime: Leaving lock profiling enabled
+03-17 22:14:01.744 11582 11582 D AndroidRuntime: addProductProperty not brand or 7
+03-17 22:14:01.893 11582 11582 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+03-17 22:14:02.098 11530 11530 D AndroidRuntime: Shutting down VM
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: FATAL EXCEPTION: main
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: Process: com.uvelan.ultimateapp, PID: 11530
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: java.lang.RuntimeException: Unable to load script.
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: Make sure you're running Metro or that your bundle 'index.android.bundle' is packaged correctly for release.
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: The device must either be USB connected (with bundler set to "localhost:8081") or be on the same Wi-Fi network as your computer (with bundler set to your computer IP) to connect to Metro.
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: If you're using USB on a physical device, make sure you also run this command:
+03-17 22:14:02.103 11530 11530 E AndroidRuntime:   adb reverse tcp:8081 tcp:8081
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance.loadJSBundleFromAssets(Native Method)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance.access$loadJSBundleFromAssets(ReactInstance.kt:84)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance$loadJSBundle$1.loadScriptFromAssets(ReactInstance.kt:324)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.bridge.JSBundleLoader$Companion$createAssetLoader$1.loadScript(JSBundleLoader.kt:33)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactInstance.loadJSBundle(ReactInstance.kt:303)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactHostImpl.getOrCreateReactInstanceTask$lambda$44$lambda$40(ReactHostImpl.kt:1015)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactHostImpl.$r8$lambda$kGNcmxBxZbp8b1wWTaqIXDdkV8g(Unknown Source:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.ReactHostImpl$$ExternalSyntheticLambda24.then(D8$$SyntheticClass:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.completeImmediately$lambda$3(Task.kt:360)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.$r8$lambda$b7MTC0ufkn_2TjF4BGcNqGR9qK0(Unknown Source:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion$$ExternalSyntheticLambda3.run(D8$$SyntheticClass:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Executors$ImmediateExecutor.execute(Executors.kt:41)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.completeImmediately(Task.kt:358)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.access$completeImmediately(Task.kt:254)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.continueWith(Task.kt:133)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.continueWith$default(Task.kt:117)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.onSuccess$lambda$12(Task.kt:176)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task.$r8$lambda$l0wwo5AvbHxlwfI1R7CH_codxoo(Unknown Source:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$$ExternalSyntheticLambda2.then(D8$$SyntheticClass:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.completeAfterTask$lambda$5(Task.kt:394)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion.$r8$lambda$IPpysnehFwANEiW061YzapkMdoE(Unknown Source:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at com.facebook.react.runtime.internal.bolts.Task$Companion$$ExternalSyntheticLambda4.run(D8$$SyntheticClass:0)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+03-17 22:14:02.103 11530 11530 E AndroidRuntime: 	at java.lang.Thread.run(Thread.java:1012)
+03-17 22:14:03.292 11582 11582 D AndroidRuntime: Shutting down VM
+03-17 22:14:57.051 12679 12679 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+03-17 22:14:57.055 12679 12679 I AndroidRuntime: Using default boot image
+03-17 22:14:57.055 12679 12679 I AndroidRuntime: Leaving lock profiling enabled
+03-17 22:14:57.056 12679 12679 D AndroidRuntime: addProductProperty not brand or 7
+03-17 22:14:57.168 12679 12679 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+03-17 22:14:58.206 12679 12679 D AndroidRuntime: Shutting down VM
+03-17 22:15:18.115 11762 12763 I ReactNativeJS: Running "main" with {"rootTag":1,"initialProps":{},"fabric":true}
+03-17 22:15:18.137 11762 12763 W ReactNativeJS: SafeAreaView has been deprecated and will be removed in a future release. Please use 'react-native-safe-area-context' instead. See https://github.com/AppAndFlow/react-native-safe-area-context
+03-17 22:15:28.900 11762 12763 W ReactNativeJS: 'MMKV initialization failed, using memory fallback:', [Error: MMKV class not found in react-native-mmkv], { [Stack] name: 'Stack' }

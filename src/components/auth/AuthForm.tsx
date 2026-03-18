@@ -116,19 +116,30 @@ export default function AuthForm({ type }: AuthFormProps) {
                 )}
 
                 {type === 'login' && (
-                    <div className="flex items-center gap-space-2 mt-space-2 mb-space-4">
-                        <input 
-                            className="w-4 h-4 rounded-radius-sm border-border text-accent focus:ring-accent bg-background-surface cursor-pointer" 
-                            type="checkbox" 
-                            id="rememberMe" 
-                        />
-                        <label className="text-small text-text-secondary cursor-pointer select-none font-medium" htmlFor="rememberMe">
+                    <div className="flex items-center gap-space-3 mt-space-2 mb-space-4 group">
+                        <div className="relative flex items-center justify-center">
+                            <input 
+                                className="peer w-5 h-5 rounded-radius-sm border-2 border-border text-accent focus:ring-2 focus:ring-accent/30 bg-background-surface cursor-pointer appearance-none transition-all checked:bg-accent checked:border-accent" 
+                                type="checkbox" 
+                                id="rememberMe" 
+                            />
+                            <svg 
+                                className="absolute w-3.5 h-3.5 text-white pointer-events-none opacity-0 scale-50 peer-checked:opacity-100 peer-checked:scale-100 transition-all duration-fast" 
+                                fill="none" 
+                                viewBox="0 0 24 24" 
+                                stroke="currentColor" 
+                                strokeWidth={3}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
+                        <label className="text-small text-text-secondary cursor-pointer select-none font-medium group-hover:text-text-primary transition-colors duration-fast" htmlFor="rememberMe">
                             Remember me
                         </label>
                     </div>
                 )}
 
-                <Button type="submit" className="w-full mt-space-6" size="lg" isLoading={loading}>
+                <Button type="submit" className="w-full mt-space-6 shadow-shadow-md hover:shadow-shadow-glow transition-all" size="lg" isLoading={loading}>
                     {type === 'login' ? 'Sign In' : 'Sign Up'}
                 </Button>
 

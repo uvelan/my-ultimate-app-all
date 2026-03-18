@@ -3,6 +3,7 @@ import { View, Text, FlatList, ActivityIndicator, RefreshControl } from 'react-n
 import { AppCard } from '@/src/components/ui/AppCard';
 import { useRouter } from 'expo-router';
 import { api } from '@/src/lib/api-client';
+import { SidebarToggle } from '@/src/components/ui/Sidebar';
 
 interface MyApp {
     id: string;
@@ -75,10 +76,13 @@ export default function DashboardScreen() {
     };
 
     return (
-        <View className="flex-1 bg-[#2e1d15]">
-            <View className="px-6 pt-12 pb-4 border-b border-[#5c4033] bg-[#1a110d]/50">
-                <Text className="text-3xl font-bold text-[#e6dccf] font-serif">Explorer Hub</Text>
-                <Text className="text-[#d4c5b0]/60 text-sm mt-1">Select an artifact to begin</Text>
+        <View className="flex-1 bg-background">
+            <View className="px-6 pt-12 pb-4 border-b border-border bg-background-surface/80 flex-row items-center">
+                <SidebarToggle />
+                <View className="ml-3">
+                    <Text className="text-3xl font-bold text-text-primary font-serif">Explore Apps</Text>
+                    <Text className="text-text-secondary text-sm mt-1">Discover and manage your connected modules.</Text>
+                </View>
             </View>
 
             <FlatList
@@ -88,7 +92,7 @@ export default function DashboardScreen() {
                 contentContainerStyle={{ padding: 16 }}
                 columnWrapperStyle={{ justifyContent: 'space-between' }}
                 refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b4513" />
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />
                 }
                 renderItem={({ item }) => (
                     <View className="w-[48%]">
@@ -102,10 +106,10 @@ export default function DashboardScreen() {
                 )}
                 ListEmptyComponent={
                     loading ? (
-                        <ActivityIndicator color="#8b4513" size="large" className="mt-20" />
+                        <ActivityIndicator color="#8b5cf6" size="large" className="mt-20" />
                     ) : (
                         <View className="mt-20 items-center">
-                            <Text className="text-[#d4c5b0]/60 text-lg">No modules found</Text>
+                            <Text className="text-text-secondary text-lg">No modules found</Text>
                         </View>
                     )
                 }
