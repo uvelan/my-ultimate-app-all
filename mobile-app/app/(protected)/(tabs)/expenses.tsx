@@ -256,62 +256,62 @@ export default function ExpensesScreen() {
 
     if (loading) {
         return (
-            <View className="flex-1 bg-[#2e1d15] items-center justify-center">
-                <ActivityIndicator size="large" color="#8b4513" />
+            <View className="flex-1 bg-background items-center justify-center">
+                <ActivityIndicator size="large" color="#8b5cf6" />
             </View>
         );
     }
 
     return (
-        <View className="flex-1 bg-[#2e1d15]">
-            <View className="px-6 pt-12 pb-4 bg-[#1a110d]/50 border-b border-[#5c4033]">
+        <View className="flex-1 bg-background">
+            <View className="px-6 pt-12 pb-4 bg-background/50 border-b border-border">
                 <View className="flex-row justify-between items-center">
                     <View className="flex-row items-center">
                         <SidebarToggle />
-                        <Text className="text-3xl font-bold text-[#e6dccf] font-serif ml-3">Financials</Text>
+                        <Text className="text-3xl font-bold text-text-primary font-serif ml-3">Financials</Text>
                     </View>
                     <View className="flex-row items-center gap-2">
                         <TouchableOpacity 
                             onPress={() => activeSegment === 'income' ? setIsAddIncomeModalOpen(true) : setIsAddModalOpen(true)} 
-                            className="bg-[#8b4513] p-2 rounded-full shadow-lg"
+                            className="bg-accent p-2 rounded-full shadow-lg"
                         >
-                            <Plus size={20} color="#e6dccf" />
+                            <Plus size={20} color="#ffffff" />
                         </TouchableOpacity>
                     </View>
                 </View>
 
                 {/* Segment Switcher */}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-6">
-                    <View className="flex-row bg-[#2e1d15] rounded-xl p-1 border border-[#5c4033] min-w-full">
+                    <View className="flex-row bg-background rounded-xl p-1 border border-border min-w-full">
                         <TouchableOpacity
                             onPress={() => setActiveSegment('overview')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'overview' ? 'bg-[#5c4033]' : ''}`}
+                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'overview' ? 'bg-accent' : ''}`}
                         >
-                            <Text className={`font-bold ${activeSegment === 'overview' ? 'text-[#e6dccf]' : 'text-[#6f4e37]'}`}>Overview</Text>
+                            <Text className={`font-bold ${activeSegment === 'overview' ? 'text-text-primary' : 'text-text-muted'}`}>Overview</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => setActiveSegment('history')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'history' ? 'bg-[#5c4033]' : ''}`}
+                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'history' ? 'bg-accent' : ''}`}
                         >
-                            <Text className={`font-bold ${activeSegment === 'history' ? 'text-[#e6dccf]' : 'text-[#6f4e37]'}`}>History</Text>
+                            <Text className={`font-bold ${activeSegment === 'history' ? 'text-text-primary' : 'text-text-muted'}`}>History</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => setActiveSegment('income')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'income' ? 'bg-[#5c4033]' : ''}`}
+                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'income' ? 'bg-accent' : ''}`}
                         >
-                            <Text className={`font-bold ${activeSegment === 'income' ? 'text-[#e6dccf]' : 'text-[#6f4e37]'}`}>Income</Text>
+                            <Text className={`font-bold ${activeSegment === 'income' ? 'text-text-primary' : 'text-text-muted'}`}>Income</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => setActiveSegment('calendar')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'calendar' ? 'bg-[#5c4033]' : ''}`}
+                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'calendar' ? 'bg-accent' : ''}`}
                         >
-                            <Text className={`font-bold ${activeSegment === 'calendar' ? 'text-[#e6dccf]' : 'text-[#6f4e37]'}`}>Calendar</Text>
+                            <Text className={`font-bold ${activeSegment === 'calendar' ? 'text-text-primary' : 'text-text-muted'}`}>Calendar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => setActiveSegment('categories')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'categories' ? 'bg-[#5c4033]' : ''}`}
+                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'categories' ? 'bg-accent' : ''}`}
                         >
-                            <Text className={`font-bold ${activeSegment === 'categories' ? 'text-[#e6dccf]' : 'text-[#6f4e37]'}`}>Categories</Text>
+                            <Text className={`font-bold ${activeSegment === 'categories' ? 'text-text-primary' : 'text-text-muted'}`}>Categories</Text>
                         </TouchableOpacity>
                     </View>
                 </ScrollView>
@@ -319,20 +319,20 @@ export default function ExpensesScreen() {
                 {/* Global Month Selector */}
                 <View className="flex-row justify-between items-center mt-4">
                     <View className="flex-row items-center gap-2">
-                        <CalendarIcon size={20} color="#8b4513" />
-                        <Text className="text-[#e6dccf] font-bold text-xl font-serif">
+                        <CalendarIcon size={20} color="#8b5cf6" />
+                        <Text className="text-text-primary font-bold text-xl font-serif">
                             {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                         </Text>
                     </View>
-                    <View className="flex-row items-center bg-[#1a110d] rounded-lg border border-[#5c4033] p-1">
+                    <View className="flex-row items-center bg-background rounded-lg border border-border p-1">
                         <TouchableOpacity onPress={prevMonth} className="px-2 py-1">
-                            <ChevronLeft size={18} color="#d4c5b0" />
+                            <ChevronLeft size={18} color="#a39b98" />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={goToday} className="px-3 py-1">
-                            <Text className="text-[#e6dccf] font-bold text-xs uppercase tracking-wider">Today</Text>
+                            <Text className="text-text-primary font-bold text-xs uppercase tracking-wider">Today</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={nextMonth} className="px-2 py-1">
-                            <ChevronRight size={18} color="#d4c5b0" />
+                            <ChevronRight size={18} color="#a39b98" />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -340,7 +340,7 @@ export default function ExpensesScreen() {
 
             <ScrollView
                 className="flex-1"
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b4513" />}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />}
             >
                 {activeSegment === 'overview' ? (
                     <View className="p-6">
@@ -367,15 +367,15 @@ export default function ExpensesScreen() {
 
                         <View className="flex-row items-center justify-between mb-4">
                             <View className="flex-row items-center gap-2">
-                                <PieIcon size={20} color="#8b4513" />
-                                <Text className="text-[#e6dccf] font-bold text-xl font-serif">Breakdown</Text>
+                                <PieIcon size={20} color="#8b5cf6" />
+                                <Text className="text-text-primary font-bold text-xl font-serif">Breakdown</Text>
                             </View>
-                            <View className="flex-row bg-[#1a110d] rounded-lg border border-[#5c4033] p-1">
-                                <TouchableOpacity onPress={() => setGroupingMode('category')} className={`px-2 py-1 ${groupingMode === 'category' ? 'bg-[#5c4033] rounded-md' : ''}`}>
-                                    <Text className="text-[#e6dccf] text-xs font-bold uppercase">Category</Text>
+                            <View className="flex-row bg-background rounded-lg border border-border p-1">
+                                <TouchableOpacity onPress={() => setGroupingMode('category')} className={`px-2 py-1 ${groupingMode === 'category' ? 'bg-accent/30 rounded-md' : ''}`}>
+                                    <Text className="text-text-primary text-xs font-bold uppercase">Category</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setGroupingMode('method')} className={`px-2 py-1 ${groupingMode === 'method' ? 'bg-[#5c4033] rounded-md' : ''}`}>
-                                    <Text className="text-[#e6dccf] text-xs font-bold uppercase">Method</Text>
+                                <TouchableOpacity onPress={() => setGroupingMode('method')} className={`px-2 py-1 ${groupingMode === 'method' ? 'bg-accent/30 rounded-md' : ''}`}>
+                                    <Text className="text-text-primary text-xs font-bold uppercase">Method</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -384,8 +384,8 @@ export default function ExpensesScreen() {
                         </Card>
 
                         <View className="flex-row items-center mb-4 gap-2">
-                            <LineChart size={20} color="#8b4513" />
-                            <Text className="text-[#e6dccf] font-bold text-xl font-serif">Trends</Text>
+                            <LineChart size={20} color="#8b5cf6" />
+                            <Text className="text-text-primary font-bold text-xl font-serif">Trends</Text>
                         </View>
                         <Card className="p-4 pt-8 mb-8">
                             <ExpenseTrendChart data={historical} categories={historicalCategories} hiddenCategories={hiddenCategories} />
@@ -393,28 +393,28 @@ export default function ExpensesScreen() {
 
                         {/* Expense Summary Table */}
                         <View className="flex-row items-center mb-4 gap-2">
-                            <Wallet size={20} color="#8b4513" />
-                            <Text className="text-[#e6dccf] font-bold text-xl font-serif">Summary</Text>
+                            <Wallet size={20} color="#8b5cf6" />
+                            <Text className="text-text-primary font-bold text-xl font-serif">Summary</Text>
                         </View>
                         <Card className="p-4 mb-8">
-                            <View className="flex-row justify-between py-2 border-b border-[#5c4033]">
-                                <Text className="text-[#d4c5b0] font-bold text-xs uppercase">{groupingMode === 'category' ? 'Category' : 'Method'}</Text>
-                                <Text className="text-[#d4c5b0] font-bold text-xs uppercase">Amount</Text>
+                            <View className="flex-row justify-between py-2 border-b border-border">
+                                <Text className="text-text-secondary font-bold text-xs uppercase">{groupingMode === 'category' ? 'Category' : 'Method'}</Text>
+                                <Text className="text-text-secondary font-bold text-xs uppercase">Amount</Text>
                             </View>
                             {breakdown
                                 .filter((item: any) => !hiddenCategories.has(item.name))
                                 .sort((a: any, b: any) => b.value - a.value)
                                 .map((item: any, idx: number) => (
-                                    <View key={idx} className="flex-row justify-between items-center py-3 border-b border-[#5c4033]/30">
+                                    <View key={idx} className="flex-row justify-between items-center py-3 border-b border-border/30">
                                         <View className="flex-row items-center">
                                             <View className="w-2.5 h-2.5 rounded-full mr-2" style={{ backgroundColor: item.color || '#6c757d' }} />
-                                            <Text className="text-[#e6dccf] font-bold text-sm">{item.name}</Text>
+                                            <Text className="text-text-primary font-bold text-sm">{item.name}</Text>
                                         </View>
                                         <Text className="text-[#ef4444] font-bold text-sm">-₹{item.value.toLocaleString()}</Text>
                                     </View>
                                 ))}
                             <View className="flex-row justify-between py-3 mt-1">
-                                <Text className="text-[#e6dccf] font-bold text-sm">Total Expenses</Text>
+                                <Text className="text-text-primary font-bold text-sm">Total Expenses</Text>
                                 <Text className="text-[#ef4444] font-bold text-sm">
                                     -₹{breakdown
                                         .filter((item: any) => !hiddenCategories.has(item.name))
@@ -427,31 +427,31 @@ export default function ExpensesScreen() {
                 ) : activeSegment === 'history' ? (
                     <View className="p-6">
                         <View className="flex-row items-center mb-4 gap-2">
-                            <HistoryIcon size={20} color="#8b4513" />
-                            <Text className="text-[#e6dccf] font-bold text-xl font-serif">History</Text>
+                            <HistoryIcon size={20} color="#8b5cf6" />
+                            <Text className="text-text-primary font-bold text-xl font-serif">History</Text>
                         </View>
 
                         {/* Filters */}
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
-                            <TouchableOpacity onPress={() => setHistoryFilterMethod('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === 'All' ? 'border-[#e6dccf] bg-[#5c4033]' : 'border-[#5c4033] bg-[#1a110d]'}`}>
-                                <Text className={`text-xs font-bold ${historyFilterMethod === 'All' ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>All Methods</Text>
+                            <TouchableOpacity onPress={() => setHistoryFilterMethod('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
+                                <Text className={`text-xs font-bold ${historyFilterMethod === 'All' ? 'text-text-primary' : 'text-text-secondary'}`}>All Methods</Text>
                             </TouchableOpacity>
                             {['Cash', 'Card', 'UPI', 'Bank Transfer'].map(m => (
-                                <TouchableOpacity key={m} onPress={() => setHistoryFilterMethod(m)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === m ? 'border-[#e6dccf] bg-[#5c4033]' : 'border-[#5c4033] bg-[#1a110d]'}`}>
-                                    <Text className={`text-xs font-bold ${historyFilterMethod === m ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{m}</Text>
+                                <TouchableOpacity key={m} onPress={() => setHistoryFilterMethod(m)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === m ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
+                                    <Text className={`text-xs font-bold ${historyFilterMethod === m ? 'text-text-primary' : 'text-text-secondary'}`}>{m}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-6">
-                            <TouchableOpacity onPress={() => setHistoryFilterCategory('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === 'All' ? 'border-[#e6dccf] bg-[#5c4033]' : 'border-[#5c4033] bg-[#1a110d]'}`}>
-                                <Text className={`text-xs font-bold ${historyFilterCategory === 'All' ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>All Categories</Text>
+                            <TouchableOpacity onPress={() => setHistoryFilterCategory('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
+                                <Text className={`text-xs font-bold ${historyFilterCategory === 'All' ? 'text-text-primary' : 'text-text-secondary'}`}>All Categories</Text>
                             </TouchableOpacity>
                             {categories.map(c => (
-                                <TouchableOpacity key={c.id} onPress={() => setHistoryFilterCategory(c.id)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === c.id ? 'border-[#e6dccf] bg-[#5c4033]' : 'border-[#5c4033] bg-[#1a110d]'}`}>
+                                <TouchableOpacity key={c.id} onPress={() => setHistoryFilterCategory(c.id)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === c.id ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
                                     <View className="flex-row items-center">
                                         <View className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: c.color }} />
-                                        <Text className={`text-xs font-bold ${historyFilterCategory === c.id ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{c.name}</Text>
+                                        <Text className={`text-xs font-bold ${historyFilterCategory === c.id ? 'text-text-primary' : 'text-text-secondary'}`}>{c.name}</Text>
                                     </View>
                                 </TouchableOpacity>
                             ))}
@@ -467,27 +467,27 @@ export default function ExpensesScreen() {
                             return (
                                 <>
                                     <View className="flex-row justify-between items-center mb-4 px-2">
-                                        <Text className="text-[#d4c5b0] font-bold text-xs uppercase tracking-wider">Count: {filteredHistory.length}</Text>
+                                        <Text className="text-text-secondary font-bold text-xs uppercase tracking-wider">Count: {filteredHistory.length}</Text>
                                         <Text className="text-[#ef4444] font-bold text-lg tracking-tight">Total: -₹{totalFiltered.toLocaleString()}</Text>
                                     </View>
 
                                     {filteredHistory.length === 0 ? (
                                         <View className="mt-8 items-center">
-                                            <Text className="text-[#d4c5b0]/40 italic text-center">No transactions found</Text>
+                                            <Text className="text-text-secondary/40 italic text-center">No transactions found</Text>
                                         </View>
                                     ) : (
                                         filteredHistory.map((item) => (
                                             <Card key={item.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm">
                                                 <View className="flex-1">
-                                                    <Text className="text-[#e6dccf] font-bold text-base">{item.notes || item.category?.name || 'Expense'}</Text>
-                                                    <Text className="text-[#d4c5b0]/60 text-xs mt-0.5">
+                                                    <Text className="text-text-primary font-bold text-base">{item.notes || item.category?.name || 'Expense'}</Text>
+                                                    <Text className="text-text-secondary/60 text-xs mt-0.5">
                                                         {new Date(item.date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                                                     </Text>
                                                 </View>
                                                 <View className="items-end flex-row gap-3 mt-1">
                                                     <View className="items-end mr-2">
                                                         <Text className="text-[#ef4444] font-bold text-lg">-₹{item.amount.toLocaleString()}</Text>
-                                                        <Text className="text-[#d4c5b0]/40 text-[10px] uppercase tracking-tighter">{item.paymentMethod}</Text>
+                                                        <Text className="text-text-secondary/40 text-[10px] uppercase tracking-tighter">{item.paymentMethod}</Text>
                                                     </View>
                                                     <TouchableOpacity onPress={() => handleEditExpense(item)} className="bg-blue-500/10 p-2 rounded-full">
                                                         <Pencil size={16} color="#3b82f6" />
@@ -507,19 +507,19 @@ export default function ExpensesScreen() {
                     <View className="p-6">
                         <View className="flex-row items-center mb-6 gap-2">
                             <Wallet size={20} color="#10b981" />
-                            <Text className="text-[#e6dccf] font-bold text-xl font-serif">Income Stream</Text>
+                            <Text className="text-text-primary font-bold text-xl font-serif">Income Stream</Text>
                         </View>
 
                         {incomes.length === 0 ? (
                             <View className="mt-10 items-center">
-                                <Text className="text-[#d4c5b0]/40 italic text-center">No income records found</Text>
+                                <Text className="text-text-secondary/40 italic text-center">No income records found</Text>
                             </View>
                         ) : (
                             incomes.map((item) => (
                                 <Card key={item.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#10b981]">
                                     <View className="flex-1">
-                                        <Text className="text-[#e6dccf] font-bold text-base">{item.source}</Text>
-                                        <Text className="text-[#d4c5b0]/60 text-xs mt-0.5">
+                                        <Text className="text-text-primary font-bold text-base">{item.source}</Text>
+                                        <Text className="text-text-secondary/60 text-xs mt-0.5">
                                             {new Date(item.date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                                         </Text>
                                     </View>
@@ -539,25 +539,25 @@ export default function ExpensesScreen() {
                     <View className="p-6">
                         <View className="flex-row justify-between items-center mb-6">
                             <View className="flex-row items-center gap-2">
-                                <PieIcon size={20} color="#8b4513" />
-                                <Text className="text-[#e6dccf] font-bold text-xl font-serif">Categories</Text>
+                                <PieIcon size={20} color="#8b5cf6" />
+                                <Text className="text-text-primary font-bold text-xl font-serif">Categories</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(true)} className="bg-[#5c4033] px-3 py-1.5 rounded-lg flex-row items-center">
-                                <Plus size={16} color="#e6dccf" />
-                                <Text className="text-[#e6dccf] font-bold ml-1 text-xs">Add</Text>
+                            <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(true)} className="bg-accent/30 px-3 py-1.5 rounded-lg flex-row items-center">
+                                <Plus size={16} color="#ffffff" />
+                                <Text className="text-text-primary font-bold ml-1 text-xs">Add</Text>
                             </TouchableOpacity>
                         </View>
 
                         {categories.length === 0 ? (
                             <View className="mt-10 items-center">
-                                <Text className="text-[#d4c5b0]/40 italic text-center">No categories found</Text>
+                                <Text className="text-text-secondary/40 italic text-center">No categories found</Text>
                             </View>
                         ) : (
                             <View className="flex-row flex-wrap justify-between">
                                 {categories.map((item) => (
-                                    <Card key={item.id} className="p-4 mb-3 w-[48%] flex-col items-center shadow-sm border border-[#5c4033]">
+                                    <Card key={item.id} className="p-4 mb-3 w-[48%] flex-col items-center shadow-sm border border-border">
                                         <View className="w-8 h-8 rounded-full mb-2" style={{ backgroundColor: item.color }} />
-                                        <Text className="text-[#e6dccf] font-bold text-center mb-2">{item.name}</Text>
+                                        <Text className="text-text-primary font-bold text-center mb-2">{item.name}</Text>
                                         <TouchableOpacity onPress={() => handleDeleteCategory(item.id)} className="bg-red-500/10 p-2 rounded-full mt-2">
                                             <X size={14} color="#ef4444" />
                                         </TouchableOpacity>
@@ -568,12 +568,12 @@ export default function ExpensesScreen() {
                     </View>
                 ) : activeSegment === 'calendar' ? (
                     <View className="p-6">
-                        <Card className="p-0 overflow-hidden border-[#5c4033]">
+                        <Card className="p-0 overflow-hidden border-border">
                             {/* Days Header */}
-                            <View className="flex-row border-b border-[#5c4033] bg-[#1a110d]">
+                            <View className="flex-row border-b border-border/60 bg-background">
                                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
-                                    <View key={i} className="flex-1 py-3 items-center border-r last:border-r-0 border-[#5c4033]/30">
-                                        <Text className="text-[#d4c5b0]/80 font-bold text-[10px] uppercase">{d}</Text>
+                                    <View key={i} className="flex-1 py-3 items-center border-r last:border-r-0 border-border/30">
+                                        <Text className="text-text-secondary/80 font-bold text-[10px] uppercase">{d}</Text>
                                     </View>
                                 ))}
                             </View>
@@ -606,10 +606,10 @@ export default function ExpensesScreen() {
                                                     setIsDayModalOpen(true);
                                                 }
                                             }}
-                                            className={`w-[14.28%] h-20 border-r border-b border-[#5c4033]/30 p-1 ${isCurrentMonth ? '' : 'bg-black/20'} ${hasActivity ? 'bg-[#5c4033]/10' : ''}`}
+                                            className={`w-[14.28%] h-20 border-r border-b border-border/30 p-1 ${isCurrentMonth ? '' : 'bg-black/20'} ${hasActivity ? 'bg-accent/30/10' : ''}`}
                                         >
-                                            <View className={`w-5 h-5 rounded-full items-center justify-center mb-1 ${isToday ? 'bg-[#8b4513]' : ''}`}>
-                                                <Text className={`text-[10px] font-bold ${isToday ? 'text-[#e6dccf]' : isCurrentMonth ? 'text-[#d4c5b0]' : 'text-[#d4c5b0]/30'}`}>
+                                            <View className={`w-5 h-5 rounded-full items-center justify-center mb-1 ${isToday ? 'bg-accent' : ''}`}>
+                                                <Text className={`text-[10px] font-bold ${isToday ? 'text-text-primary' : isCurrentMonth ? 'text-text-secondary' : 'text-text-secondary/30'}`}>
                                                     {day.getDate()}
                                                 </Text>
                                             </View>
@@ -637,80 +637,80 @@ export default function ExpensesScreen() {
             {/* Add Expense Modal */}
             <Modal visible={isAddModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[50%] border-t border-[#5c4033]">
+                    <View className="bg-background rounded-t-3xl p-6 min-h-[50%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Add Expense</Text>
+                            <Text className="text-2xl font-bold text-text-primary font-serif">Add Expense</Text>
                             <TouchableOpacity onPress={() => setIsAddModalOpen(false)}>
-                                <X size={24} color="#d4c5b0" />
+                                <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Amount (₹)</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Amount (₹)</Text>
                         <TextInput 
                             keyboardType="numeric"
                             value={amount}
                             onChangeText={setAmount}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-4 font-bold text-lg"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-4 font-bold text-lg"
+                            placeholderTextColor="#6b7280"
                             placeholder="0.00"
                         />
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Notes</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Notes</Text>
                         <TextInput 
                             value={notes}
                             onChangeText={setNotes}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-6"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-6"
+                            placeholderTextColor="#6b7280"
                             placeholder="E.g. Lunch, Groceries..."
                         />
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Category</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Category</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
                             {categories.map(cat => (
                                 <TouchableOpacity 
                                     key={cat.id} 
                                     onPress={() => setSelectedCategory(cat.id)}
-                                    className={`mr-3 px-4 py-2 rounded-full border ${selectedCategory === cat.id ? 'border-[#e6dccf] bg-[#5c4033]' : 'border-[#5c4033] bg-[#1a110d]'}`}
+                                    className={`mr-3 px-4 py-2 rounded-full border ${selectedCategory === cat.id ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}
                                 >
                                     <View className="flex-row items-center">
                                         <View className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: cat.color }} />
-                                        <Text className={`font-bold ${selectedCategory === cat.id ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{cat.name}</Text>
+                                        <Text className={`font-bold ${selectedCategory === cat.id ? 'text-text-primary' : 'text-text-secondary'}`}>{cat.name}</Text>
                                     </View>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Payment Method</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Payment Method</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
                             {['Cash', 'Card', 'UPI', 'Bank Transfer'].map(method => (
                                 <TouchableOpacity 
                                     key={method} 
                                     onPress={() => setPaymentMethod(method)}
-                                    className={`mr-3 px-4 py-2 rounded-full border ${paymentMethod === method ? 'border-[#e6dccf] bg-[#5c4033]' : 'border-[#5c4033] bg-[#1a110d]'}`}
+                                    className={`mr-3 px-4 py-2 rounded-full border ${paymentMethod === method ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}
                                 >
-                                    <Text className={`font-bold ${paymentMethod === method ? 'text-[#e6dccf]' : 'text-[#d4c5b0]'}`}>{method}</Text>
+                                    <Text className={`font-bold ${paymentMethod === method ? 'text-text-primary' : 'text-text-secondary'}`}>{method}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Date (YYYY-MM-DD)</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Date (YYYY-MM-DD)</Text>
                         <TextInput 
                             value={expenseDate}
                             onChangeText={setExpenseDate}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-6 font-bold"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-6 font-bold"
+                            placeholderTextColor="#6b7280"
                             placeholder="YYYY-MM-DD"
                         />
 
                         <TouchableOpacity 
                             onPress={handleAddExpense}
                             disabled={submitting}
-                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-[#5c4033]' : 'bg-[#8b4513]'}`}
+                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-accent/30' : 'bg-accent'}`}
                         >
                             {submitting ? (
-                                <ActivityIndicator color="#e6dccf" />
+                                <ActivityIndicator color="#ffffff" />
                             ) : (
-                                <Text className="text-[#e6dccf] font-bold text-lg">{editingExpenseId ? 'Update Expense' : 'Save Expense'}</Text>
+                                <Text className="text-text-primary font-bold text-lg">{editingExpenseId ? 'Update Expense' : 'Save Expense'}</Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -720,43 +720,43 @@ export default function ExpensesScreen() {
             {/* Add Category Modal */}
             <Modal visible={isAddCategoryModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[40%] border-t border-[#5c4033]">
+                    <View className="bg-background rounded-t-3xl p-6 min-h-[40%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Add Category</Text>
+                            <Text className="text-2xl font-bold text-text-primary font-serif">Add Category</Text>
                             <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(false)}>
-                                <X size={24} color="#d4c5b0" />
+                                <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Category Name</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Category Name</Text>
                         <TextInput 
                             value={newCategoryName}
                             onChangeText={setNewCategoryName}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-4 font-bold text-lg"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-4 font-bold text-lg"
+                            placeholderTextColor="#6b7280"
                             placeholder="E.g. Travel, Utilities..."
                         />
                         
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Color Code (Hex)</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Color Code (Hex)</Text>
                         <View className="flex-row items-center mb-6">
-                           <View className="w-10 h-10 rounded-full mr-3 border border-[#5c4033]" style={{ backgroundColor: newCategoryColor }} />
+                           <View className="w-10 h-10 rounded-full mr-3 border border-border" style={{ backgroundColor: newCategoryColor }} />
                            <TextInput 
                                value={newCategoryColor}
                                onChangeText={setNewCategoryColor}
-                               className="flex-1 bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] font-bold"
-                               placeholderTextColor="#6f4e37"
+                               className="flex-1 bg-background text-white p-4 rounded-xl border border-border font-bold"
+                               placeholderTextColor="#6b7280"
                            />
                         </View>
 
                         <TouchableOpacity 
                             onPress={handleAddCategory}
                             disabled={submitting}
-                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-[#5c4033]' : 'bg-[#8b4513]'}`}
+                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-accent/30' : 'bg-accent'}`}
                         >
                             {submitting ? (
-                                <ActivityIndicator color="#e6dccf" />
+                                <ActivityIndicator color="#ffffff" />
                             ) : (
-                                <Text className="text-[#e6dccf] font-bold text-lg">Save Category</Text>
+                                <Text className="text-text-primary font-bold text-lg">Save Category</Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -766,13 +766,13 @@ export default function ExpensesScreen() {
             {/* Day Activity Modal */}
             <Modal visible={isDayModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#2e1d15] rounded-t-3xl p-6 h-[70%] border-t border-[#5c4033]">
+                    <View className="bg-background rounded-t-3xl p-6 h-[70%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-xl font-bold text-[#e6dccf] font-serif">
+                            <Text className="text-xl font-bold text-text-primary font-serif">
                                 Activity for {selectedDay?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </Text>
                             <TouchableOpacity onPress={() => setIsDayModalOpen(false)}>
-                                <X size={24} color="#d4c5b0" />
+                                <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
@@ -810,9 +810,9 @@ export default function ExpensesScreen() {
                                                 <View className="flex-1">
                                                     <View className="flex-row items-center gap-2">
                                                         <Text className="text-[#10b981] font-bold text-base">{i.source}</Text>
-                                                        <Text className="bg-[#1a110d] text-[#d4c5b0]/60 text-[10px] px-2 py-0.5 rounded border border-[#5c4033]">Income</Text>
+                                                        <Text className="bg-background-surface text-text-muted text-[10px] px-2 py-0.5 rounded border border-border">Income</Text>
                                                     </View>
-                                                    <Text className="text-[#d4c5b0]/60 text-xs mt-1">{i.notes || 'No description'}</Text>
+                                                    <Text className="text-text-secondary/60 text-xs mt-1">{i.notes || 'No description'}</Text>
                                                 </View>
                                                 <Text className="text-[#10b981] font-bold text-lg">+₹{i.amount}</Text>
                                             </Card>
@@ -822,10 +822,10 @@ export default function ExpensesScreen() {
                                             <Card key={e.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#ef4444]">
                                                 <View className="flex-1">
                                                     <View className="flex-row items-center gap-2">
-                                                        <Text className="text-[#e6dccf] font-bold text-base">{e.category?.name || 'Expense'}</Text>
-                                                        <Text className="bg-[#1a110d] text-[#d4c5b0]/60 text-[10px] px-2 py-0.5 rounded border border-[#5c4033] uppercase">{e.paymentMethod}</Text>
+                                                        <Text className="text-text-primary font-bold text-base">{e.category?.name || 'Expense'}</Text>
+                                                        <Text className="bg-background-surface text-text-muted text-[10px] px-2 py-0.5 rounded border border-border uppercase">{e.paymentMethod}</Text>
                                                     </View>
-                                                    <Text className="text-[#d4c5b0]/60 text-xs mt-1">{e.notes || 'No description'}</Text>
+                                                    <Text className="text-text-secondary/60 text-xs mt-1">{e.notes || 'No description'}</Text>
                                                 </View>
                                                 <Text className="text-[#ef4444] font-bold text-lg">-₹{e.amount}</Text>
                                             </Card>
@@ -840,60 +840,60 @@ export default function ExpensesScreen() {
             {/* Add Income Modal */}
             <Modal visible={isAddIncomeModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[50%] border-t border-[#5c4033]">
+                    <View className="bg-background rounded-t-3xl p-6 min-h-[50%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Add Income</Text>
+                            <Text className="text-2xl font-bold text-text-primary font-serif">Add Income</Text>
                             <TouchableOpacity onPress={() => setIsAddIncomeModalOpen(false)}>
-                                <X size={24} color="#d4c5b0" />
+                                <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Amount (₹)</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Amount (₹)</Text>
                         <TextInput 
                             keyboardType="numeric"
                             value={amount}
                             onChangeText={setAmount}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-4 font-bold text-lg"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-4 font-bold text-lg"
+                            placeholderTextColor="#6b7280"
                             placeholder="0.00"
                         />
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Source</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Source</Text>
                         <TextInput 
                             value={incomeSource}
                             onChangeText={setIncomeSource}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-4"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-4"
+                            placeholderTextColor="#6b7280"
                             placeholder="E.g. Salary, Freelance..."
                         />
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Notes (Optional)</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Notes (Optional)</Text>
                         <TextInput 
                             value={notes}
                             onChangeText={setNotes}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-6"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-6"
+                            placeholderTextColor="#6b7280"
                             placeholder="Extra details..."
                         />
 
-                        <Text className="text-[#d4c5b0] font-bold mb-2">Date (YYYY-MM-DD)</Text>
+                        <Text className="text-text-secondary font-bold mb-2">Date (YYYY-MM-DD)</Text>
                         <TextInput 
                             value={expenseDate}
                             onChangeText={setExpenseDate}
-                            className="bg-[#1a110d] text-white p-4 rounded-xl border border-[#5c4033] mb-6 font-bold"
-                            placeholderTextColor="#6f4e37"
+                            className="bg-background text-white p-4 rounded-xl border border-border mb-6 font-bold"
+                            placeholderTextColor="#6b7280"
                             placeholder="YYYY-MM-DD"
                         />
 
                         <TouchableOpacity 
                             onPress={handleAddIncome}
                             disabled={submitting}
-                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-[#5c4033]' : 'bg-[#10b981]'}`}
+                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-accent/30' : 'bg-[#10b981]'}`}
                         >
                             {submitting ? (
-                                <ActivityIndicator color="#e6dccf" />
+                                <ActivityIndicator color="#ffffff" />
                             ) : (
-                                <Text className="text-[#e6dccf] font-bold text-lg">Save Income</Text>
+                                <Text className="text-text-primary font-bold text-lg">Save Income</Text>
                             )}
                         </TouchableOpacity>
                     </View>

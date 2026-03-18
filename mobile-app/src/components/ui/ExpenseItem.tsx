@@ -18,7 +18,7 @@ export function ExpenseItem({ amount, category, date, type, color, onPress }: Ex
     return (
         <Pressable
             onPress={onPress}
-            className="flex-row items-center justify-between py-4 border-b border-[#5c4033]/30"
+            className="flex-row items-center justify-between py-4 border-b border-border/30"
         >
             <View className="flex-row items-center">
                 <View
@@ -32,8 +32,8 @@ export function ExpenseItem({ amount, category, date, type, color, onPress }: Ex
                     )}
                 </View>
                 <View className="ml-4">
-                    <Text className="text-[#e6dccf] font-bold text-base">{category}</Text>
-                    <Text className="text-[#d4c5b0]/60 text-xs mt-0.5">{date}</Text>
+                    <Text className="text-text-primary font-bold text-base">{category}</Text>
+                    <Text className="text-text-muted text-xs mt-0.5">{date}</Text>
                 </View>
             </View>
 

@@ -21,9 +21,9 @@ export function StatCard({ label, value, subValue, icon: Icon, color }: StatCard
                 <Icon size={20} color={color} />
             </View>
             <Text className="font-bold text-lg" style={{ color }}>{value}</Text>
-            <Text className="text-[#d4c5b0]/60 text-[10px] uppercase tracking-wider">{label}</Text>
+            <Text className="text-text-muted text-[10px] uppercase tracking-wider">{label}</Text>
             {subValue && (
-                <Text className="text-[#d4c5b0]/40 text-[9px] mt-1">{subValue}</Text>
+                <Text className="text-text-muted/60 text-[9px] mt-1">{subValue}</Text>
             )}
         </Card>
     );
