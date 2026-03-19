@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Animated, Pressable, Dimensions, Platform, ScrollView } from 'react-native';
-import { Home, ShieldCheck, LogOut, Menu, X, ChevronLeft } from 'lucide-react-native';
+import { Home, ShieldCheck, LogOut, Menu, X, ChevronLeft, Library, PieChart, CloudDownload } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 
@@ -57,9 +57,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
     const navItems = [
         { label: 'Dashboard', icon: Home, route: '/(protected)/(tabs)/dashboard' },
-        { label: 'Library', icon: require('lucide-react-native').Library, route: '/(protected)/(tabs)/library' },
-        { label: 'Expenses', icon: require('lucide-react-native').PieChart, route: '/(protected)/(tabs)/expenses' },
-        { label: 'Scraper', icon: require('lucide-react-native').DownloadCloud, route: '/(protected)/(tabs)/scraper' },
+        { label: 'Library', icon: Library, route: '/(protected)/(tabs)/library' },
+        { label: 'Expenses', icon: PieChart, route: '/(protected)/(tabs)/expenses' },
+        { label: 'Scraper', icon: CloudDownload, route: '/(protected)/(tabs)/scraper' },
         { label: 'Admin', icon: ShieldCheck, route: '/(protected)/(tabs)/admin' },
     ];
 

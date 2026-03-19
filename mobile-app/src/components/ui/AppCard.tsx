@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { cssInterop } from 'nativewind';
 import { Card } from './Card';
-import { Download, RefreshCw, CheckCircle2 } from 'lucide-react-native';
+import { Download, RefreshCw, CheckCircle2, Headphones } from 'lucide-react-native';
 import clsx from 'clsx';
 
 cssInterop(Image, { className: 'style' });
@@ -12,6 +12,7 @@ interface AppCardProps {
     description: string;
     image: string;
     onPress?: () => void;
+    onListen?: () => void;
     onDownload?: () => void;
     onSync?: () => void;
     syncing?: boolean;
@@ -23,6 +24,7 @@ export function AppCard({
     description, 
     image, 
     onPress, 
+    onListen,
     onDownload,
     onSync,
     syncing,
@@ -45,6 +47,18 @@ export function AppCard({
                     )}
                     
                     <View className="absolute bottom-2 right-2 flex-row gap-2">
+                        {onListen && (
+                            <TouchableOpacity
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    onListen();
+                                }}
+                                className="bg-background-surface p-2 rounded-radius-full shadow-shadow-md border border-border"
+                            >
+                                <Headphones size={16} color="#8b5cf6" />
+                            </TouchableOpacity>
+                        )}
+
                         {onSync && (
                             <TouchableOpacity
                                 onPress={(e) => {

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, Pressable, ActivityIndicator,
-    Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList,
+    Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList, TextInput, Alert,
 } from 'react-native';
 import {
-    ChevronLeft, ChevronRight, Settings, Headphones, CloudOff,
+    ChevronLeft, ChevronRight, Settings, Headphones, CloudOff, Sun, Moon,
     Wand2, X, Plus, Minus, BookOpen, List,
-    SkipBack, SkipForward, Play, Pause as PauseIcon,
+    SkipBack, SkipForward, Play, Pause as PauseIcon, Trash2,
 } from 'lucide-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { bookService, ChapterMeta } from '@/src/services/book.service';
@@ -43,6 +43,49 @@ export default function ReaderScreen() {
     const [rawContent, setRawContent] = useState<string>('');
     const [replacements, setReplacements] = useState<any[]>([]);
     const [replacementsEnabled, setReplacementsEnabled] = useState(true);
+    const [aiModel, setAiModel] = useState('OFF');
+    const [searchWord, setSearchWord] = useState('');
+    const [replaceWord, setReplaceWord] = useState('');
+    const [isRegexRule, setIsRegexRule] = useState(false);
+    const [isLightMode, setIsLightMode] = useState(false);
+
+    useEffect(() => {
+        const theme = cacheService.get('reader-theme');
+        const savedModel = cacheService.get('reader-ai-model');
+        if (savedModel) setAiModel(savedModel);
+        if (theme === 'light') setIsLightMode(true);
+    }, []);
+
+    
+    const changeAiModel = (m: string) => {
+        setAiModel(m);
+        cacheService.set('reader-ai-model', m);
+    };
+
+    const handleAddReplacement = async () => {
+        if (!searchWord.trim()) return;
+        try {
+            await replacementService.addReplacement({ bookId: id, search: searchWord, replace: replaceWord, isRegex: isRegexRule });
+            setSearchWord('');
+            setReplaceWord('');
+            fetchReplacements();
+        } catch (e) { Alert.alert('Error', 'Failed to add rule'); }
+    };
+
+    const handleRemoveReplacement = async (ruleId: string) => {
+        try {
+            await replacementService.deleteReplacement(ruleId);
+            fetchReplacements();
+        } catch (e) { Alert.alert('Error', 'Failed to remove rule'); }
+    };
+
+    const toggleTheme = () => {
+        setIsLightMode(p => {
+            const next = !p;
+            cacheService.set('reader-theme', next ? 'light' : 'dark');
+            return next;
+        });
+    };
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [bulkLoading, setBulkLoading] = useState(false);
@@ -66,6 +109,7 @@ export default function ReaderScreen() {
     const sentencesRef = useRef<string[]>([]);
     const currentIndexRef = useRef<number>(-1);
     const ttsRateRef = useRef<number>(1.0);
+    const skipDirectionRef = useRef<number>(1);
 
     // Scroll Ref for highlighting
     const scrollViewRef = useRef<FlatList>(null);
@@ -104,6 +148,7 @@ export default function ReaderScreen() {
     const goToNextChapter = useCallback(() => {
         const nextNum = parseInt(chapterId) + 1;
         if (totalChapters > 0 && nextNum < totalChapters) {
+            skipDirectionRef.current = 1;
             setChapterId(String(nextNum));
             return true;
         }
@@ -159,6 +204,7 @@ export default function ReaderScreen() {
     const loadChapterFromCache = useCallback(async (bookId: string, chapId: string) => {
         setLoading(true);
         setLoadError('');
+        setRawContent(''); // Clear old content completely to trigger auto-skip logic correctly
         try {
             const cached = await offlineService.getChapter(bookId, chapId);
             if (cached) {
@@ -167,9 +213,9 @@ export default function ReaderScreen() {
                 // Fallback: individual network request if somehow not in cache
                 console.warn(`[Reader] Cache miss for chapter ${chapId}, fetching individually`);
                 const data = await bookService.getChapterContent(bookId, chapId);
-                const liveContent = toStr(data?.content);
+                const liveContent = toStr(data?.content) || '';
+                setRawContent(liveContent);
                 if (liveContent) {
-                    setRawContent(liveContent);
                     await offlineService.saveChapter(bookId, chapId, liveContent).catch(() => {});
                 } else {
                     setLoadError(`Chapter ${chapId} not found in cache or network.`);
@@ -210,6 +256,30 @@ export default function ReaderScreen() {
         if (id) loadChapterFromCache(id as string, chapterId);
     }, [chapterId]);
 
+    // ─── Auto-skip empty chapters ───────────────────────────────────────────────
+    useEffect(() => {
+        if (loading || isFirstMount.current) return;
+        if (!id || !chapterId) return;
+
+        let isEmpty = false;
+        if (!rawContent) {
+            isEmpty = true;
+        } else if (Array.isArray(rawContent)) {
+            isEmpty = rawContent.length === 0 || rawContent.every(p => !p || String(p).trim() === '');
+        } else {
+            isEmpty = String(rawContent).trim() === '';
+        }
+
+        const currentNum = parseInt(chapterId);
+        if (isEmpty && totalChapters > 0) {
+            const nextSkip = currentNum + skipDirectionRef.current;
+            if (nextSkip >= 0 && nextSkip < totalChapters) {
+                console.log(`[Reader] Chapter ${chapterId} is empty. Auto-skipping to ${nextSkip} (dir: ${skipDirectionRef.current})`);
+                setChapterId(String(nextSkip));
+            }
+        }
+    }, [loading, rawContent, chapterId, totalChapters, id]);
+
     const fetchReplacements = async () => {
         try {
             const rules = await replacementService.getReplacements(id as string);
@@ -225,10 +295,11 @@ export default function ReaderScreen() {
         
         let paragraphs: string[] = [];
         if (Array.isArray(rawContent)) {
-            paragraphs = rawContent.map(p => String(p));
+            paragraphs = rawContent.flatMap(p => String(p).split(/\n+/));
         } else {
-            paragraphs = String(rawContent).split(/\n\s*\n/).filter(p => p.trim().length > 0);
+            paragraphs = String(rawContent).split(/\n+/);
         }
+        paragraphs = paragraphs.filter(p => p.trim().length > 0);
 
         const processedParas = paragraphs.map(p => {
             let processed = p.trim();
@@ -246,10 +317,10 @@ export default function ReaderScreen() {
                 }
             });
             return processed;
-        });
+        }).filter(p => p.trim().length > 0);
 
         setParagraphStructure(processedParas.map(p => {
-            const sentenceArray = p.match(/[^.!?]+[.!?]+|\s*[^.!?]+$/g) || [p];
+            const sentenceArray = p.match(/[^.!?]+[.!?]+["'”’\]\)]*|\s*[^.!?]+$/g) || [p];
             return sentenceArray.map(s => s.trim()).filter(s => s.length > 0);
         }));
         
@@ -477,7 +548,8 @@ export default function ReaderScreen() {
         if (isOffline) { alert('Grammar correction requires an internet connection.'); return; }
         setIsCorrecting(true);
         try {
-            const res = await bookService.proposeGrammarCorrection(id as string, chapterId, 'gemini-2.5-flash');
+            if (aiModel === 'OFF') return;
+            const res = await bookService.proposeGrammarCorrection(id as string, chapterId, aiModel);
             if (res.correctedChapter) {
                 requestAnimationFrame(() => {
                     alert('Grammar correction generated successfully! Applying now...');
@@ -494,21 +566,32 @@ export default function ReaderScreen() {
         }
     };
 
+    
+    const th = {
+        bg: isLightMode ? 'bg-[#fdfdfc]' : 'bg-background',
+        surface: isLightMode ? 'bg-[#f3f3f0]' : 'bg-background-surface',
+        text: isLightMode ? 'text-[#171717]' : 'text-text-primary',
+        textMuted: isLightMode ? 'text-[#666666]' : 'text-text-muted',
+        textSec: isLightMode ? 'text-[#444444]' : 'text-text-secondary',
+        border: isLightMode ? 'border-[#e5e5e0]' : 'border-border',
+        icon: isLightMode ? '#666666' : '#a39b98',
+    };
+
     const currentChapterNum = parseInt(chapterId);
-    const chapterTitle = chapterList.find(c => c.order === currentChapterNum)?.title || `Chapter ${chapterId}`;
+    const chapterTitle = chapterList.find(c => c.order === currentChapterNum)?.title || `Chapter ${currentChapterNum + 1}`;
 
     // ─── Render ─────────────────────────────────────────────────────────────────
     return (
-        <View className="flex-1 bg-background" style={{ paddingTop: Platform.OS === 'ios' ? 44 : 24 }}>
+        <View className={`flex-1 ${th.bg}`} style={{ paddingTop: Platform.OS === 'ios' ? 44 : 24 }}>
 
             {/* Header */}
-            <View className="px-4 py-3 flex-row justify-between items-center bg-background-surface border-b border-border">
+            <View className={`px-4 py-3 flex-row justify-between items-center ${th.surface} border-b ${th.border}`}>
                 <Pressable onPress={() => router.back()} className="p-1">
-                    <ChevronLeft size={24} color="#a39b98" />
+                    <ChevronLeft size={24} color={th.icon} />
                 </Pressable>
 
                 <View className="items-center flex-1 mx-2">
-                    <Text className="text-text-primary font-bold font-serif text-sm" numberOfLines={1}>
+                    <Text className={`${th.text} font-bold font-serif text-sm`} numberOfLines={1}>
                         {chapterTitle}
                     </Text>
                     <View className="flex-row items-center gap-1">
@@ -547,17 +630,20 @@ export default function ReaderScreen() {
                         </View>
                     )}
 
-                    <Pressable onPress={handleGrammarCorrection} disabled={isCorrecting} className={`bg-accent/10 p-1.5 rounded-full ${isCorrecting ? 'opacity-50' : ''}`}>
-                        {isCorrecting ? <ActivityIndicator size="small" color="#8b5cf6" /> : <Wand2 size={16} color="#a39b98" />}
+                    <Pressable onPress={() => aiModel === 'OFF' ? setIsSettingsOpen(true) : handleGrammarCorrection()} disabled={isCorrecting} className={`bg-accent/10 p-1.5 rounded-full ${(isCorrecting || aiModel === 'OFF') ? 'opacity-50' : ''}`}>
+                        {isCorrecting ? <ActivityIndicator size="small" color="#8b5cf6" /> : <Wand2 size={16} color={th.icon} />}
                     </Pressable>
 
+                    <Pressable onPress={toggleTheme} className="p-1.5">
+                        {isLightMode ? <Moon size={18} color="#666" /> : <Sun size={18} color={th.icon} />}
+                    </Pressable>
                     <Pressable onPress={() => setIsSettingsOpen(true)} className="p-1.5">
-                        <Settings size={18} color="#a39b98" />
+                        <Settings size={18} color={th.icon} />
                     </Pressable>
 
                     {/* Chapter list sidebar toggle */}
                     <Pressable onPress={openSidebar} className="p-1.5">
-                        <List size={18} color="#a39b98" />
+                        <List size={18} color={th.icon} />
                     </Pressable>
                 </View>
             </View>
@@ -584,7 +670,7 @@ export default function ReaderScreen() {
                                 onLayout={(e) => {
                                     paragraphYPositions.current[pIdx] = e.nativeEvent.layout.y;
                                 }}
-                                style={{ marginBottom: 44 }}
+                                style={{ marginBottom: 64 }}
                             >
                                 <View className="flex-row flex-wrap">
                                     {sentencesInPara.map((sentence, sIdx) => {
@@ -606,7 +692,7 @@ export default function ReaderScreen() {
                                                 }}
                                             >
                                                 <Text
-                                                    className="text-text-primary font-serif leading-8"
+                                                    className={`${th.text} font-serif leading-8`}
                                                     style={{ fontSize }}
                                                 >
                                                     {sentence}
@@ -620,7 +706,7 @@ export default function ReaderScreen() {
                     }}
                     ListEmptyComponent={
                         <View className="p-10">
-                            <Text className="text-text-primary font-serif leading-8 text-center" style={{ fontSize }}>
+                            <Text className={`${th.text} font-serif leading-8 text-center`} style={{ fontSize }}>
                                 {content || 'No content found for this chapter.'}
                             </Text>
                         </View>
@@ -634,13 +720,13 @@ export default function ReaderScreen() {
                     style={{ 
                         position: 'absolute', bottom: 85, left: 16, right: 16, 
                         flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: '#1a1412', borderRadius: 16, padding: 12,
+                        backgroundColor: isLightMode ? "#f3f3f0" : "#1a1412", borderRadius: 16, padding: 12,
                         shadowColor: '#8b5cf6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 8,
                         borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)',
                     }}
                 >
                     <TouchableOpacity onPress={skipBackward} className="p-3 mx-1">
-                        <SkipBack size={24} color="#a39b98" />
+                        <SkipBack size={24} color={th.icon} />
                     </TouchableOpacity>
 
                     <TouchableOpacity 
@@ -652,7 +738,7 @@ export default function ReaderScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity onPress={skipForward} className="p-3 mx-1">
-                        <SkipForward size={24} color="#a39b98" />
+                        <SkipForward size={24} color={th.icon} />
                     </TouchableOpacity>
 
                     <View className="w-px h-8 bg-border mx-3" />
@@ -661,29 +747,35 @@ export default function ReaderScreen() {
                         onPress={stopTTS}
                         className="p-3"
                     >
-                        <X size={24} color="#a39b98" />
+                        <X size={24} color={th.icon} />
                     </TouchableOpacity>
                 </Animated.View>
             )}
 
             {/* Footer navigation */}
-            <View className="absolute bottom-0 left-0 right-0 bg-background-surface border-t border-border px-6 py-4 flex-row justify-between items-center">
+            <View className={`absolute bottom-0 left-0 right-0 ${th.surface} border-t ${th.border} px-6 py-4 flex-row justify-between items-center`}>
                 <Pressable
                     className="flex-row items-center"
-                    onPress={() => setChapterId(String(Math.max(0, currentChapterNum - 1)))}
+                    onPress={() => {
+                        skipDirectionRef.current = -1;
+                        setChapterId(String(Math.max(0, currentChapterNum - 1)));
+                    }}
                     disabled={currentChapterNum <= 0}
                 >
                     <ChevronLeft size={20} color={currentChapterNum <= 0 ? '#3a3330' : '#8b5cf6'} />
                     <Text className={`ml-1 font-bold ${currentChapterNum <= 0 ? 'text-border' : 'text-accent'}`}>Prev</Text>
                 </Pressable>
 
-                <Text className="text-text-muted text-xs italic">
+                <Text className={`${th.textMuted} text-xs italic`}>
                     {currentChapterNum + 1}{totalChapters > 0 ? ` / ${totalChapters}` : ''}
                 </Text>
 
                 <Pressable
                     className="flex-row items-center"
-                    onPress={() => setChapterId(String(currentChapterNum + 1))}
+                    onPress={() => {
+                        skipDirectionRef.current = 1;
+                        setChapterId(String(currentChapterNum + 1));
+                    }}
                     disabled={totalChapters > 0 && currentChapterNum >= totalChapters - 1}
                 >
                     <Text className={`mr-1 font-bold ${totalChapters > 0 && currentChapterNum >= totalChapters - 1 ? 'text-border' : 'text-accent'}`}>Next</Text>
@@ -718,15 +810,15 @@ export default function ReaderScreen() {
                     style={{ paddingTop: Platform.OS === 'ios' ? 50 : 40 }}
                 >
                     {/* Sidebar header */}
-                    <View className="px-4 pb-4 border-b border-border/50 flex-row items-center justify-between">
+                    <View className={`px-4 pb-4 border-b ${th.border}/50 flex-row items-center justify-between`}>
                         <View className="flex-row items-center gap-2">
                             <BookOpen size={18} color="#8b5cf6" />
-                            <Text className="text-text-primary text-base font-bold font-serif">
+                            <Text className={`${th.text} text-base font-bold font-serif`}>
                                 Chapters {totalChapters > 0 ? `(${totalChapters})` : ''}
                             </Text>
                         </View>
                         <TouchableOpacity onPress={closeSidebar} className="p-1">
-                            <X size={20} color="#a39b98" />
+                            <X size={20} color={th.icon} />
                         </TouchableOpacity>
                     </View>
 
@@ -742,6 +834,7 @@ export default function ReaderScreen() {
                                 return (
                                     <TouchableOpacity
                                         onPress={() => {
+                                            skipDirectionRef.current = item.order > currentChapterNum ? 1 : -1;
                                             setChapterId(String(item.order));
                                             closeSidebar();
                                         }}
@@ -770,29 +863,30 @@ export default function ReaderScreen() {
             {/* ── Settings Modal ──────────────────────────────────────────────── */}
             <Modal visible={isSettingsOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/60">
-                    <View className="bg-background-surface rounded-t-3xl p-6 min-h-[40%] border-t border-border">
+                    <View className={`${th.surface} rounded-t-3xl p-6 min-h-[40%] border-t ${th.border}`}>
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-text-primary font-serif">Reader Settings</Text>
+                            <Text className={`text-2xl font-bold ${th.text} font-serif`}>Reader Settings</Text>
                             <Pressable onPress={() => setIsSettingsOpen(false)}>
-                                <X size={24} color="#a39b98" />
+                                <X size={24} color={th.icon} />
                             </Pressable>
                         </View>
 
-                        <Text className="text-text-secondary font-bold mb-3">Font Size</Text>
-                        <View className="flex-row items-center justify-between bg-background p-3 rounded-xl border border-border mb-6">
+                        <Text className={`${th.textSec} font-bold mb-3`}>Font Size</Text>
+                        <View className={`flex-row items-center justify-between ${th.bg} p-3 rounded-xl border ${th.border} mb-6`}>
                             <Pressable onPress={() => setFontSize(Math.max(12, fontSize - 2))} className="p-3 bg-accent/20 rounded-lg">
                                 <Minus size={20} color="#8b5cf6" />
                             </Pressable>
-                            <Text className="text-text-primary font-bold text-lg">{fontSize}px</Text>
+                            <Text className={`${th.text} font-bold text-lg`}>{fontSize}px</Text>
                             <Pressable onPress={() => setFontSize(Math.min(32, fontSize + 2))} className="p-3 bg-accent/20 rounded-lg">
                                 <Plus size={20} color="#8b5cf6" />
                             </Pressable>
                         </View>
 
-                        <View className="flex-row items-center justify-between mb-6">
+                        
+                        <View className="flex-row items-center justify-between mb-2">
                             <View>
-                                <Text className="text-text-secondary font-bold">Custom Replacements</Text>
-                                <Text className="text-text-muted text-xs">Apply {replacements.length} custom text rules</Text>
+                                <Text className={`${th.textSec} font-bold`}>Custom Replacements</Text>
+                                <Text className={`${th.textMuted} text-xs`}>Apply {replacements.length} custom text rules</Text>
                             </View>
                             <Switch
                                 value={replacementsEnabled}
@@ -801,11 +895,61 @@ export default function ReaderScreen() {
                                 thumbColor="#8b5cf6"
                             />
                         </View>
+                        
+                        {replacementsEnabled && (
+                            <View className="mb-6">
+                                <View className={`flex-row items-center gap-2 mb-3 ${th.bg} p-2 rounded-lg border ${th.border}`}>
+                                    <TextInput 
+                                        className={`flex-1 ${th.text} p-2`}
+                                        placeholder="Search..."
+                                        placeholderTextColor={th.icon}
+                                        value={searchWord}
+                                        onChangeText={setSearchWord}
+                                    />
+                                    <TextInput 
+                                        className={`flex-1 ${th.text} p-2 border-l ${th.border}`}
+                                        placeholder="Replace..."
+                                        placeholderTextColor={th.icon}
+                                        value={replaceWord}
+                                        onChangeText={setReplaceWord}
+                                    />
+                                    <TouchableOpacity onPress={handleAddReplacement} className="p-2 bg-accent rounded-lg">
+                                        <Plus size={20} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                                {replacements.map(rule => (
+                                    <View key={rule._id || rule.id} className={`flex-row justify-between items-center p-3 mb-2 rounded-lg border ${th.border}`}>
+                                        <View className="flex-1">
+                                            <Text className={`${th.text} font-bold`} numberOfLines={1}>{rule.search} <Text className="text-accent">→</Text> {rule.replace}</Text>
+                                        </View>
+                                        <TouchableOpacity onPress={() => handleRemoveReplacement(rule._id || rule.id)} className="p-2">
+                                            <Trash2 size={18} color="#ef4444" />
+                                        </TouchableOpacity>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                        
+                        <View className="border-t border-border/30 pt-4 mb-6">
+                            <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>AI Model</Text>
+                            <View className="flex-row flex-wrap gap-2">
+                                {['OFF', 'gemini-2.5-flash', 'gpt-4o-mini', 'ollama'].map(m => (
+                                    <TouchableOpacity 
+                                        key={m}
+                                        onPress={() => changeAiModel(m)}
+                                        className={`px-3 py-2 rounded-lg border ${aiModel === m ? 'bg-accent border-accent' : `${th.bg} ${th.border}`}`}
+                                    >
+                                        <Text className={`font-bold ${aiModel === m ? 'text-white' : th.textSec}`}>{m === 'OFF' ? 'Disabled' : m.replace('gemini-2.5-flash', 'Gemini Flash').replace('gpt-4o-mini', 'GPT-4o Mini').replace('ollama', 'Local (Ollama)')}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
 
                         <View className="border-t border-border/30 pt-4">
-                            <Text className="text-xl font-bold text-text-primary font-serif mb-4">Speech Settings</Text>
+                            <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>Speech Settings</Text>
                             
-                            <Text className="text-text-secondary font-bold mb-3">Speech Rate</Text>
+                            <Text className={`${th.textSec} font-bold mb-3`}>Speech Rate</Text>
                             <View className="flex-row flex-wrap gap-2 mb-6">
                                 {[0.75, 1.0, 1.25, 1.5, 2.0].map(r => (
                                     <TouchableOpacity 
@@ -818,7 +962,7 @@ export default function ReaderScreen() {
                                 ))}
                             </View>
 
-                            <Text className="text-text-secondary font-bold mb-3">Sleep Timer</Text>
+                            <Text className={`${th.textSec} font-bold mb-3`}>Sleep Timer</Text>
                             <View className="flex-row gap-2">
                                 {[15, 30, 60].map(m => (
                                     <TouchableOpacity 
@@ -838,7 +982,7 @@ export default function ReaderScreen() {
                                     }}
                                     className="flex-1 px-4 py-3 rounded-xl border border-border bg-background items-center"
                                 >
-                                    <Text className="text-text-secondary font-bold">Off</Text>
+                                    <Text className={`${th.textSec} font-bold`}>Off</Text>
                                 </TouchableOpacity>
                             </View>
                             {remainingSeconds !== null && (
@@ -846,6 +990,15 @@ export default function ReaderScreen() {
                                     Stopping in {Math.floor(remainingSeconds / 60)}m {remainingSeconds % 60}s
                                 </Text>
                             )}
+
+                            {/* Explicit Close Button */}
+                            <TouchableOpacity 
+                                onPress={() => setIsSettingsOpen(false)} 
+                                className="w-full bg-accent p-4 rounded-xl mt-6 items-center shadow-lg"
+                                style={{ shadowColor: '#8b5cf6', shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 }}
+                            >
+                                <Text className="text-white font-bold text-lg">Close Settings</Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
                 </View>

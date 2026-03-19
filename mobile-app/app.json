@@ -15,7 +15,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.uvelan.ultimateapp"
+      "bundleIdentifier": "com.uvelan.ultimateapp",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -39,6 +44,12 @@
         {
           "backgroundColor": "#1a110d",
           "image": "./assets/images/splash-icon.png"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true
         }
       ]
     ],

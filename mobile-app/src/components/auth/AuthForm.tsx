@@ -73,14 +73,14 @@ export default function AuthForm({ type }: AuthFormProps) {
             style={{ flex: 1, backgroundColor: '#0a0a0a' }} 
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 64, paddingBottom: 48 }} className="min-h-full justify-center">
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 64, paddingBottom: 48, justifyContent: 'center' }} className="min-h-full">
                 <View className="relative w-full items-center justify-center">
                     {/* Decorative Premium Glow */}
                     <View className="absolute w-[150%] h-32 bg-accent/10 rounded-full top-0 opacity-80" style={{ transform: [{ scaleX: 1.5 }] }} />
                     
                     <Card className="w-full relative z-10 shadow-lg shadow-black/50">
                         <CardHeader>
-                            <CardTitle className="text-center text-display">
+                            <CardTitle className="text-center text-4xl font-bold text-text-primary">
                                 {type === 'login' ? 'Welcome Back' : 'Create Account'}
                             </CardTitle>
                         </CardHeader>

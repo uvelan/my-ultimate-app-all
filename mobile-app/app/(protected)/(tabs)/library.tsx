@@ -124,6 +124,7 @@ export default function LibraryScreen() {
                             description={item.author || 'Unknown Author'}
                             image={item.cover}
                             onPress={() => router.push(`/reader/${item.id}?chapterId=${item.chapterId ?? 0}` as any)}
+                            onListen={() => router.push(`/listen/${item.id}` as any)}
                             onDownload={() => handleDownload(item)}
                             onSync={() => handleSync(item)}
                             syncing={syncingIds.includes(item.id)}

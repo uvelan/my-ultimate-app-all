@@ -81,6 +81,13 @@ export const replacementService = {
     getReplacements: async (bookId: string) => {
         const res = await api.get(`/replacements?bookId=${bookId}`);
         return res.data;
+    },
+    addReplacement: async (data: any) => {
+        const res = await api.post('/replacements', data);
+        return res.data;
+    },
+    deleteReplacement: async (id: string) => {
+        await api.delete(`/replacements/${id}`);
     }
 };
 

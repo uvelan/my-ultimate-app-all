@@ -42,6 +42,29 @@ export default function ReadBookPage() {
     const [fontSize, setFontSize] = useState(20); // Default font size in px
     const [replacementRules, setReplacementRules] = useState<any[]>([]);
     const [showReplacementModal, setShowReplacementModal] = useState(false);
+    const [isLightMode, setIsLightMode] = useState(false);
+
+    useEffect(() => {
+        const storedTheme = localStorage.getItem('reader-theme');
+        if (storedTheme === 'light') {
+            setIsLightMode(true);
+            document.documentElement.classList.add('theme-light');
+        }
+    }, []);
+
+    const toggleTheme = () => {
+        setIsLightMode(prev => {
+            const next = !prev;
+            if (next) {
+                document.documentElement.classList.add('theme-light');
+                localStorage.setItem('reader-theme', 'light');
+            } else {
+                document.documentElement.classList.remove('theme-light');
+                localStorage.setItem('reader-theme', 'dark');
+            }
+            return next;
+        });
+    };
 
     const [isCorrectingGrammar, setIsCorrectingGrammar] = useState(false);
     const [showDiffModal, setShowDiffModal] = useState(false);
@@ -958,6 +981,15 @@ export default function ReadBookPage() {
                                 <svg className="animate-spin h-4 w-4 text-[#5c4033]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             ) : (
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
+                            )}
+                        </button>
+
+                        {/* Theme Toggle Button */}
+                        <button onClick={toggleTheme} className={iconBtnStyle} title="Toggle Theme">
+                            {isLightMode ? (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                            ) : (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
                             )}
                         </button>
 

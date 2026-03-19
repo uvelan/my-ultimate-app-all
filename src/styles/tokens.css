@@ -48,3 +48,15 @@
   --duration-base: 250ms;
   --duration-slow: 400ms;
 }
+
+/* Light Mode Overrides */
+.theme-light {
+  --color-bg:        #fdfdfc;
+  --color-surface:   #f3f3f0;
+  --color-border:    #e5e5e0;
+  --color-text:      #171717;
+  --color-muted:     #666666;
+  --color-accent:    #7c3aed;
+  --color-accent-hover: #6d28d9;
+  --shadow-glow: 0 0 30px rgba(124, 58, 237, 0.15);
+}
