@@ -12,6 +12,8 @@ import Slider from '@react-native-community/slider';
 import * as SecureStore from 'expo-secure-store';
 import { api } from '@/src/lib/api-client';
 import { cacheService } from '@/src/lib/storage';
+import { usePlaybackStore } from '@/src/store/playbackStore';
+import { playbackNotificationService } from '@/src/services/playback-notification.service';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
@@ -173,6 +175,52 @@ export default function ListenScreen() {
             handleAudioEnded();
         }
     }, [status.currentTime, status.duration, status.playing, status.isLoaded]);
+
+    // Playback Store Subs
+    const { 
+        playTarget, pauseTarget, nextTarget, prevTarget, 
+        setPlayerState, clearPlayerState 
+    } = usePlaybackStore();
+
+    // Listen to store actions from Notifee
+    useEffect(() => {
+        if (playTarget > 0) {
+            if (!isPlaying) player.play();
+        }
+    }, [playTarget]);
+
+    useEffect(() => {
+        if (pauseTarget > 0) {
+            if (isPlaying) player.pause();
+        }
+    }, [pauseTarget]);
+
+    useEffect(() => {
+        if (nextTarget > 0) {
+            // Note: Notifee "next" can either mean next chapter or skip forward. 
+            // Usually media next means next chapter.
+            handleNextChapter();
+        }
+    }, [nextTarget]);
+
+    useEffect(() => {
+        if (prevTarget > 0) {
+            handlePrevChapter();
+        }
+    }, [prevTarget]);
+
+    // Update Notification Service
+    useEffect(() => {
+        if (status.isLoaded) {
+            setPlayerState('audio', isPlaying);
+            const title = book?.title || 'Audiobook';
+            const chapter = currentChapter?.title || `Chapter ${currentChapterIndex + 1}`;
+            playbackNotificationService.showNotification(title, chapter, isPlaying).catch(console.error);
+        } else {
+            clearPlayerState();
+            playbackNotificationService.stopNotification().catch(console.error);
+        }
+    }, [isPlaying, status.isLoaded, currentChapterIndex, book]);
 
     // Timer logic
     useEffect(() => {

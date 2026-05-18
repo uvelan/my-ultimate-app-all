@@ -48,5 +48,24 @@ export const bookService = {
     proposeGrammarCorrection: async (bookId: string, chapterId: string, aiModel: string = 'gemini-2.5-flash') => {
         const res = await api.post(`/grammar-correct`, { bookId, chapterId, aiModel });
         return res.data;
+    },
+
+    uploadBook: async (file: { uri: string, name: string, type: string }) => {
+        const formData = new FormData();
+        // @ts-ignore
+        formData.append('file', {
+            uri: file.uri,
+            name: file.name,
+            type: file.type || 'application/epub+zip',
+        });
+        
+        const res = await api.post('/books', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+            // Important for progress if needed later
+            transformRequest: (data) => data, 
+        });
+        return res.data;
     }
 };

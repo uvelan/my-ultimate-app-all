@@ -29,7 +29,10 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png",
         "backgroundColor": "#1a110d"
       },
-      "package": "com.uvelan.ultimateapp"
+      "package": "com.uvelan.ultimateapp",
+      "permissions": [
+        "READ_SMS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -51,7 +54,9 @@
         {
           "enableBackgroundPlayback": true
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "./plugins/withNotifeeRepo"
     ],
     "experiments": {
       "typedRoutes": true

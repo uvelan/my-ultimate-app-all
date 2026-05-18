@@ -15,6 +15,7 @@
   
   /* Accent: Premium Indigo/Amethyst */
   --color-accent:    #8b5cf6;
+  --color-accent-rgb: 139 92 246;
   --color-accent-hover: #a78bfa;
 
   /* Spacing Scale — 4pt grid */
@@ -57,6 +58,7 @@
   --color-text:      #171717;
   --color-muted:     #666666;
   --color-accent:    #7c3aed;
+  --color-accent-rgb: 124 58 237;
   --color-accent-hover: #6d28d9;
   --shadow-glow: 0 0 30px rgba(124, 58, 237, 0.15);
 }

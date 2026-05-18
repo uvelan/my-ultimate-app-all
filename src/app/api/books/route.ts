@@ -165,11 +165,11 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const isAdmin = auth.user.role === 'ADMIN';
+        const canSeeAll = auth.user.role === 'ADMIN' || auth.user.role === 'SUPERUSER';
 
         // Fetch books (no chapter content — just metadata)
         const books = await prisma.book.findMany({
-            where: isAdmin ? undefined : { userName: auth.user.email },
+            where: canSeeAll ? undefined : { userName: auth.user.email },
             orderBy: { createdAt: 'desc' },
             select: {
                 id: true,
@@ -229,26 +229,92 @@ export async function POST(req: NextRequest) {
         }
 
         const formData = await req.formData();
-        const file = formData.get('file') as File;
+        const file = formData.get('file') as File | null;
+        const url = formData.get('url') as string | null;
         const title = formData.get('title') as string;
         const description = formData.get('description') as string || '';
 
-        if (!file) {
-            return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+        if (!file && !url) {
+            return NextResponse.json({ error: 'No file or URL provided' }, { status: 400 });
         }
 
         let content: any = {};
         let coverUrl = '';
+        let fileName = '';
+        let fileBuffer: Buffer | null = null;
+        let fileText: string | null = null;
 
-        if (file.name.endsWith('.json')) {
-            const text = await file.text();
+        if (file) {
+            fileName = file.name;
+            if (fileName.toLowerCase().endsWith('.json')) {
+                fileText = await file.text();
+            } else {
+                fileBuffer = Buffer.from(await file.arrayBuffer());
+            }
+        } else if (url) {
             try {
-                content = JSON.parse(text);
+                let fetchUrl = url;
+                
+                // Transform Google Drive links to direct download
+                if (fetchUrl.includes('drive.google.com/file/d/')) {
+                    const match = fetchUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+                    if (match) {
+                        fetchUrl = `https://drive.google.com/uc?export=download&id=${match[1]}`;
+                    }
+                }
+                
+                // Transform Dropbox links to direct download
+                if (fetchUrl.includes('dropbox.com/') && fetchUrl.includes('dl=0')) {
+                    fetchUrl = fetchUrl.replace('dl=0', 'dl=1');
+                }
+
+                const response = await fetch(fetchUrl);
+                if (!response.ok) {
+                    return NextResponse.json({ error: `Failed to download file from URL: ${response.statusText}` }, { status: 400 });
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                fileBuffer = Buffer.from(arrayBuffer);
+                
+                // Try to infer filename
+                const contentDisposition = response.headers.get('content-disposition');
+                if (contentDisposition && contentDisposition.includes('filename=')) {
+                    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                    if (match) fileName = match[1];
+                }
+                if (!fileName) {
+                    try {
+                        const urlPath = new URL(url).pathname;
+                        fileName = path.basename(urlPath);
+                    } catch (e) {
+                        fileName = '';
+                    }
+                    if (!fileName || !fileName.includes('.')) {
+                        const contentType = response.headers.get('content-type');
+                        if (contentType?.includes('application/epub+zip')) {
+                            fileName = `downloaded-${Date.now()}.epub`;
+                        } else if (contentType?.includes('application/json')) {
+                            fileName = `downloaded-${Date.now()}.json`;
+                        } else {
+                            fileName = `downloaded-${Date.now()}.epub`;
+                        }
+                    }
+                }
+                if (fileName.toLowerCase().endsWith('.json') && fileBuffer) {
+                    fileText = fileBuffer.toString('utf-8');
+                }
+            } catch (err) {
+                 return NextResponse.json({ error: 'Failed to download file from URL' }, { status: 400 });
+            }
+        }
+
+        if (fileName.toLowerCase().endsWith('.json') && fileText) {
+            try {
+                content = JSON.parse(fileText);
             } catch (e) {
                 return NextResponse.json({ error: 'Invalid JSON file' }, { status: 400 });
             }
-        } else if (file.name.endsWith('.epub')) {
-            const buffer = Buffer.from(await file.arrayBuffer());
+        } else if (fileName.toLowerCase().endsWith('.epub') && fileBuffer) {
+            const buffer = fileBuffer;
             const tempDir = os.tmpdir();
             const tempFilePath = path.join(tempDir, `upload-${Date.now()}.epub`);
 
@@ -274,6 +340,10 @@ export async function POST(req: NextRequest) {
                             });
 
                             if (paragraphs.length === 0) {
+                                // Add newlines to block-level elements so they don't merge into a single line
+                                $('div, h1, h2, h3, h4, h5, h6, li, blockquote').append('\n');
+                                $('br').replaceWith('\n');
+                                
                                 const text = $.root().text().trim();
                                 if (text) {
                                     const lines = text.split(/\r?\n/).map((line: string) => line.trim()).filter((line: string) => line.length > 0);
@@ -321,7 +391,7 @@ export async function POST(req: NextRequest) {
         const existingBook = await prisma.book.findFirst({
             where: {
                 userName: auth.user.email,
-                fileName: file.name
+                fileName: fileName
             }
         });
 
@@ -352,7 +422,7 @@ export async function POST(req: NextRequest) {
                     description: description || (content.metadata?.description as string),
                     // content: content, // Deprecated
                     userName: auth.user.email,
-                    fileName: file.name,
+                    fileName: fileName,
                     cover: coverUrl,
                 }
             });

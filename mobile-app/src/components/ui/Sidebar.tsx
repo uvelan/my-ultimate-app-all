@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Animated, Pressable, Dimensions, Platform, ScrollView } from 'react-native';
-import { Home, ShieldCheck, LogOut, Menu, X, ChevronLeft, Library, PieChart, CloudDownload } from 'lucide-react-native';
+import { Home, ShieldCheck, LogOut, Menu, X, ChevronLeft, Library, PieChart, CloudDownload, MessageSquare } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 
@@ -59,6 +59,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         { label: 'Dashboard', icon: Home, route: '/(protected)/(tabs)/dashboard' },
         { label: 'Library', icon: Library, route: '/(protected)/(tabs)/library' },
         { label: 'Expenses', icon: PieChart, route: '/(protected)/(tabs)/expenses' },
+        { label: 'Spent Sync', icon: MessageSquare, route: '/(protected)/spentsync' },
         { label: 'Scraper', icon: CloudDownload, route: '/(protected)/(tabs)/scraper' },
         { label: 'Admin', icon: ShieldCheck, route: '/(protected)/(tabs)/admin' },
     ];

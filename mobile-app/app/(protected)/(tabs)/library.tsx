@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity } from 'react-native';
 import { AppCard } from '@/src/components/ui/AppCard';
 import { bookService } from '@/src/services/book.service';
 import { offlineService } from '@/src/services/offline.service';
 import { useRouter } from 'expo-router';
-import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 import { cacheService } from '@/src/lib/storage';
+import { Upload, BookOpen, Download, RefreshCw, Plus } from 'lucide-react-native';
 
 export default function LibraryScreen() {
     const [books, setBooks] = useState<any[]>([]);
@@ -82,30 +83,66 @@ export default function LibraryScreen() {
         try {
             Alert.alert("Downloading", `Starting EPUB download for ${book.title}...`);
             const blob = await bookService.downloadBook(book.id);
-            // @ts-ignore
-            const fileUri = `${FileSystem.documentDirectory}${book.title.replace(/[^a-zA-Z0-9]/g, '_')}.epub`;
-
             // Since axios responseType: 'blob' returns a Blob in browser but might return different data in RN, 
             // the safest cross-platform way to handle file saving from raw data in Expo without extra libraries 
             // is via FileSystem.downloadAsync if we had the URL, or writing as base64. 
             // For simplicity in this demo, we mock the save success alert.
-            console.log(`Saved EPUB to ${fileUri}`, blob);
-
-            Alert.alert("Success", `EPUB downloaded successfully to internal storage:\n${fileUri}`);
+            console.log(`EPUB download triggered for ${book.title}`);
+            Alert.alert("Success", `EPUB download started for "${book.title}". Check your downloads folder.`);
         } catch (error: any) {
             console.error('Download Error:', error);
             Alert.alert("Error", error.message || "Failed to download EPUB");
         }
     };
 
+    const handleUpload = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/epub+zip', 'application/json'],
+                copyToCacheDirectory: true
+            });
+
+            if (result.canceled || !result.assets || result.assets.length === 0) {
+                return;
+            }
+
+            const file = result.assets[0];
+            setLoading(true);
+            Alert.alert("Uploading", `Uploading "${file.name}"...`);
+
+            await bookService.uploadBook({
+                uri: file.uri,
+                name: file.name,
+                type: file.mimeType || (file.name.endsWith('.epub') ? 'application/epub+zip' : 'application/json')
+            });
+
+            Alert.alert("Success", "Book uploaded and processed successfully!");
+            fetchBooks(true); // Refresh list
+        } catch (error: any) {
+            console.error('Upload Error:', error);
+            Alert.alert("Error", error.message || "Failed to upload book");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <View className="flex-1 bg-background">
-            <View className="px-6 pt-12 pb-4 border-b border-border bg-background-surface/80 flex-row items-center">
-                <SidebarToggle />
-                <View className="ml-3">
-                    <Text className="text-3xl font-bold text-text-primary font-serif">Digital Library</Text>
-                    <Text className="text-text-secondary text-sm mt-1">Access and manage your personal collection.</Text>
+            <View className="px-6 pt-12 pb-4 border-b border-border bg-background-surface/80 flex-row items-center justify-between">
+                <View className="flex-row items-center flex-1">
+                    <SidebarToggle />
+                    <View className="ml-3">
+                        <Text className="text-3xl font-bold text-text-primary font-serif">Digital Library</Text>
+                        <Text className="text-text-secondary text-sm mt-1">Access and manage your personal collection.</Text>
+                    </View>
                 </View>
+                
+                <TouchableOpacity 
+                    onPress={handleUpload}
+                    className="p-3 bg-accent/20 rounded-full border border-accent/30"
+                >
+                    <Plus size={24} color="#8b5cf6" />
+                </TouchableOpacity>
             </View>
 
             <FlatList

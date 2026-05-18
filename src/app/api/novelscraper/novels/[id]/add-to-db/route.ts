@@ -1,59 +1,119 @@
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
-import { readNovels } from '@/lib/scraper-db';
-import path from 'path';
-import fs from 'fs';
+import { prisma } from '@/lib/prisma';
+import { verifyAuth } from '@/lib/auth-server';
 
 // POST /api/novelscraper/novels/[id]/add-to-db
-// Adds the scraped novel into the app's book database
+// Copies a fully-scraped novel into the Book + Chapter library
 export async function POST(
     _req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     const { id } = await params;
-    const novels = readNovels();
-    const novel = novels.find(n => n.id === id);
+    const ts = () => new Date().toISOString();
+
+    // ── Auth (required — to correctly stamp userName on the Book) ─────────────
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated || !auth.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userEmail = auth.user.email;
+
+    // ── Load novel from Prisma ────────────────────────────────────────────────
+    const novel = await prisma.novel.findUnique({ where: { id } });
 
     if (!novel) {
         return NextResponse.json({ error: 'Novel not found' }, { status: 404 });
     }
 
-    if (novel.status !== 'done') {
-        return NextResponse.json({ error: 'Novel scraping not complete yet' }, { status: 400 });
+    if (novel.status !== 'DONE') {
+        return NextResponse.json(
+            { error: `Novel is not fully scraped yet (status: ${novel.status})` },
+            { status: 400 }
+        );
+    }
+
+    const chapters = Array.isArray(novel.allChapters) ? (novel.allChapters as any[]) : [];
+    const validChapters = chapters.filter(c => c.status === 'done' && c.content && c.content.length > 0);
+
+    if (validChapters.length === 0) {
+        return NextResponse.json(
+            { error: 'No chapter content found. Please run Sync first to scrape chapter content.' },
+            { status: 400 }
+        );
     }
 
     try {
-        // Build a book payload that matches the existing books API
-        const bookPayload = {
-            title: novel.title,
-            description: `Scraped from ${novel.site} — ${novel.chaptersScraped} chapters`,
-            cover: novel.cover || null,
-            content: {
-                source: novel.site,
-                sourceUrl: novel.sourceUrl,
-                chaptersScraped: novel.chaptersScraped,
-                scrapedAt: novel.updatedAt,
-            },
-        };
+        // Derive a unique book title
+        const urlObj = new URL(novel.sourceLink);
+        const hostSuffix = urlObj.hostname.replace('www.', '');
+        const bookTitle = `${novel.title} - ${hostSuffix}`;
 
-        // Call the internal books API to create a new book entry
-        const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/books`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                // Forward internal request — in production you'd want proper auth
-                'x-internal-request': 'novelscraper',
-            },
-            body: JSON.stringify(bookPayload),
-        });
+        // ── Upsert Book ───────────────────────────────────────────────────────
+        const existingBook = await prisma.book.findFirst({ where: { title: bookTitle } });
 
-        if (!res.ok) {
-            const err = await res.json();
-            return NextResponse.json({ error: err.error || 'Failed to add to book database' }, { status: res.status });
+        let book;
+        if (existingBook) {
+            // Update metadata and replace chapters with latest
+            book = await prisma.book.update({
+                where: { id: existingBook.id },
+                data: {
+                    description: novel.description || existingBook.description,
+                    cover: novel.imageLink || existingBook.cover,
+                    userName: userEmail, // re-stamp correct owner
+                }
+            });
+
+            await prisma.chapter.deleteMany({ where: { bookId: book.id } });
+            console.info(`[${ts()}] [INFO] [AddToDb] Updated existing book`, {
+                bookId: book.id, bookTitle, userName: userEmail
+            });
+        } else {
+            book = await prisma.book.create({
+                data: {
+                    title: bookTitle,
+                    description: novel.description || '',
+                    cover: novel.imageLink || '',
+                    userName: userEmail, // ← correctly stamped from auth
+                }
+            });
+            console.info(`[${ts()}] [INFO] [AddToDb] Created new book`, {
+                bookId: book.id, bookTitle, userName: userEmail
+            });
         }
 
-        const book = await res.json();
-        return NextResponse.json({ success: true, bookId: book.id });
-    } catch (e) {
-        return NextResponse.json({ error: 'Failed to add novel to database' }, { status: 500 });
+        // ── Insert Chapters ───────────────────────────────────────────────────
+        const chapterData = validChapters.map((c, i) => ({
+            bookId: book.id,
+            title: c.title || `Chapter ${i + 1}`,
+            content: [{ type: 'paragraph', children: [{ text: c.content }] }],
+            order: i + 1,
+        }));
+
+        await prisma.chapter.createMany({ data: chapterData });
+
+        console.info(`[${ts()}] [SUCCESS] [AddToDb] Novel added to library`, {
+            novelId: id,
+            bookId: book.id,
+            bookTitle,
+            userName: userEmail,
+            chaptersInserted: chapterData.length,
+            totalChaptersInNovel: chapters.length,
+        });
+
+        return NextResponse.json({
+            success: true,
+            bookId: book.id,
+            bookTitle,
+            chaptersAdded: chapterData.length,
+        });
+
+    } catch (e: any) {
+        console.error(`[${ts()}] [ERROR] [AddToDb] Failed`, { novelId: id, error: e.message });
+        return NextResponse.json(
+            { error: e.message || 'Failed to add novel to library' },
+            { status: 500 }
+        );
     }
 }

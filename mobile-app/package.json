@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@notifee/react-native": "^9.1.8",
+    "@react-native-community/datetimepicker": "8.6.0",
     "@react-native-community/slider": "5.1.2",
     "@react-navigation/native": "^7.1.28",
     "@tanstack/react-query": "^5.90.21",
@@ -20,6 +22,7 @@
     "expo-av": "^16.0.8",
     "expo-blur": "~55.0.9",
     "expo-constants": "~55.0.7",
+    "expo-document-picker": "~55.0.9",
     "expo-file-system": "~55.0.10",
     "expo-font": "~55.0.4",
     "expo-image": "^55.0.6",

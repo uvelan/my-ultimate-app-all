@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, Pressable, ActivityIndicator,
-    Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList, TextInput, Alert,
+    Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList, TextInput, Alert, AppState,
 } from 'react-native';
+import { useKeepAwake } from 'expo-keep-awake';
 import {
     ChevronLeft, ChevronRight, Settings, Headphones, CloudOff, Sun, Moon,
     Wand2, X, Plus, Minus, BookOpen, List,
@@ -14,6 +15,8 @@ import { replacementService } from '@/src/services/features.service';
 import { offlineService } from '@/src/services/offline.service';
 import { ttsService } from '@/src/services/tts.service';
 import { cacheService } from '@/src/lib/storage';
+import { usePlaybackStore } from '@/src/store/playbackStore';
+import { playbackNotificationService } from '@/src/services/playback-notification.service';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
@@ -111,6 +114,25 @@ export default function ReaderScreen() {
     const ttsRateRef = useRef<number>(1.0);
     const skipDirectionRef = useRef<number>(1);
 
+    // Keep the JS thread alive and screen on while reading/TTS is active
+    useKeepAwake();
+
+    // AppState: resume TTS if it was interrupted when app went to background
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (state) => {
+            if (state === 'active') {
+                // App came back to foreground. If we were speaking and isSpeakingRef is false,
+                // it means the OS killed TTS mid-sentence — auto-resume from current index.
+                if (isSpeakingRef.current === false && isSpeaking && !isPaused) {
+                    console.log('[Reader] App resumed: restarting TTS from current sentence');
+                    isSpeakingRef.current = true;
+                    speakNextSentence(true);
+                }
+            }
+        });
+        return () => sub.remove();
+    }, [isSpeaking, isPaused]);
+
     // Scroll Ref for highlighting
     const scrollViewRef = useRef<FlatList>(null);
     const sentenceYPositions = useRef<{ [key: number]: number }>({});
@@ -120,6 +142,56 @@ export default function ReaderScreen() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const sidebarAnim = useRef(new Animated.Value(SCREEN_W)).current;
     const overlayAnim = useRef(new Animated.Value(0)).current;
+
+    // Playback Store Subs
+    const { 
+        playTarget, pauseTarget, nextTarget, prevTarget, 
+        setPlayerState, clearPlayerState 
+    } = usePlaybackStore();
+
+    // Listen to store actions
+    useEffect(() => {
+        if (!isSpeakingRef.current && !isPaused) return; // Only react if TTS is the active player (or paused)
+        if (playTarget > 0) {
+            if (isPaused) toggleTTS(); // Resume
+        }
+    }, [playTarget]);
+
+    useEffect(() => {
+        if (!isSpeakingRef.current && !isPaused) return;
+        if (pauseTarget > 0) {
+            if (isSpeakingRef.current) toggleTTS(); // Pause
+        }
+    }, [pauseTarget]);
+
+    useEffect(() => {
+        if (!isSpeakingRef.current && !isPaused) return;
+        if (nextTarget > 0) {
+            skipForward();
+        }
+    }, [nextTarget]);
+
+    useEffect(() => {
+        if (!isSpeakingRef.current && !isPaused) return;
+        if (prevTarget > 0) {
+            skipBackward();
+        }
+    }, [prevTarget]);
+
+    const bookTitleCache = cacheService.getObject<any>(`book_meta_${id}`)?.title || 'Unknown Book';
+
+    // Update Notification State when speaking changes
+    useEffect(() => {
+        if (isSpeaking || isPaused) {
+            setPlayerState('tts', !isPaused);
+            const title = bookTitleCache;
+            const chapter = chapterList.find(c => c.order === parseInt(chapterId))?.title || `Chapter ${currentChapterNum + 1}`;
+            playbackNotificationService.showNotification(title, chapter, !isPaused).catch(console.error);
+        } else {
+            clearPlayerState();
+            playbackNotificationService.stopNotification().catch(console.error);
+        }
+    }, [isSpeaking, isPaused, chapterId, chapterList, bookTitleCache]);
 
     const openSidebar = useCallback(() => {
         setIsSidebarOpen(true);
@@ -187,8 +259,11 @@ export default function ReaderScreen() {
                 setTotalChapters(chapters.length);
                 setIsOffline(false);
                 
+                // Try to get book title from first chapter's book relation if possible, or leave blank
+                const bookTitle = (chapters[0] as any)?.book?.title || 'Unknown Book';
+                
                 // Store metadata for future cache-only loads
-                cacheService.setObject(`book_meta_${bookId}`, { chapters: list });
+                cacheService.setObject(`book_meta_${bookId}`, { chapters: list, title: bookTitle });
                 
                 console.warn(`[Reader] Bulk cached ${chapters.length} chapters`);
             }
@@ -436,15 +511,16 @@ export default function ReaderScreen() {
         if (currentSentenceIndex >= 0 && isSpeaking) {
             const sentenceObj = flatSentences[currentSentenceIndex];
             if (sentenceObj) {
-                const pY = paragraphYPositions.current[sentenceObj.paraIdx] || 0;
-                const sY = sentenceYPositions.current[currentSentenceIndex] || 0;
-                const totalY = pY + sY;
-                
-                const { height: viewH } = Dimensions.get('window');
-                // Center the sentence in the view
-                const scrollTo = Math.max(0, totalY - viewH / 3);
-                
-                scrollViewRef.current?.scrollToOffset({ offset: scrollTo, animated: true });
+                try {
+                    // Center the paragraph in the view using FlatList built-in scroll
+                    scrollViewRef.current?.scrollToIndex({ 
+                        index: sentenceObj.paraIdx, 
+                        animated: true, 
+                        viewPosition: 0.3 
+                    });
+                } catch (error) {
+                    // Item might not be rendered yet
+                }
             }
         }
     }, [currentSentenceIndex, isSpeaking, flatSentences]);
@@ -659,6 +735,12 @@ export default function ReaderScreen() {
                     ref={scrollViewRef as any}
                     data={paragraphStructure}
                     keyExtractor={(_, i) => `p-${i}`}
+                    onScrollToIndexFailed={(info) => {
+                        const wait = new Promise(resolve => setTimeout(resolve, 500));
+                        wait.then(() => {
+                            scrollViewRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.3 });
+                        });
+                    }}
                     contentContainerStyle={{ padding: 20, paddingBottom: 150 }}
                     renderItem={({ item: sentencesInPara, index: pIdx }) => {
                         let prevSentenceCount = 0;

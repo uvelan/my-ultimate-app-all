@@ -385,9 +385,10 @@ function NovelCard({ sites, novel, onSync, onDownload, onAddToDb, onDelete, onRe
                         size="sm" 
                         className="flex-1 p-0 h-9" 
                         onClick={() => onSync(novel.id)} 
-                        title="Sync / Re-scrape"
+                        disabled={novel.status === 'scraping'}
+                        title={novel.status === 'scraping' ? 'Scraping in progress...' : 'Sync / Re-scrape'}
                     >
-                        <RefreshCw className="w-4 h-4" />
+                        <RefreshCw className={cn("w-4 h-4", novel.status === 'scraping' && "animate-spin")} />
                     </Button>
                     <Button 
                         variant="secondary" 
@@ -414,7 +415,8 @@ function NovelCard({ sites, novel, onSync, onDownload, onAddToDb, onDelete, onRe
                         size="sm" 
                         className="p-0 w-9 h-9 text-error hover:bg-error/10" 
                         onClick={() => onDelete(novel.id, novel.title)} 
-                        title="Delete"
+                        disabled={novel.status === 'scraping'}
+                        title={novel.status === 'scraping' ? 'Cannot delete while scraping' : 'Delete'}
                     >
                         <Trash2 className="w-4 h-4" />
                     </Button>
@@ -526,12 +528,12 @@ function SettingsTab({ sites, settings, loading, onSave, refreshSites }: {
                         <Stack gap="space-2">
                             <Typography variant="small" className="font-medium">Target Website</Typography>
                             <select
-                                className="w-full bg-secondary/50 border border-border rounded-radius-md p-space-2 text-small outline-none focus:ring-2 focus:ring-primary/50"
+                                className="w-full bg-secondary/50 border border-border rounded-radius-md p-space-2 text-small text-text-primary outline-none focus:ring-2 focus:ring-primary/50"
                                 value={selectedSite}
                                 onChange={e => setSelectedSite(e.target.value)}
                             >
                                 {sites.map(s => (
-                                    <option key={s.id} value={s.id}>{s.name} ({s.url})</option>
+                                    <option key={s.id} value={s.id} className="bg-background text-text-primary">{s.name} ({s.url})</option>
                                 ))}
                             </select>
                         </Stack>
@@ -812,12 +814,12 @@ function GenerateModal({ sites, onClose, onSuccess }: {
                 <Stack gap="space-2">
                     <Typography variant="small" className="font-medium">Supported Website</Typography>
                     <select
-                        className="w-full bg-secondary/50 border border-border rounded-radius-md p-space-2 text-small outline-none focus:ring-2 focus:ring-primary/50"
+                        className="w-full bg-secondary/50 border border-border rounded-radius-md p-space-2 text-small text-text-primary outline-none focus:ring-2 focus:ring-primary/50"
                         value={site}
                         onChange={e => setSite(e.target.value)}
                     >
                         {sites.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.url})</option>
+                            <option key={s.id} value={s.id} className="bg-background text-text-primary">{s.name} ({s.url})</option>
                         ))}
                     </select>
                 </Stack>

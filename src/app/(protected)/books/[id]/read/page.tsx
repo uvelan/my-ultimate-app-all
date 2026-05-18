@@ -146,7 +146,22 @@ export default function ReadBookPage() {
 
         const originalContent = book.chapters[currentChapterIndex].content;
 
-        let newContent = [...originalContent];
+        let newContent = originalContent.map((p: any) => {
+            if (typeof p === 'string') return p;
+            if (typeof p === 'object' && p !== null) {
+                const extractText = (node: any): string => {
+                    if (typeof node === 'string') return node;
+                    if (node.text) return node.text;
+                    if (node.children && Array.isArray(node.children)) {
+                        return node.children.map(extractText).join('');
+                    }
+                    return '';
+                };
+                const extracted = extractText(p);
+                return extracted ? extracted : JSON.stringify(p);
+            }
+            return String(p);
+        });
 
         replacementRules.forEach(rule => {
             try {

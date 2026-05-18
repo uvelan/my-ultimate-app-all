@@ -33,7 +33,7 @@ const config: Config = {
           muted: "var(--color-muted)",
         },
         accent: {
-          DEFAULT: "var(--color-accent)",
+          DEFAULT: "rgb(var(--color-accent-rgb) / <alpha-value>)",
         },
         success: '#10b981',
         warning: '#f59e0b',

@@ -18,7 +18,7 @@ export async function GET() {
             sourceUrl: n.sourceLink,
             cover: n.imageLink || undefined,
             chaptersScraped: Array.isArray(n.allChapters) ? n.allChapters.length : 0,
-            status: n.status === 'PENDING' ? 'pending' : n.status === 'DONE' ? 'done' : 'error',
+            status: n.status === 'PENDING' ? 'pending' : n.status === 'DONE' ? 'done' : n.status === 'SCRAPING' ? 'scraping' : 'error',
             createdAt: n.createdAt.toISOString(),
             updatedAt: n.updatedAt.toISOString(),
         }));

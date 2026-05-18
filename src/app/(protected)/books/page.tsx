@@ -33,7 +33,9 @@ export default function BooksPage() {
     const [loading, setLoading] = useState(true);
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [uploadType, setUploadType] = useState<'file' | 'url'>('file');
     const [file, setFile] = useState<File | null>(null);
+    const [url, setUrl] = useState('');
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
@@ -94,14 +96,19 @@ export default function BooksPage() {
 
     const handleUpload = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!file) {
+        if (uploadType === 'file' && !file) {
             toast.error('Please select a file');
+            return;
+        }
+        if (uploadType === 'url' && !url) {
+            toast.error('Please enter a URL');
             return;
         }
 
         setUploading(true);
         const formData = new FormData();
-        formData.append('file', file);
+        if (uploadType === 'file' && file) formData.append('file', file);
+        if (uploadType === 'url' && url) formData.append('url', url);
         if (title) formData.append('title', title);
         if (description) formData.append('description', description);
 
@@ -120,6 +127,7 @@ export default function BooksPage() {
                 toast.success('Book added to collection');
                 setShowUploadModal(false);
                 setFile(null);
+                setUrl('');
                 setTitle('');
                 setDescription('');
                 fetchBooks();
@@ -202,29 +210,63 @@ export default function BooksPage() {
                         isOpen={showUploadModal}
                         onClose={() => setShowUploadModal(false)}
                         title="Add to Collection"
-                        description="Upload an EPUB or JSON book file to your personal digital library."
+                        description="Upload an EPUB or JSON book to your personal digital library."
                     >
                         <form onSubmit={handleUpload} className="space-y-space-6 pt-space-4">
+                            <div className="flex gap-space-4 border-b border-border pb-space-2">
+                                <button 
+                                    type="button" 
+                                    onClick={() => setUploadType('file')} 
+                                    className={`pb-space-2 border-b-2 font-medium text-small transition-colors ${uploadType === 'file' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                                >
+                                    File Upload
+                                </button>
+                                <button 
+                                    type="button" 
+                                    onClick={() => setUploadType('url')} 
+                                    className={`pb-space-2 border-b-2 font-medium text-small transition-colors ${uploadType === 'url' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                                >
+                                    Import from URL
+                                </button>
+                            </div>
+
                             <div className="space-y-space-2">
-                                <label className="text-small font-medium text-text-primary">Source File</label>
-                                <div className="border-2 border-dashed border-border rounded-radius-md p-space-8 flex flex-col items-center justify-center bg-background-muted/30 hover:bg-background-muted/50 transition-colors cursor-pointer relative">
-                                    <input
-                                        type="file"
-                                        className="absolute inset-0 opacity-0 cursor-pointer"
-                                        accept=".epub,.json"
-                                        onChange={handleFileChange}
-                                        required
-                                    />
-                                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-space-3 text-primary">
-                                        <Download size={24} />
-                                    </div>
-                                    <Typography variant="small" className="font-medium text-text-primary">
-                                        {file ? file.name : "Click to browse or drag and drop"}
-                                    </Typography>
-                                    <Typography variant="caption" className="text-text-muted mt-space-1">
-                                        Supports .epub and .json files (max 50MB)
-                                    </Typography>
-                                </div>
+                                {uploadType === 'file' ? (
+                                    <>
+                                        <label className="text-small font-medium text-text-primary">Source File</label>
+                                        <div className="border-2 border-dashed border-border rounded-radius-md p-space-8 flex flex-col items-center justify-center bg-background-muted/30 hover:bg-background-muted/50 transition-colors cursor-pointer relative">
+                                            <input
+                                                type="file"
+                                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                                accept=".epub,.json"
+                                                onChange={handleFileChange}
+                                                required={uploadType === 'file'}
+                                            />
+                                            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-space-3 text-primary">
+                                                <Download size={24} />
+                                            </div>
+                                            <Typography variant="small" className="font-medium text-text-primary">
+                                                {file ? file.name : "Click to browse or drag and drop"}
+                                            </Typography>
+                                            <Typography variant="caption" className="text-text-muted mt-space-1">
+                                                Supports .epub and .json files (max 50MB)
+                                            </Typography>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <label className="text-small font-medium text-text-primary">File URL</label>
+                                        <Input
+                                            placeholder="https://example.com/book.epub"
+                                            value={url}
+                                            onChange={(e) => setUrl(e.target.value)}
+                                            required={uploadType === 'url'}
+                                        />
+                                        <Typography variant="caption" className="text-text-muted mt-space-1 block">
+                                            Provide a direct download link to an .epub or .json file.
+                                        </Typography>
+                                    </>
+                                )}
                             </div>
 
                             <Grid cols={{ sm: 1, md: 1 }} gap="space-4">
