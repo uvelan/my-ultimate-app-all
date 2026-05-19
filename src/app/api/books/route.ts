@@ -384,8 +384,119 @@ export async function POST(req: NextRequest) {
             } finally {
                 await fs.unlink(tempFilePath).catch(() => { });
             }
+        } else if (fileName.toLowerCase().endsWith('.zip') && fileBuffer) {
+            try {
+                const zip = new AdmZip(fileBuffer);
+                const indexEntry = zip.getEntry('index.json');
+                
+                if (!indexEntry) {
+                    return NextResponse.json({ error: 'ZIP validation failed: index.json is missing.' }, { status: 400 });
+                }
+
+                let indexData;
+                try {
+                    indexData = JSON.parse(indexEntry.getData().toString('utf8'));
+                } catch (e) {
+                    return NextResponse.json({ error: 'ZIP validation failed: index.json contains invalid JSON.' }, { status: 400 });
+                }
+
+                if (!indexData.title || !indexData.author || !indexData.folder) {
+                    return NextResponse.json({ error: 'Metadata validation failed: title, author, and folder are required.' }, { status: 400 });
+                }
+
+                if (indexData.cover_image) {
+                    const coverEntry = zip.getEntry(indexData.cover_image);
+                    if (coverEntry) {
+                        try {
+                            const imageBuffer = coverEntry.getData();
+                            const resized = await sharp(imageBuffer)
+                                .resize(300, 450, { fit: "cover" })
+                                .toFormat("jpeg", { quality: 80 })
+                                .toBuffer();
+                            coverUrl = `data:image/jpeg;base64,${resized.toString("base64")}`;
+                        } catch (e) {
+                            console.error('Failed to process ZIP cover image:', e);
+                        }
+                    }
+                }
+
+                const folderName = indexData.folder;
+                const folderPrefix = folderName.endsWith('/') ? folderName : `${folderName}/`;
+                const allEntries = zip.getEntries();
+                
+                const textEntries = allEntries.filter(e => 
+                    !e.isDirectory && 
+                    e.entryName.startsWith(folderPrefix) && 
+                    e.entryName.toLowerCase().endsWith('.txt')
+                );
+
+                if (textEntries.length === 0) {
+                    return NextResponse.json({ error: 'ZIP validation failed: No .txt files found in the chapter folder.' }, { status: 400 });
+                }
+
+                textEntries.sort((a, b) => a.entryName.localeCompare(b.entryName));
+
+                const chapters = [];
+                const regex = /^\s*chapter\b.*$/i;
+
+                for (let i = 0; i < textEntries.length; i++) {
+                    const entry = textEntries[i];
+                    const fileContent = entry.getData().toString('utf8');
+                    const lines = fileContent.split(/\r?\n/);
+                    
+                    let title = '';
+                    let firstNonEmptyIdx = -1;
+                    
+                    for (let j = 0; j < lines.length; j++) {
+                        if (lines[j].trim().length > 0) {
+                            firstNonEmptyIdx = j;
+                            break;
+                        }
+                    }
+
+                    let titleFoundInText = false;
+                    if (firstNonEmptyIdx !== -1) {
+                        const firstLine = lines[firstNonEmptyIdx];
+                        if (regex.test(firstLine)) {
+                            title = firstLine.trim();
+                            lines.splice(firstNonEmptyIdx, 1);
+                            titleFoundInText = true;
+                        }
+                    }
+                    
+                    if (!title) {
+                        const baseName = path.posix.basename(entry.entryName);
+                        title = baseName.substring(0, baseName.lastIndexOf('.')) || baseName;
+                    }
+
+                    const compressedLines = lines.filter(line => line.trim().length > 0);
+                    
+                    if (!titleFoundInText) {
+                        compressedLines.unshift(title);
+                    }
+
+                    chapters.push({
+                        title: title,
+                        content: compressedLines
+                    });
+                }
+
+                content = {
+                    metadata: {
+                        title: indexData.title,
+                        author: indexData.author,
+                        language: indexData.language || "en",
+                        identifier: indexData.identifier || "",
+                        description: indexData.description || ""
+                    },
+                    chapters: chapters
+                };
+            } catch (err) {
+                console.error('ZIP parsing error:', err);
+                return NextResponse.json({ error: 'Failed to parse ZIP' }, { status: 500 });
+            }
         } else {
-            return NextResponse.json({ error: 'Unsupported file type. Only .json and .epub are allowed.' }, { status: 400 });
+            return NextResponse.json({ error: 'Unsupported file type. Only .json, .epub, and .zip are allowed.' }, { status: 400 });
         }
 
         const existingBook = await prisma.book.findFirst({

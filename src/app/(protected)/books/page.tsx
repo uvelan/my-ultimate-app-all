@@ -186,7 +186,7 @@ export default function BooksPage() {
                             </div>
                             <Typography variant="h4" className="mb-space-2">No books found</Typography>
                             <Typography variant="body" className="text-text-muted max-w-md">
-                                {searchQuery ? "We couldn't find any books matching your search." : "Your collection is currently empty. Start by adding an EPUB or JSON book."}
+                                {searchQuery ? "We couldn't find any books matching your search." : "Your collection is currently empty. Start by adding an EPUB, JSON, or ZIP book."}
                             </Typography>
                             {!searchQuery && (
                                 <Button variant="outline" className="mt-space-6" onClick={() => setShowUploadModal(true)} leftIcon={<Plus size={16} />}>
@@ -210,7 +210,7 @@ export default function BooksPage() {
                         isOpen={showUploadModal}
                         onClose={() => setShowUploadModal(false)}
                         title="Add to Collection"
-                        description="Upload an EPUB or JSON book to your personal digital library."
+                        description="Upload an EPUB, JSON, or ZIP book to your personal digital library."
                     >
                         <form onSubmit={handleUpload} className="space-y-space-6 pt-space-4">
                             <div className="flex gap-space-4 border-b border-border pb-space-2">
@@ -238,7 +238,7 @@ export default function BooksPage() {
                                             <input
                                                 type="file"
                                                 className="absolute inset-0 opacity-0 cursor-pointer"
-                                                accept=".epub,.json"
+                                                accept=".epub,.json,.zip"
                                                 onChange={handleFileChange}
                                                 required={uploadType === 'file'}
                                             />
@@ -249,7 +249,7 @@ export default function BooksPage() {
                                                 {file ? file.name : "Click to browse or drag and drop"}
                                             </Typography>
                                             <Typography variant="caption" className="text-text-muted mt-space-1">
-                                                Supports .epub and .json files (max 50MB)
+                                                Supports .epub, .json, and .zip files (max 50MB)
                                             </Typography>
                                         </div>
                                     </>
@@ -263,7 +263,7 @@ export default function BooksPage() {
                                             required={uploadType === 'url'}
                                         />
                                         <Typography variant="caption" className="text-text-muted mt-space-1 block">
-                                            Provide a direct download link to an .epub or .json file.
+                                            Provide a direct download link to an .epub, .json, or .zip file.
                                         </Typography>
                                     </>
                                 )}
