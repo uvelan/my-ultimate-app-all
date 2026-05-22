@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels } from '@/actions/ai';
-import { Activity, Trash2, RefreshCw, Clock, Sparkles, Loader2, Play } from 'lucide-react';
+import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob } from '@/actions/ai';
+import { Activity, Trash2, RefreshCw, Clock, Sparkles, Loader2, Play, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function AIJobsPage() {
@@ -48,6 +48,17 @@ export default function AIJobsPage() {
       loadData(false);
     } else {
       toast.error(res.error || "Failed to delete");
+    }
+  };
+
+  const handleCancel = async (id: string) => {
+    if (!confirm('Are you sure you want to cancel this job?')) return;
+    const res = await cancelAIJob(id);
+    if (res.success) {
+      toast.success("Job cancelled");
+      loadData(false);
+    } else {
+      toast.error(res.error || "Failed to cancel");
     }
   };
 
@@ -175,6 +186,15 @@ export default function AIJobsPage() {
                             title="Retry Generation"
                           >
                             <RefreshCw className="w-3.5 h-3.5" /> Retry
+                          </button>
+                        )}
+                        {job.status === 'PENDING' && (
+                          <button 
+                            onClick={() => handleCancel(job.id)} 
+                            className="flex items-center gap-1 px-3 py-1.5 text-orange-600 bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:hover:bg-orange-900/40 dark:text-orange-400 rounded-lg transition-colors font-medium text-xs"
+                            title="Cancel Generation"
+                          >
+                            <XCircle className="w-3.5 h-3.5" /> Cancel
                           </button>
                         )}
                         <button 

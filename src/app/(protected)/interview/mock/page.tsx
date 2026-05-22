@@ -1,174 +1,105 @@
-'use client';
+import React from 'react';
+import { getMockInterviewSessions, deleteMockInterviewSession } from '@/actions/mock-interview';
+import Link from 'next/link';
+import { formatDistanceToNow } from 'date-fns';
+import { Trash2, ChevronRight, CheckCircle2, Clock, XCircle, BarChart3, MonitorPlay } from 'lucide-react';
+import { revalidatePath } from 'next/cache';
 
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Check, X, RotateCcw, Loader2 } from 'lucide-react';
-import InterviewTimer from '@/components/interview/InterviewTimer';
-import { getQuestions } from '@/actions/interview';
+export default async function MockInterviewDashboard() {
+  const sessions = await getMockInterviewSessions();
 
-export default function MockInterviewPage() {
-  const [isStarted, setIsStarted] = useState(false);
-  const [isFinished, setIsFinished] = useState(false);
-  const [currentIdx, setCurrentIdx] = useState(0);
-  
-  const [sessionQuestions, setSessionQuestions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function loadQuestions() {
-      const data = await getQuestions();
-      const randomThree = data.sort(() => 0.5 - Math.random()).slice(0, 3);
-      setSessionQuestions(randomThree);
-      setLoading(false);
-    }
-    loadQuestions();
-  }, []);
-
-  const [scores, setScores] = useState<Record<string, 'pass' | 'fail'>>({});
-
-  const handleStart = () => {
-    setIsStarted(true);
-    setIsFinished(false);
-    setCurrentIdx(0);
-    setScores({});
-  };
-
-  const handleScore = (status: 'pass' | 'fail') => {
-    setScores(prev => ({ ...prev, [sessionQuestions[currentIdx].id]: status }));
-    if (currentIdx < sessionQuestions.length - 1) {
-      setCurrentIdx(prev => prev + 1);
-    } else {
-      setIsFinished(true);
-    }
-  };
-
-  const handleTimeUp = () => {
-    setIsFinished(true);
-  };
-
-  if (!isStarted) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[70vh] text-center">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md p-8 bg-white border border-gray-200 shadow-xl dark:bg-gray-900 dark:border-gray-800 rounded-3xl"
-        >
-          <div className="w-16 h-16 mx-auto mb-6 text-blue-600 bg-blue-100 rounded-2xl dark:bg-blue-900/30 flex items-center justify-center">
-            {loading ? <Loader2 className="w-8 h-8 animate-spin" /> : <Play className="w-8 h-8 fill-current" />}
-          </div>
-          <h1 className="mb-4 text-3xl font-bold text-gray-900 dark:text-white">Mock Interview</h1>
-          <p className="mb-8 text-gray-500 dark:text-gray-400">
-            {loading 
-              ? "Loading questions from database..."
-              : `You will face ${sessionQuestions.length} randomized questions. You have 30 minutes. Speak your answers out loud as if in a real interview, then self-evaluate.`}
-          </p>
-          <button
-            onClick={handleStart}
-            disabled={loading || sessionQuestions.length === 0}
-            className="w-full py-4 text-lg font-bold text-white transition-colors bg-blue-600 rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 disabled:opacity-50"
-          >
-            {loading ? "Please wait..." : "Start Session"}
-          </button>
-        </motion.div>
-      </div>
-    );
+  async function handleDelete(id: string) {
+    'use server';
+    await deleteMockInterviewSession(id);
+    revalidatePath('/interview/mock');
   }
-
-  if (isFinished) {
-    const passed = Object.values(scores).filter(s => s === 'pass').length;
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[70vh] text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-lg p-8 w-full bg-white border border-gray-200 shadow-xl dark:bg-gray-900 dark:border-gray-800 rounded-3xl"
-        >
-          <h2 className="mb-2 text-3xl font-bold text-gray-900 dark:text-white">Interview Complete</h2>
-          <p className="mb-8 text-xl text-gray-500 dark:text-gray-400">
-            You passed {passed} out of {sessionQuestions.length} questions.
-          </p>
-          
-          <div className="space-y-3 mb-8">
-            {sessionQuestions.map((q, idx) => (
-              <div key={q.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-800">
-                <span className="font-medium text-left line-clamp-1 text-gray-900 dark:text-white">{idx + 1}. {q.title}</span>
-                {scores[q.id] === 'pass' ? (
-                  <span className="flex items-center gap-1 text-sm font-bold text-green-500"><Check className="w-4 h-4"/> Pass</span>
-                ) : (
-                  <span className="flex items-center gap-1 text-sm font-bold text-red-500"><X className="w-4 h-4"/> Fail</span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={handleStart}
-            className="flex items-center justify-center w-full gap-2 py-4 text-lg font-bold text-gray-700 bg-gray-100 dark:bg-gray-800 dark:text-gray-200 transition-colors rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700"
-          >
-            <RotateCcw className="w-5 h-5" /> Try Again
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
-
-  const currentQ = sessionQuestions[currentIdx];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <div className="flex items-center justify-between p-4 bg-white border border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-2xl">
+    <div className="max-w-6xl mx-auto space-y-8">
+      <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-            Question {currentIdx + 1} of {sessionQuestions.length}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1 text-xs font-semibold text-purple-600 bg-purple-100 rounded-full dark:bg-purple-900/30 dark:text-purple-400">
-              {currentQ.difficulty}
-            </span>
-          </div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Mock Interviews</h1>
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Practice your interview skills and get real-time AI feedback.</p>
         </div>
-        <InterviewTimer durationMinutes={30} onTimeUp={handleTimeUp} />
+        <Link 
+          href="/interview/mock/start" 
+          className="flex items-center gap-2 px-6 py-3 font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/30"
+        >
+          <MonitorPlay className="w-5 h-5" /> Start New Session
+        </Link>
       </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentQ.id}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          className="p-8 bg-white border border-gray-200 shadow-md dark:bg-gray-900 dark:border-gray-800 rounded-3xl"
-        >
-          <h2 className="mb-6 text-3xl font-bold text-gray-900 dark:text-white leading-tight">
-            {currentQ.title}
-          </h2>
-          <div className="prose max-w-none dark:prose-invert mb-8">
-            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed">
-              {currentQ.problemStatement}
-            </p>
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Past Results</h2>
+        {sessions.length === 0 ? (
+          <div className="p-12 text-center bg-white border border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-3xl">
+            <BarChart3 className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No Results Yet</h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">Take a mock interview to see your AI-driven evaluation here.</p>
+            <Link href="/interview/mock/start" className="font-semibold text-blue-600 hover:text-blue-700">Get Started &rarr;</Link>
           </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {sessions.map(session => {
+              const isEvaluating = session.status === 'EVALUATING';
+              const isFailed = session.status === 'FAILED';
+              
+              const totalScore = session.answers.reduce((acc, curr) => acc + (curr.aiScore || 0), 0);
+              const avgScore = session.answers.length > 0 && !isEvaluating && !isFailed 
+                ? Math.round(totalScore / session.answers.length) 
+                : null;
 
-          <div className="p-6 mb-8 bg-blue-50 border border-blue-100 rounded-2xl dark:bg-blue-900/10 dark:border-blue-900/30">
-            <h4 className="mb-2 font-semibold text-blue-900 dark:text-blue-400">Ideal Answer Outline</h4>
-            <p className="text-blue-800 dark:text-blue-300">{currentQ.bestAnswer}</p>
-          </div>
+              return (
+                <div key={session.id} className="relative group p-6 bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow dark:bg-gray-900 dark:border-gray-800 rounded-2xl flex flex-col h-full">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      {isEvaluating && <Clock className="w-5 h-5 text-yellow-500" />}
+                      {isFailed && <XCircle className="w-5 h-5 text-red-500" />}
+                      {session.status === 'COMPLETED' && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                      <span className="font-medium text-gray-700 dark:text-gray-300">
+                        {isEvaluating ? 'Evaluating...' : isFailed ? 'Failed' : 'Completed'}
+                      </span>
+                    </div>
+                    <form action={handleDelete.bind(null, session.id)}>
+                      <button type="submit" className="p-2 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </form>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      {formatDistanceToNow(session.createdAt, { addSuffix: true })}
+                    </p>
+                    
+                    {avgScore !== null && (
+                      <div className="mb-4">
+                        <div className="flex items-end gap-1">
+                          <span className="text-4xl font-bold text-gray-900 dark:text-white">{avgScore}</span>
+                          <span className="text-gray-500 dark:text-gray-400 font-medium mb-1">/ 100 avg</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">
+                        {session.answers.length} Questions Answered
+                      </p>
+                    </div>
+                  </div>
 
-          <div className="flex flex-col gap-4 mt-8 pt-8 border-t border-gray-100 dark:border-gray-800 sm:flex-row">
-            <button
-              onClick={() => handleScore('fail')}
-              className="flex-1 py-4 text-lg font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-400 transition-colors"
-            >
-              Needs Improvement
-            </button>
-            <button
-              onClick={() => handleScore('pass')}
-              className="flex-1 py-4 text-lg font-semibold text-green-600 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 dark:bg-green-900/20 dark:border-green-900/50 dark:text-green-400 transition-colors"
-            >
-              Nailed It
-            </button>
+                  <Link 
+                    href={`/interview/mock/results/${session.id}`}
+                    className="mt-6 flex items-center justify-center w-full gap-2 py-3 font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    View Details <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              );
+            })}
           </div>
-        </motion.div>
-      </AnimatePresence>
+        )}
+      </div>
     </div>
   );
 }

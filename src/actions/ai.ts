@@ -35,8 +35,8 @@ The JSON MUST follow this EXACT schema:
     "senior": "A production-aware answer a senior engineer gives (6-10 sentences with tradeoffs)",
     "staffArchitect": "An architectural, systems-thinking answer covering scalability, ops, tradeoffs (8-12 sentences)"
   },
-  "inDepthExplanation": "A comprehensive 500-1000 word markdown explanation covering: core theory, internal working, architecture-level understanding, lifecycle, performance implications, memory/threading/concurrency, scalability, security implications, and production tradeoffs. Use ### subheadings within this string.",
-  "productionScenario": "A 200-400 word realistic enterprise story (Fintech/E-commerce/Healthcare/SaaS) describing where this concept caused a real problem, what the failure looked like, how it was debugged, and what the fix was.",
+  "inDepthExplanation": "A comprehensive 300-500 word markdown explanation covering: core theory, internal working, architecture-level understanding, lifecycle, performance implications, memory/threading/concurrency, scalability, security implications, and production tradeoffs. Use ### subheadings within this string.",
+  "productionScenario": "A 150-250 word realistic enterprise story (Fintech/E-commerce/Healthcare/SaaS) describing where this concept caused a real problem, what the failure looked like, how it was debugged, and what the fix was.",
   "internalFlow": ["Step 1: ...", "Step 2: ...", "Step 3: ..."],
   "codeExamples": {
     "language": "java | javascript | typescript | python | sql",
@@ -61,7 +61,7 @@ The JSON MUST follow this EXACT schema:
       "optionB": "Option B behavior"
     }
   ],
-  "performanceOptimization": "200-400 word explanation of bottlenecks, optimization strategies, caching, connection pooling, batching, indexing, async processing etc.",
+  "performanceOptimization": "100-200 word explanation of bottlenecks, optimization strategies, caching, connection pooling, batching, indexing, async processing etc.",
   "commonBugs": [
     {
       "bug": "Description of a common production bug",
@@ -70,7 +70,7 @@ The JSON MUST follow this EXACT schema:
       "tool": "Grafana/Kibana/Chrome DevTools/JVM tools etc."
     }
   ],
-  "systemDesignConnection": "150-300 word explanation of how this topic connects to microservices, distributed systems, CQRS, caching layers, API gateway, Kubernetes, observability.",
+  "systemDesignConnection": "100-200 word explanation of how this topic connects to microservices, distributed systems, CQRS, caching layers, API gateway, Kubernetes, observability.",
   "bestAnswer": "The ideal concise answer a senior engineer would give in 3-5 sentences. This is the 'model answer' for quick revision.",
   "commonMistakes": ["Common mistake candidates make 1", "Common mistake 2", "Common mistake 3"],
   "bestPractices": ["Production best practice 1", "Best practice 2", "Best practice 3"],
@@ -345,12 +345,37 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
         try {
           parsedJson = JSON.parse(cleanedText);
         } catch (repairError: any) {
-          console.error('JSON repair failed. Raw response length:', textResponse.length);
-          throw new Error(`The AI response was too long and got cut off. Try a shorter prompt. (JSON parse error: ${repairError.message})`);
+          console.warn('Local JSON repair failed. Asking AI to fix the JSON formatting...');
+          
+          let fixData: any = null;
+          let fixRes: Response | null = null;
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            fixRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
+              method: 'POST',
+              signal: controller.signal,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: "The following JSON string is invalid or truncated. Please fix it, close any open brackets/strings, escape quotes properly, and return ONLY a valid JSON object. Do not wrap in markdown code blocks.\n\n" + cleanedText.substring(0, 25000) }] }],
+                generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
+              })
+            });
+            if (fixRes.status >= 500) {
+               await new Promise(r => setTimeout(r, 2000 * attempt));
+               continue;
+            }
+            fixData = await fixRes.json();
+            break;
+          }
+          
+          let fixedText = fixData?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!fixedText) throw new Error("AI failed to fix JSON");
+          
+          fixedText = fixedText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          parsedJson = JSON.parse(fixedText);
         }
       }
     } catch (e: any) {
-      throw new Error(e.message || 'Critical JSON parsing failure.');
+      throw new Error(`The AI produced an invalid response format that could not be repaired. Try a more specific prompt.`);
     }
 
     const normalized = normalizeAIResponse(parsedJson);
@@ -677,5 +702,27 @@ export async function deleteAIJob(id: string) {
     return { success: true };
   } catch (error) {
     return { success: false, error: 'Failed to delete job' };
+  }
+}
+
+export async function cancelAIJob(id: string) {
+  const { isAuthenticated, user } = await verifyAuth();
+  if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  try {
+    const job = await prisma.aIGenerationJob.findUnique({ where: { id, userId: user.id } });
+    if (!job) return { success: false, error: 'Job not found' };
+    if (job.status !== 'PENDING') return { success: false, error: 'Job is not pending' };
+    
+    await prisma.aIGenerationJob.update({
+      where: { id },
+      data: {
+        status: 'FAILED',
+        errorReason: 'Manually cancelled by user'
+      }
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to cancel AI job:', error);
+    return { success: false, error: 'Failed to cancel job' };
   }
 }

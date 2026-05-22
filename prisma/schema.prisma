@@ -20,6 +20,7 @@ model User {
   interviewGoals     InterviewGoal[]
   interviewProgress  InterviewProgress[]
   aiGenerationJobs   AIGenerationJob[]
+  mockSessions       MockInterviewSession[]
 }
 
 enum Role {
@@ -172,7 +173,8 @@ model InterviewQuestion {
   isAiGenerated    Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  progress           InterviewProgress[]
+  progress         InterviewProgress[]
+  mockAnswers      MockInterviewAnswer[]
 }
 
 model InterviewFlashcard {
@@ -233,4 +235,33 @@ model AIGenerationJob {
   updatedAt   DateTime @updatedAt
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MockInterviewSession {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  status      String   @default("EVALUATING") // EVALUATING, COMPLETED, FAILED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers     MockInterviewAnswer[]
+}
+
+model MockInterviewAnswer {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId   String   @db.ObjectId
+  questionId  String   @db.ObjectId
+  transcript  String?
+  audioBase64 String?
+  aiScore     Int?
+  aiFeedback  String?
+  status      String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  errorReason String?
+  timeTakenMs Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  session     MockInterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question    InterviewQuestion    @relation(fields: [questionId], references: [id], onDelete: Cascade)
 }

@@ -259,3 +259,48 @@ export async function bulkUploadQuestions(jsonData: string) {
     return { success: false, error: error.message || 'Bulk upload failed' };
   }
 }
+
+export async function mergeQuestions(keepId: string, deleteId: string, mergedData: any) {
+  const { isAuthenticated, user } = await verifyAuth();
+  if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Update the question we are keeping
+      await tx.interviewQuestion.update({
+        where: { id: keepId },
+        data: {
+          title: mergedData.title,
+          topic: mergedData.topic,
+          difficulty: mergedData.difficulty,
+          estimatedTime: parseInt(mergedData.estimatedTime) || 10,
+          frequency: parseInt(mergedData.frequency) || 50,
+          companies: mergedData.companies || [],
+          tags: mergedData.tags || [],
+          problemStatement: mergedData.problemStatement,
+          expectation: mergedData.expectation || '',
+          explanation: mergedData.explanation || '',
+          bestAnswer: mergedData.bestAnswer || '',
+          alternativeAnswer: mergedData.alternativeAnswer,
+          commonMistakes: mergedData.commonMistakes || [],
+          followUpQuestions: mergedData.followUpQuestions || [],
+          realWorldUsage: mergedData.realWorldUsage,
+          codeSnippet: mergedData.codeSnippet || null,
+          mcqs: mergedData.mcqs || null,
+        }
+      });
+
+      // 2. Delete the question we are merging from
+      await tx.interviewQuestion.delete({
+        where: { id: deleteId }
+      });
+    });
+
+    revalidatePath('/interview/explore');
+    revalidatePath('/interview/manage');
+    return { success: true };
+  } catch (error: any) {
+    console.error('Error merging questions:', error);
+    return { success: false, error: 'Failed to merge questions' };
+  }
+}

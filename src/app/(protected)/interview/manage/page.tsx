@@ -5,8 +5,9 @@ import { getQuestions, deleteQuestion, bulkDeleteQuestions, deleteAllQuestions, 
 import { generateQuestionWithAI, getSchemaTemplate, getAiModels, addAiModel, updateAiModel, deleteAiModel } from '@/actions/ai';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Upload, Trash2, Sparkles, Loader2, X, Download, Search, Filter, ArrowUpDown, LayoutGrid, Cpu, Edit2, Plus, Check } from 'lucide-react';
+import { Settings, Upload, Trash2, Sparkles, Loader2, X, Download, Search, Filter, ArrowUpDown, LayoutGrid, Cpu, Edit2, Plus, Check, GitMerge } from 'lucide-react';
 import toast from 'react-hot-toast';
+import MergeQuestionsModal from '@/components/interview/MergeQuestionsModal';
 
 export default function ManageInterviewPage() {
   const router = useRouter();
@@ -19,6 +20,11 @@ export default function ManageInterviewPage() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [isDownloading, setIsDownloading] = useState(false);
+  
+  // Merge Modal State
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergeQuestionA, setMergeQuestionA] = useState<any>(null);
+  const [mergeQuestionB, setMergeQuestionB] = useState<any>(null);
   
   // Tabs & Models State
   const [activeTab, setActiveTab] = useState<'questions' | 'models'>('questions');
@@ -215,6 +221,20 @@ export default function ManageInterviewPage() {
     }
   };
 
+  const openMergeModal = () => {
+    const selectedArray = Array.from(selectedIds);
+    if (selectedArray.length !== 2) return;
+    
+    const q1 = questions.find(q => q.id === selectedArray[0]);
+    const q2 = questions.find(q => q.id === selectedArray[1]);
+    
+    if (q1 && q2) {
+      setMergeQuestionA(q1);
+      setMergeQuestionB(q2);
+      setIsMergeModalOpen(true);
+    }
+  };
+
   const handleGenerateAI = async () => {
     if (!aiPrompt.trim()) {
       toast.error("Please enter a topic or question");
@@ -222,32 +242,29 @@ export default function ManageInterviewPage() {
     }
     
     setIsGenerating(true);
-    toast.loading('AI is deeply analyzing and generating... This may take up to 20 seconds.', { id: 'ai-toast' });
     
     const res = await generateQuestionWithAI(aiPrompt, undefined, selectedModel);
     
     if (res.success) {
-      toast.success('Question successfully generated and saved!', { id: 'ai-toast' });
+      toast.success('Job submitted successfully! Check the AI Jobs tab.');
       setAiPrompt('');
       setIsAiModalOpen(false);
       fetchQuestions();
     } else {
-      toast.error(res.error || 'Failed to generate question', { id: 'ai-toast' });
+      toast.error(res.error || 'Failed to submit job');
     }
     setIsGenerating(false);
   };
 
   const handleRegenerate = async (id: string) => {
     setRegeneratingId(id);
-    toast.loading('AI is regenerating this question...', { id: 'regen-toast' });
     
     const res = await generateQuestionWithAI('', id, selectedModel);
     
     if (res.success) {
-      toast.success('Question successfully regenerated!', { id: 'regen-toast' });
-      fetchQuestions();
+      toast.success('Regeneration job submitted successfully! Check the AI Jobs tab.');
     } else {
-      toast.error(res.error || 'Failed to regenerate question', { id: 'regen-toast' });
+      toast.error(res.error || 'Failed to submit job');
     }
     setRegeneratingId(null);
   };
@@ -477,6 +494,15 @@ export default function ManageInterviewPage() {
               {selectedIds.size} selected
             </span>
           )}
+          {selectedIds.size === 2 && (
+            <button 
+              onClick={openMergeModal}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 transition-colors"
+              title="Merge Selected"
+            >
+              <GitMerge className="w-4 h-4" /> <span className="hidden sm:inline">Merge</span>
+            </button>
+          )}
           <button 
             onClick={handleBulkDelete}
             disabled={selectedIds.size === 0}
@@ -676,6 +702,17 @@ export default function ManageInterviewPage() {
           </div>
         )}
       </AnimatePresence>
+
+      <MergeQuestionsModal 
+        isOpen={isMergeModalOpen}
+        onClose={() => setIsMergeModalOpen(false)}
+        onSuccess={() => {
+          setSelectedIds(new Set());
+          fetchQuestions();
+        }}
+        questionA={mergeQuestionA}
+        questionB={mergeQuestionB}
+      />
     </div>
   );
 }

@@ -1,30 +1,39 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Timer, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function InterviewTimer({ durationMinutes, onTimeUp }: { durationMinutes: number, onTimeUp: () => void }) {
   const [timeLeft, setTimeLeft] = useState(durationMinutes * 60);
+  
+  const onTimeUpRef = useRef(onTimeUp);
+  useEffect(() => {
+    onTimeUpRef.current = onTimeUp;
+  }, [onTimeUp]);
 
   useEffect(() => {
-    if (timeLeft <= 0) {
-      onTimeUp();
-      return;
-    }
+    if (timeLeft <= 0) return;
 
     const timer = setInterval(() => {
-      setTimeLeft(prev => prev - 1);
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          onTimeUpRef.current();
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft, onTimeUp]);
+  }, []); // Empty dependency array ensures interval is not interrupted by renders
 
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   
   const progress = (timeLeft / (durationMinutes * 60)) * 100;
-  const isWarning = timeLeft < 60; // Less than 1 minute
+  const isWarning = timeLeft < 60 && timeLeft > 0; // Less than 1 minute
 
   return (
     <div className="flex flex-col items-center">
