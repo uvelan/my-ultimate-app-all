@@ -7,11 +7,9 @@ import { Clock, TrendingUp, CheckCircle, Building } from 'lucide-react';
 import { Question } from '@/types/interview';
 import { useInterviewStore } from '@/hooks/interview/useInterviewStore';
 import BookmarkButton from './BookmarkButton';
+import CompleteButton from './CompleteButton';
 
 export default function QuestionCard({ question }: { question: Question }) {
-  const { stats } = useInterviewStore();
-  const isCompleted = stats.completedQuestions.includes(question.id);
-
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty.toLowerCase()) {
       case 'easy': return 'text-green-500 bg-green-500/10 border-green-500/20';
@@ -36,9 +34,7 @@ export default function QuestionCard({ question }: { question: Question }) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {isCompleted && (
-            <CheckCircle className="w-5 h-5 text-green-500" />
-          )}
+          <CompleteButton questionId={question.id} />
           <BookmarkButton questionId={question.id} />
         </div>
       </div>

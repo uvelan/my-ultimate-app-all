@@ -17,6 +17,9 @@ model User {
   monthlyBudget Float    @default(0) // 0 means no limit
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  interviewGoals     InterviewGoal[]
+  interviewProgress  InterviewProgress[]
+  aiGenerationJobs   AIGenerationJob[]
 }
 
 enum Role {
@@ -169,6 +172,7 @@ model InterviewQuestion {
   isAiGenerated    Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  progress           InterviewProgress[]
 }
 
 model InterviewFlashcard {
@@ -189,3 +193,44 @@ model AiModel {
   updatedAt   DateTime @updatedAt
 }
 
+
+model InterviewGoal {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  title       String
+  topic       String?
+  company     String?
+  difficulty  String?
+  targetCount Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model InterviewProgress {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  questionId   String   @db.ObjectId
+  completedAt  DateTime @default(now())
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question     InterviewQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+}
+
+model AIGenerationJob {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  prompt      String
+  modelName   String
+  status      String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  errorReason String?
+  timeTakenMs Int?
+  questionId  String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

@@ -1,20 +1,32 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Compass, MonitorPlay, Layers, ArrowLeft } from 'lucide-react';
+import { BookOpen, Compass, MonitorPlay, Layers, ArrowLeft, Target, Activity, Settings } from 'lucide-react';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { getCompletedQuestions } from '@/actions/goal';
+import { useInterviewStore } from '@/hooks/interview/useInterviewStore';
 
 export default function InterviewLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const setCompletedQuestions = useInterviewStore(state => state.setCompletedQuestions);
+
+  useEffect(() => {
+    getCompletedQuestions().then(ids => {
+      setCompletedQuestions(ids);
+    }).catch(console.error);
+  }, [setCompletedQuestions]);
 
   const navItems = [
     { name: 'Dashboard', href: '/interview', icon: BookOpen },
     { name: 'Explore', href: '/interview/explore', icon: Compass },
     { name: 'Mock Interview', href: '/interview/mock', icon: MonitorPlay },
     { name: 'Flashcards', href: '/interview/flashcards', icon: Layers },
-    { name: 'Manage', href: '/interview/manage', icon: Layers }, // You can use Settings icon here, but using Layers to avoid adding imports
+    { name: 'Goals', href: '/interview/goals', icon: Target },
+    { name: 'AI Jobs', href: '/interview/ai-jobs', icon: Activity },
+    { name: 'Manage', href: '/interview/manage', icon: Settings },
   ];
 
   return (
@@ -56,6 +68,10 @@ export default function InterviewLayout({ children }: { children: React.ReactNod
                   );
                 })}
               </nav>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
             </div>
           </div>
         </div>

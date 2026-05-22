@@ -7,6 +7,7 @@ import { generateQuestionWithAI } from '@/actions/ai';
 import toast from 'react-hot-toast';
 import { useInterviewStore } from '@/hooks/interview/useInterviewStore';
 import BookmarkButton from '@/components/interview/BookmarkButton';
+import CompleteButton from '@/components/interview/CompleteButton';
 import CodePlayground from '@/components/interview/CodePlayground';
 import MCQCard from '@/components/interview/MCQCard';
 import ReactMarkdown from 'react-markdown';
@@ -235,18 +236,7 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
               </button>
             )}
             <BookmarkButton questionId={question.id} />
-            {!isCompleted ? (
-              <button
-                onClick={() => markQuestionCompleted(question.id)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl hover:shadow-lg hover:shadow-green-500/30 transition-all"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Mark Complete
-              </button>
-            ) : (
-              <div className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl dark:bg-emerald-900/20 dark:border-emerald-900/50 dark:text-emerald-400">
-                <CheckCircle2 className="w-4 h-4" /> Completed
-              </div>
-            )}
+            <CompleteButton questionId={question.id} showText={true} />
           </div>
         </div>
       </motion.div>

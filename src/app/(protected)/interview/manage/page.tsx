@@ -32,7 +32,7 @@ export default function ManageInterviewPage() {
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string>('all');
-  const [sortField, setSortField] = useState<'title' | 'topic' | 'difficulty' | 'createdAt'>('createdAt');
+  const [sortField, setSortField] = useState<'title' | 'topic' | 'difficulty' | 'createdAt' | 'updatedAt'>('updatedAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -103,9 +103,9 @@ export default function ManageInterviewPage() {
         let bVal = b[sortField];
         
         // Handle dates
-        if (sortField === 'createdAt') {
-          aVal = new Date(a.createdAt || 0).getTime();
-          bVal = new Date(b.createdAt || 0).getTime();
+        if (sortField === 'createdAt' || sortField === 'updatedAt') {
+          aVal = new Date(a[sortField] || 0).getTime();
+          bVal = new Date(b[sortField] || 0).getTime();
         } else if (typeof aVal === 'string' && typeof bVal === 'string') {
           aVal = aVal.toLowerCase();
           bVal = bVal.toLowerCase();
@@ -522,6 +522,9 @@ export default function ManageInterviewPage() {
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group" onClick={() => toggleSort('createdAt')}>
                   <div className="flex items-center gap-1">Date Added <ArrowUpDown className={`w-3.5 h-3.5 opacity-0 group-hover:opacity-50 transition-opacity ${sortField === 'createdAt' ? 'opacity-100 text-blue-500' : ''}`} /></div>
                 </th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group" onClick={() => toggleSort('updatedAt')}>
+                  <div className="flex items-center gap-1">Updated At <ArrowUpDown className={`w-3.5 h-3.5 opacity-0 group-hover:opacity-50 transition-opacity ${sortField === 'updatedAt' ? 'opacity-100 text-blue-500' : ''}`} /></div>
+                </th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600 dark:text-gray-300 text-right">Actions</th>
               </tr>
             </thead>
@@ -584,6 +587,9 @@ export default function ManageInterviewPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {new Date(q.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      {new Date(q.updatedAt || q.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">

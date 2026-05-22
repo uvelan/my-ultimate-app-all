@@ -10,6 +10,8 @@ interface InterviewStore {
   updateTopicMastery: (topicId: string, value: number) => void;
   saveMCQScore: (mcqId: string, score: number) => void;
   updateStreak: () => void;
+  setCompletedQuestions: (ids: string[]) => void;
+  toggleQuestionCompleted: (questionId: string) => void;
 }
 
 const initialState: UserStats = {
@@ -40,6 +42,25 @@ export const useInterviewStore = create<InterviewStore>()(
           }
         };
       }),
+
+      toggleQuestionCompleted: (questionId) => set((state) => {
+        const isCompleted = state.stats.completedQuestions.includes(questionId);
+        return {
+          stats: {
+            ...state.stats,
+            completedQuestions: isCompleted 
+              ? state.stats.completedQuestions.filter(id => id !== questionId)
+              : [...state.stats.completedQuestions, questionId]
+          }
+        };
+      }),
+
+      setCompletedQuestions: (ids) => set((state) => ({
+        stats: {
+          ...state.stats,
+          completedQuestions: ids
+        }
+      })),
 
       toggleBookmark: (questionId) => set((state) => {
         const isBookmarked = state.stats.bookmarkedQuestions.includes(questionId);

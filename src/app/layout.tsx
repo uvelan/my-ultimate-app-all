@@ -20,18 +20,22 @@ export const metadata: Metadata = {
 
 import ClientLayout from '@/components/layout/ClientLayout';
 
+import { ThemeProvider } from '@/components/ThemeProvider';
+
 export default function RootLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
     return (
-        <html lang="en">
+        <html lang="en" suppressHydrationWarning>
             <body className={`${inter.variable} ${outfit.variable} font-sans antialiased bg-background text-text-primary`}>
-                <ClientLayout>
-                    {children}
-                </ClientLayout>
-                <Toaster position="top-right" />
+                <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+                    <ClientLayout>
+                        {children}
+                    </ClientLayout>
+                    <Toaster position="top-right" />
+                </ThemeProvider>
             </body>
         </html>
     );

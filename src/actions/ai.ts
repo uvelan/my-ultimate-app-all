@@ -187,15 +187,38 @@ function normalizeAIResponse(parsedJson: any): any {
   };
 }
 
-export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName: string = 'gemini-2.5-flash') {
-
+export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName: string = 'gemini-2.5-flash'): Promise<{success: boolean, jobId?: string, error?: string}> {
   const { isAuthenticated, user } = await verifyAuth();
-  if (!isAuthenticated || !user) throw new Error('Unauthorized');
-  if (!GEMINI_API_KEY) {
-    return { success: false, error: 'GEMINI_API_KEY is missing in environment variables.' };
+  if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized' };
+  
+  let finalPromptTitle = prompt;
+  if (!finalPromptTitle && updateId) {
+    const existing = await getQuestionById(updateId);
+    finalPromptTitle = existing ? `Regenerate: ${existing.title}` : 'Regenerate Question';
   }
 
+  const job = await prisma.aIGenerationJob.create({
+    data: {
+      userId: user.id,
+      prompt: finalPromptTitle || 'Random Topic',
+      modelName,
+      status: 'PENDING',
+      questionId: updateId || null,
+    }
+  });
+
+  // Fire and forget
+  processBackgroundAIJob(job.id, prompt, updateId, modelName, user.id).catch(console.error);
+
+  return { success: true, jobId: job.id };
+}
+
+async function processBackgroundAIJob(jobId: string, prompt: string, updateId: string | undefined, modelName: string, userId: string) {
+  const startTime = Date.now();
   try {
+    if (!GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY is missing in environment variables.');
+    }
     let finalPrompt = prompt;
     
     if (updateId) {
@@ -333,13 +356,31 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
     if (updateId) {
       await updateQuestion(updateId, normalized);
     } else {
-      await createQuestion(normalized);
+      const created = await createQuestion(normalized);
+      // Wait, createQuestion doesn't return the new question in its response! We will fix that or ignore for now
+      // Actually we just updated createQuestion in interview.ts
     }
+
+    await prisma.aIGenerationJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'COMPLETED',
+        timeTakenMs: Date.now() - startTime
+      }
+    });
 
     return { success: true };
   } catch (error: any) {
     console.error('AI Generation error:', error);
-    return { success: false, error: error.message || 'An unexpected error occurred during AI generation' };
+    await prisma.aIGenerationJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'FAILED',
+        errorReason: error.message || 'An unexpected error occurred during AI generation',
+        timeTakenMs: Date.now() - startTime
+      }
+    });
+    return { success: false, error: error.message };
   }
 }
 
@@ -601,5 +642,32 @@ export async function deleteAiModel(id: string) {
   } catch (error: any) {
     console.error('Error deleting AI model:', error);
     return { success: false, error: error.message || 'Failed to delete model' };
+  }
+}
+
+export async function getAIJobs() {
+  const { isAuthenticated, user } = await verifyAuth();
+  if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  try {
+    return await prisma.aIGenerationJob.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' }
+    });
+  } catch (error) {
+    console.error('Failed to get AI jobs:', error);
+    return [];
+  }
+}
+
+export async function deleteAIJob(id: string) {
+  const { isAuthenticated, user } = await verifyAuth();
+  if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  try {
+    await prisma.aIGenerationJob.delete({
+      where: { id, userId: user.id }
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: 'Failed to delete job' };
   }
 }
