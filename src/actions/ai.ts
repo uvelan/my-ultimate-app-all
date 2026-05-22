@@ -215,6 +215,9 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
 
 async function processBackgroundAIJob(jobId: string, prompt: string, updateId: string | undefined, modelName: string, userId: string) {
   const startTime = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutes timeout
+
   try {
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is missing in environment variables.');
@@ -234,6 +237,7 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
     const makeRequest = async (promptText: string) => {
       return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
@@ -251,7 +255,7 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       res = await makeRequest(finalPrompt);
       
       if (res.status === 429) {
-        return { success: false, error: 'API quota exhausted. Please try again later.' };
+        throw new Error('API quota exhausted. Please try again later.');
       }
       
       if (res.status >= 500) {
@@ -268,13 +272,13 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
 
     if (!res || !res.ok) {
       console.error('Gemini API Error:', data || res?.statusText);
-      return { success: false, error: data?.error?.message || 'Failed to generate AI response. Server may be unavailable.' };
+      throw new Error(data?.error?.message || 'Failed to generate AI response. Server may be unavailable.');
     }
 
     let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!textResponse) {
       const blockReason = data.promptFeedback?.blockReason;
-      return { success: false, error: blockReason ? `Blocked by safety filter: ${blockReason}` : 'Empty response from AI.' };
+      throw new Error(blockReason ? `Blocked by safety filter: ${blockReason}` : 'Empty response from AI.');
     }
 
     const finishReason = data.candidates?.[0]?.finishReason;
@@ -291,6 +295,7 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         contRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
           method: 'POST',
+          signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [
@@ -305,7 +310,7 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
           })
         });
 
-        if (contRes.status === 429) return { success: false, error: 'API quota exhausted.' };
+        if (contRes.status === 429) throw new Error('API quota exhausted.');
         if (contRes.status >= 500) {
           if (attempt === MAX_RETRIES) break;
           const waitTime = 5000 * Math.pow(2, attempt - 1);
@@ -341,14 +346,11 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
           parsedJson = JSON.parse(cleanedText);
         } catch (repairError: any) {
           console.error('JSON repair failed. Raw response length:', textResponse.length);
-          return {
-            success: false,
-            error: `The AI response was too long and got cut off. Try a shorter prompt. (JSON parse error: ${repairError.message})`
-          };
+          throw new Error(`The AI response was too long and got cut off. Try a shorter prompt. (JSON parse error: ${repairError.message})`);
         }
       }
-    } catch (e) {
-      return { success: false, error: 'Critical JSON parsing failure.' };
+    } catch (e: any) {
+      throw new Error(e.message || 'Critical JSON parsing failure.');
     }
 
     const normalized = normalizeAIResponse(parsedJson);
@@ -369,18 +371,24 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       }
     });
 
+    clearTimeout(timeoutId);
     return { success: true };
   } catch (error: any) {
+    clearTimeout(timeoutId);
     console.error('AI Generation error:', error);
+    
+    const isTimeout = error.name === 'AbortError' || (error.message && error.message.includes('aborted'));
+    const errorMessage = isTimeout ? 'Job cancelled: Exceeded 5 minutes time limit.' : error.message || 'An unexpected error occurred during AI generation';
+    
     await prisma.aIGenerationJob.update({
       where: { id: jobId },
       data: {
         status: 'FAILED',
-        errorReason: error.message || 'An unexpected error occurred during AI generation',
+        errorReason: errorMessage,
         timeTakenMs: Date.now() - startTime
       }
     });
-    return { success: false, error: error.message };
+    return { success: false, error: errorMessage };
   }
 }
 
