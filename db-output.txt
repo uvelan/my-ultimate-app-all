@@ -1,0 +1,21 @@
+﻿Found Novel: The King's Avatar
+Status: PENDING
+Successfully verified 1735 chapters saved inside the Database!
+First 3 chapters from DB:
+[
+  {
+    "title": "Chapter 1 ΓÇô The Banished Battle God",
+    "url": "https://novelfull.net/the-kings-avatar/chapter-1-the-banished-battle-god.html",
+    "status": "pending"
+  },
+  {
+    "title": "Chapter 2 ΓÇô Area 3 Number 47",
+    "url": "https://novelfull.net/the-kings-avatar/chapter-2-area-3-number-47.html",
+    "status": "pending"
+  },
+  {
+    "title": "Chapter 3 ΓÇô Special Duty: Night Shift",
+    "url": "https://novelfull.net/the-kings-avatar/chapter-3-special-duty-night-shift.html",
+    "status": "pending"
+  }
+]

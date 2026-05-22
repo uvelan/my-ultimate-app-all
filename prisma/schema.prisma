@@ -135,3 +135,57 @@ model Novel {
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 }
+
+model InterviewTopic {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  topicId     String   @unique
+  name        String
+  icon        String?
+  description String?
+  count       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model InterviewQuestion {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  title            String
+  topic            String
+  difficulty       String
+  estimatedTime    Int
+  frequency        Int
+  companies        String[] @default([])
+  tags             String[] @default([])
+  problemStatement String
+  expectation      String
+  explanation      String
+  bestAnswer       String
+  alternativeAnswer String?
+  commonMistakes   String[] @default([])
+  followUpQuestions String[] @default([])
+  realWorldUsage   String?
+  codeSnippet      Json?    // { language: string, code: string }
+  mcqs             Json?    // Array of MCQType objects
+  isAiGenerated    Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model InterviewFlashcard {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  topic     String
+  front     String
+  back      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiModel {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  modelId     String   @unique
+  name        String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
