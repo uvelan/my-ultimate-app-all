@@ -50,6 +50,7 @@
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: var(--radius-full);
+}
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-muted);
 }
