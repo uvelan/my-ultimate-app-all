@@ -384,9 +384,16 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
     if (updateId) {
       await updateQuestion(updateId, normalized);
     } else {
-      const created = await createQuestion(normalized);
-      // Wait, createQuestion doesn't return the new question in its response! We will fix that or ignore for now
-      // Actually we just updated createQuestion in interview.ts
+      // Check if a question with the same title already exists
+      const existing = await prisma.interviewQuestion.findFirst({
+        where: { title: normalized.title }
+      });
+      
+      if (existing) {
+        await updateQuestion(existing.id, normalized);
+      } else {
+        await createQuestion(normalized);
+      }
     }
 
     await prisma.aIGenerationJob.update({

@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import MergeQuestionsModal from '@/components/interview/MergeQuestionsModal';
 import BulkUploadModal from '@/components/interview/BulkUploadModal';
 import RegenerateAIModal from '@/components/interview/RegenerateAIModal';
+import AskAIModal from '@/components/interview/AskAIModal';
 
 export default function ManageInterviewPage() {
   const router = useRouter();
@@ -17,8 +18,6 @@ export default function ManageInterviewPage() {
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   
   // Regenerate Modal State
   const [regenQuestionId, setRegenQuestionId] = useState<string | null>(null);
@@ -218,26 +217,6 @@ export default function ManageInterviewPage() {
     }
   };
 
-  const handleGenerateAI = async () => {
-    if (!aiPrompt.trim()) {
-      toast.error("Please enter a topic or question");
-      return;
-    }
-    
-    setIsGenerating(true);
-    
-    const res = await generateQuestionWithAI(aiPrompt, undefined, selectedModel);
-    
-    if (res.success) {
-      toast.success('Job submitted successfully! Check the AI Jobs tab.');
-      setAiPrompt('');
-      setIsAiModalOpen(false);
-      fetchQuestions();
-    } else {
-      toast.error(res.error || 'Failed to submit job');
-    }
-    setIsGenerating(false);
-  };
 
   const openRegenerateModal = (id: string, title: string) => {
     setRegenQuestionId(id);
@@ -618,62 +597,13 @@ export default function ManageInterviewPage() {
       </div>
       )}
 
-      {/* AI Modal */}
-      <AnimatePresence>
-        {isAiModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg p-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl rounded-2xl"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
-                  <Sparkles className="w-5 h-5 text-purple-500" /> Ask AI to Generate
-                </h2>
-                <button onClick={() => !isGenerating && setIsAiModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="mb-6">
-                <label className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Topic or Question Prompt
-                </label>
-                <textarea
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="e.g. Write a deep-dive question about Java JVM Garbage Collection, or explain Kafka partition strategies."
-                  className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-purple-500 focus:outline-none min-h-[120px] text-gray-900 dark:text-white resize-none"
-                  disabled={isGenerating}
-                />
-                <p className="mt-2 text-xs text-gray-500">
-                  The AI will act as a Senior FAANG interviewer and generate a massively detailed 15-section module.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button 
-                  onClick={() => setIsAiModalOpen(false)}
-                  disabled={isGenerating}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleGenerateAI}
-                  disabled={isGenerating || !aiPrompt.trim()}
-                  className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:shadow-lg hover:shadow-purple-500/30 transition-all disabled:opacity-50"
-                >
-                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {isGenerating ? 'Generating...' : 'Generate Question'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <AskAIModal 
+        isOpen={isAiModalOpen} 
+        onClose={() => {
+          setIsAiModalOpen(false);
+          fetchQuestions();
+        }} 
+      />
 
       <MergeQuestionsModal 
         isOpen={isMergeModalOpen}
