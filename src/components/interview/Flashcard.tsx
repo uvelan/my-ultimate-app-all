@@ -29,16 +29,18 @@ export default function Flashcard({ card, onNext }: FlashcardProps) {
       >
         {/* Front */}
         <div 
-          className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-white/90 backdrop-blur-xl border border-gray-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] dark:bg-gray-900/90 dark:border-gray-700/50 rounded-[2rem]"
+          className="absolute inset-0 flex flex-col p-8 bg-white/90 backdrop-blur-xl border border-gray-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] dark:bg-gray-900/90 dark:border-gray-700/50 rounded-[2rem] overflow-y-auto custom-scrollbar"
           style={{ backfaceVisibility: 'hidden' }}
         >
-          <span className="absolute px-3 py-1 text-sm font-medium text-blue-600 bg-blue-100 rounded-full top-6 left-6 dark:bg-blue-900/30 dark:text-blue-400">
+          <span className="absolute px-3 py-1 text-sm font-medium text-blue-600 bg-blue-100 rounded-full top-6 left-6 dark:bg-blue-900/30 dark:text-blue-400 z-10">
             {card.topic}
           </span>
-          <h2 className="text-3xl font-bold text-center text-gray-900 dark:text-white">
-            {card.front}
-          </h2>
-          <div className="absolute flex items-center gap-2 text-gray-400 bottom-6">
+          <div className="m-auto w-full py-12">
+            <h2 className="text-2xl md:text-3xl font-bold text-center text-gray-900 dark:text-white">
+              {card.front}
+            </h2>
+          </div>
+          <div className="absolute flex items-center justify-center w-full gap-2 text-gray-400 bottom-6 left-0 pointer-events-none">
             <RotateCw className="w-5 h-5" />
             <span>Tap to flip</span>
           </div>
@@ -46,12 +48,14 @@ export default function Flashcard({ card, onNext }: FlashcardProps) {
 
         {/* Back */}
         <div 
-          className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-gradient-to-br from-blue-50/90 to-indigo-50/90 backdrop-blur-xl border border-blue-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] dark:from-blue-950/80 dark:to-indigo-950/80 dark:border-blue-800/50 rounded-[2rem]"
+          className="absolute inset-0 flex flex-col p-8 bg-gradient-to-br from-blue-50/90 to-indigo-50/90 backdrop-blur-xl border border-blue-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] dark:from-blue-950/80 dark:to-indigo-950/80 dark:border-blue-800/50 rounded-[2rem] overflow-y-auto custom-scrollbar"
           style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
         >
-          <h2 className="text-2xl font-medium leading-relaxed text-center text-gray-800 dark:text-gray-100">
-            {card.back}
-          </h2>
+          <div className="m-auto w-full py-4">
+            <h2 className="text-xl md:text-2xl font-medium leading-relaxed text-center text-gray-800 dark:text-gray-100">
+              {card.back}
+            </h2>
+          </div>
         </div>
       </motion.div>
 
