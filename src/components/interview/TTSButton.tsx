@@ -5,11 +5,11 @@ import { Volume2, Square, Loader2, Settings, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface TTSButtonProps {
-  text: string;
-  onPlayStateChange?: (isPlaying: boolean, currentSentence?: string) => void;
+  containerId: string;
+  onPlayStateChange?: (isPlaying: boolean) => void;
 }
 
-export default function TTSButton({ text, onPlayStateChange }: TTSButtonProps) {
+export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -17,17 +17,7 @@ export default function TTSButton({ text, onPlayStateChange }: TTSButtonProps) {
   const [speed, setSpeed] = useState(1);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  // Strip markdown helper
-  const cleanMarkdown = (md: string) => {
-    let clean = md;
-    clean = clean.replace(/```[\s\S]*?```/g, ' '); // code blocks
-    clean = clean.replace(/`[^`]*`/g, ' '); // inline code
-    clean = clean.replace(/!\[.*?\]\(.*?\)/g, ' '); // images
-    clean = clean.replace(/\[(.*?)\]\(.*?\)/g, '$1'); // links
-    clean = clean.replace(/[#*~_>]/g, ''); // markdown chars
-    clean = clean.replace(/<[^>]*>?/gm, ''); // HTML
-    return clean.replace(/\s+/g, ' ').trim();
-  };
+  // Markdown strip helper is no longer needed since we read DOM directly
 
   useEffect(() => {
     const storedVoice = localStorage.getItem('interview-tts-voice');
@@ -83,10 +73,37 @@ export default function TTSButton({ text, onPlayStateChange }: TTSButtonProps) {
       return;
     }
 
-    const cleanText = cleanMarkdown(text || '');
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Traverse the DOM to extract clean text and map character indices to text nodes
+    let cleanText = "";
+    const indexMap: number[] = [];
+    const textNodes: Text[] = [];
+    let domIndex = 0;
+
+    function traverse(node: Node) {
+      if (node.nodeName === 'PRE') return; // Optionally skip code blocks
+      if (node.nodeType === Node.TEXT_NODE) {
+        const textContent = node.textContent || '';
+        textNodes.push(node as Text);
+        for (let i = 0; i < textContent.length; i++) {
+          indexMap.push(domIndex + i);
+          cleanText += textContent[i];
+        }
+        domIndex += textContent.length;
+      } else {
+        for (let i = 0; i < node.childNodes.length; i++) {
+          traverse(node.childNodes[i]);
+        }
+      }
+    }
+
+    traverse(container);
+    cleanText = cleanText.trim();
     if (!cleanText) return;
 
-    window.speechSynthesis.cancel(); // Stop any current audio
+    window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     if (selectedVoiceURI) {
@@ -96,22 +113,75 @@ export default function TTSButton({ text, onPlayStateChange }: TTSButtonProps) {
     utterance.rate = speed;
 
     utterance.onstart = () => setIsPlaying(true);
+    
+    const cleanupHighlight = () => {
+      if ('highlights' in CSS) {
+        (CSS as any).highlights.delete('tts-reading');
+      } else {
+        window.getSelection()?.removeAllRanges();
+      }
+    };
+
     utterance.onend = () => {
       setIsPlaying(false);
+      cleanupHighlight();
       if (onPlayStateChange) onPlayStateChange(false);
     };
-    utterance.onerror = () => setIsPlaying(false);
+    utterance.onerror = () => {
+      setIsPlaying(false);
+      cleanupHighlight();
+    };
 
-    // Sentence-by-sentence highlighting approximation
     utterance.onboundary = (event) => {
       if (event.name === 'sentence' || event.name === 'word') {
         const charIndex = event.charIndex;
-        // Extract the current sentence approx
-        const textAfter = cleanText.substring(charIndex);
-        const sentenceMatch = textAfter.match(/^[^.!?]*[.!?]/);
-        const currentSentence = sentenceMatch ? sentenceMatch[0].trim() : textAfter.split(' ').slice(0, 10).join(' ') + '...';
         
-        if (onPlayStateChange) onPlayStateChange(true, currentSentence);
+        // Find rough sentence boundaries
+        let start = charIndex;
+        while (start > 0 && !/[.!?\n]/.test(cleanText[start - 1])) start--;
+        while (start < cleanText.length && /\s/.test(cleanText[start])) start++;
+        
+        let end = charIndex;
+        while (end < cleanText.length && !/[.!?\n]/.test(cleanText[end])) end++;
+        if (end < cleanText.length) end++; // include punctuation
+
+        const domStart = indexMap[start];
+        const domEnd = indexMap[Math.min(end, indexMap.length - 1)];
+
+        if (domStart !== undefined && domEnd !== undefined) {
+          let currentIdx = 0;
+          let startNode, endNode;
+          let startOffset = 0, endOffset = 0;
+
+          for (let node of textNodes) {
+            const nodeLen = node.textContent?.length || 0;
+            if (!startNode && currentIdx + nodeLen > domStart) {
+              startNode = node;
+              startOffset = domStart - currentIdx;
+            }
+            if (startNode && currentIdx + nodeLen >= domEnd) {
+              endNode = node;
+              endOffset = domEnd - currentIdx;
+              break;
+            }
+            currentIdx += nodeLen;
+          }
+
+          if (startNode && endNode) {
+            const range = document.createRange();
+            range.setStart(startNode, startOffset);
+            range.setEnd(endNode, endOffset);
+            
+            if ('highlights' in CSS) {
+              const highlight = new (window as any).Highlight(range);
+              (CSS as any).highlights.set('tts-reading', highlight);
+            } else {
+              const sel = window.getSelection();
+              sel?.removeAllRanges();
+              sel?.addRange(range);
+            }
+          }
+        }
       }
     };
 
@@ -121,6 +191,11 @@ export default function TTSButton({ text, onPlayStateChange }: TTSButtonProps) {
 
   const handleStop = () => {
     window.speechSynthesis.cancel();
+    if ('highlights' in CSS) {
+      (CSS as any).highlights.delete('tts-reading');
+    } else {
+      window.getSelection()?.removeAllRanges();
+    }
     setIsPlaying(false);
     if (onPlayStateChange) onPlayStateChange(false);
   };
