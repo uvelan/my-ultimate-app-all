@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, X, Loader2, Play } from 'lucide-react';
+import { Sparkles, X, Loader2, Play, Layers, FileText } from 'lucide-react';
 import { generateQuestionWithAI, getAiModels } from '@/actions/ai';
 import toast from 'react-hot-toast';
 
@@ -16,6 +16,7 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
   const [models, setModels] = useState<any[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBatchMode, setIsBatchMode] = useState(false);
 
   useEffect(() => {
     if (isOpen && models.length === 0) {
@@ -39,15 +40,42 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
     }
     
     setIsSubmitting(true);
-    const res = await generateQuestionWithAI(prompt, undefined, selectedModel);
-    setIsSubmitting(false);
-    
-    if (res.success) {
-      toast.success('Job submitted successfully! Check the AI Jobs tab to view progress.');
-      setPrompt('');
-      onClose();
+
+    if (isBatchMode) {
+      const prompts = prompt.split('\n').map(p => p.trim()).filter(Boolean);
+      if (prompts.length === 0) {
+        toast.error('Please enter at least one valid prompt');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      let successCount = 0;
+      for (const p of prompts) {
+        const res = await generateQuestionWithAI(p, undefined, selectedModel);
+        if (res.success) successCount++;
+        // stagger submissions slightly to prevent slamming the server
+        await new Promise(r => setTimeout(r, 500));
+      }
+      
+      setIsSubmitting(false);
+      if (successCount > 0) {
+        toast.success(`Successfully queued ${successCount} background jobs! Check the AI Jobs tab.`);
+        setPrompt('');
+        onClose();
+      } else {
+        toast.error('Failed to submit batch jobs');
+      }
     } else {
-      toast.error(res.error || 'Failed to submit job');
+      const res = await generateQuestionWithAI(prompt, undefined, selectedModel);
+      setIsSubmitting(false);
+      
+      if (res.success) {
+        toast.success('Job submitted successfully! Check the AI Jobs tab to view progress.');
+        setPrompt('');
+        onClose();
+      } else {
+        toast.error(res.error || 'Failed to submit job');
+      }
     }
   };
 
@@ -77,13 +105,30 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
           </div>
 
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
+              <button
+                type="button"
+                onClick={() => setIsBatchMode(false)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${!isBatchMode ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                <FileText className="w-4 h-4" /> Single
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBatchMode(true)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${isBatchMode ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                <Layers className="w-4 h-4" /> Batch
+              </button>
+            </div>
+
             <div>
               <textarea 
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="e.g., Generate 3 hard system design questions for a Senior Backend role at Uber..."
+                placeholder={isBatchMode ? "Enter multiple questions or topics here.\nPut each question on a NEW LINE.\nThey will be queued as separate AI generation jobs..." : "e.g., Generate 3 hard system design questions for a Senior Backend role at Uber..."}
                 className="w-full p-4 text-sm font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none custom-scrollbar text-gray-900 dark:text-gray-200"
-                rows={4}
+                rows={isBatchMode ? 6 : 4}
                 autoFocus
               />
             </div>

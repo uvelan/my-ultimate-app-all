@@ -254,14 +254,13 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       res = await makeRequest(finalPrompt);
       
-      if (res.status === 429) {
-        throw new Error('API quota exhausted. Please try again later.');
-      }
-      
-      if (res.status >= 500) {
-        if (attempt === MAX_RETRIES) break;
-        const waitTime = 5000 * Math.pow(2, attempt - 1);
-        console.warn(`Gemini API 5xx error. Retrying in ${waitTime/1000}s... (Attempt ${attempt}/${MAX_RETRIES})`);
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt === MAX_RETRIES) {
+          if (res.status === 429) throw new Error('API quota exhausted after retries. Please try again later.');
+          break;
+        }
+        const waitTime = (res.status === 429 ? 15000 : 5000) * Math.pow(2, attempt - 1);
+        console.warn(`Gemini API ${res.status} error. Retrying in ${waitTime/1000}s... (Attempt ${attempt}/${MAX_RETRIES})`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
@@ -310,10 +309,12 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
           })
         });
 
-        if (contRes.status === 429) throw new Error('API quota exhausted.');
-        if (contRes.status >= 500) {
-          if (attempt === MAX_RETRIES) break;
-          const waitTime = 5000 * Math.pow(2, attempt - 1);
+        if (contRes.status === 429 || contRes.status >= 500) {
+          if (attempt === MAX_RETRIES) {
+            if (contRes.status === 429) throw new Error('API quota exhausted.');
+            break;
+          }
+          const waitTime = (contRes.status === 429 ? 15000 : 5000) * Math.pow(2, attempt - 1);
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
@@ -359,8 +360,8 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
                 generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
               })
             });
-            if (fixRes.status >= 500) {
-               await new Promise(r => setTimeout(r, 2000 * attempt));
+            if (!fixRes || fixRes.status === 429 || fixRes.status >= 500) {
+               await new Promise(r => setTimeout(r, (fixRes?.status === 429 ? 15000 : 5000) * attempt));
                continue;
             }
             fixData = await fixRes.json();
