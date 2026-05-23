@@ -5,39 +5,56 @@ import { Volume2, Square, Loader2, Settings, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface TTSButtonProps {
-  questionId: string;
-  field: string;
-  onPlayStateChange?: (isPlaying: boolean) => void;
+  text: string;
+  onPlayStateChange?: (isPlaying: boolean, currentSentence?: string) => void;
 }
 
-const VOICES = [
-  { id: 'en', label: 'English (US)' },
-  { id: 'en-GB', label: 'English (UK)' },
-  { id: 'en-AU', label: 'English (Australia)' },
-  { id: 'en-IN', label: 'English (India)' },
-];
-
-export default function TTSButton({ questionId, field, onPlayStateChange }: TTSButtonProps) {
+export default function TTSButton({ text, onPlayStateChange }: TTSButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [voice, setVoice] = useState('en');
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState('');
   const [speed, setSpeed] = useState(1);
-  
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Strip markdown helper
+  const cleanMarkdown = (md: string) => {
+    let clean = md;
+    clean = clean.replace(/```[\s\S]*?```/g, ' '); // code blocks
+    clean = clean.replace(/`[^`]*`/g, ' '); // inline code
+    clean = clean.replace(/!\[.*?\]\(.*?\)/g, ' '); // images
+    clean = clean.replace(/\[(.*?)\]\(.*?\)/g, '$1'); // links
+    clean = clean.replace(/[#*~_>]/g, ''); // markdown chars
+    clean = clean.replace(/<[^>]*>?/gm, ''); // HTML
+    return clean.replace(/\s+/g, ' ').trim();
+  };
 
   useEffect(() => {
     const storedVoice = localStorage.getItem('interview-tts-voice');
     const storedSpeed = localStorage.getItem('interview-tts-speed');
-    if (storedVoice) setVoice(storedVoice);
     if (storedSpeed) setSpeed(parseFloat(storedSpeed));
-    
-    // Cleanup audio on unmount
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.removeAttribute('src'); // Fully stop downloading
+
+    const loadVoices = () => {
+      let availableVoices = window.speechSynthesis.getVoices();
+      if (availableVoices.length > 0) {
+        // Prefer English voices
+        availableVoices = availableVoices.filter(v => v.lang.startsWith('en'));
+        setVoices(availableVoices);
+        if (storedVoice && availableVoices.find(v => v.voiceURI === storedVoice)) {
+          setSelectedVoiceURI(storedVoice);
+        } else {
+          setSelectedVoiceURI(availableVoices[0]?.voiceURI || '');
+        }
       }
+    };
+
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    
+    return () => {
+      window.speechSynthesis.cancel();
     };
   }, []);
 
@@ -47,7 +64,7 @@ export default function TTSButton({ questionId, field, onPlayStateChange }: TTSB
   }, [isPlaying, onPlayStateChange]);
 
   const handleVoiceChange = (v: string) => {
-    setVoice(v);
+    setSelectedVoiceURI(v);
     localStorage.setItem('interview-tts-voice', v);
     if (isPlaying) handleStop();
   };
@@ -55,73 +72,68 @@ export default function TTSButton({ questionId, field, onPlayStateChange }: TTSB
   const handleSpeedChange = (s: number) => {
     setSpeed(s);
     localStorage.setItem('interview-tts-speed', s.toString());
-    if (audioRef.current) {
-      audioRef.current.playbackRate = s;
+    if (isPlaying) {
+      handleStop();
     }
   };
 
   const handlePlay = () => {
-    if (isPlaying && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
+    if (isPlaying) {
+      handleStop();
       return;
     }
 
-    setIsLoading(true);
-    
-    // Construct URL
-    const url = `/api/tts?questionId=${questionId}&questionField=${field}&voice=${voice}&grammarModel=OFF`;
-    
-    const audio = new Audio(url);
-    audio.playbackRate = speed;
-    audioRef.current = audio;
+    const cleanText = cleanMarkdown(text || '');
+    if (!cleanText) return;
 
-    audio.oncanplaythrough = () => {
-      setIsLoading(false);
-      setIsPlaying(true);
-      audio.play().catch(e => {
-        console.error("Audio playback failed", e);
-        setIsPlaying(false);
-      });
-    };
+    window.speechSynthesis.cancel(); // Stop any current audio
 
-    audio.onerror = (e) => {
-      console.error("Audio failed to load", e);
-      setIsLoading(false);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    if (selectedVoiceURI) {
+      const v = voices.find(voice => voice.voiceURI === selectedVoiceURI);
+      if (v) utterance.voice = v;
+    }
+    utterance.rate = speed;
+
+    utterance.onstart = () => setIsPlaying(true);
+    utterance.onend = () => {
       setIsPlaying(false);
+      if (onPlayStateChange) onPlayStateChange(false);
+    };
+    utterance.onerror = () => setIsPlaying(false);
+
+    // Sentence-by-sentence highlighting approximation
+    utterance.onboundary = (event) => {
+      if (event.name === 'sentence' || event.name === 'word') {
+        const charIndex = event.charIndex;
+        // Extract the current sentence approx
+        const textAfter = cleanText.substring(charIndex);
+        const sentenceMatch = textAfter.match(/^[^.!?]*[.!?]/);
+        const currentSentence = sentenceMatch ? sentenceMatch[0].trim() : textAfter.split(' ').slice(0, 10).join(' ') + '...';
+        
+        if (onPlayStateChange) onPlayStateChange(true, currentSentence);
+      }
     };
 
-    audio.onended = () => {
-      setIsPlaying(false);
-    };
-    
-    // Force load to trigger events
-    audio.load();
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleStop = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.removeAttribute('src'); // Stops buffering
-      audioRef.current.load(); // Forces reset
-    }
+    window.speechSynthesis.cancel();
     setIsPlaying(false);
-    setIsLoading(false);
+    if (onPlayStateChange) onPlayStateChange(false);
   };
 
   return (
     <div className="relative inline-flex items-center gap-2 ml-3">
-      {isPlaying || isLoading ? (
+      {isPlaying ? (
         <button
           onClick={handleStop}
           className="flex items-center justify-center p-1.5 text-red-600 bg-red-100 rounded-lg hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition-colors"
           title="Stop Reading"
         >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />
-          ) : (
-            <Square className="w-4 h-4 fill-current" />
-          )}
+          <Square className="w-4 h-4 fill-current" />
         </button>
       ) : (
         <button
@@ -161,13 +173,14 @@ export default function TTSButton({ questionId, field, onPlayStateChange }: TTSB
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Voice Accent</label>
                 <select 
-                  value={voice}
+                  value={selectedVoiceURI}
                   onChange={(e) => handleVoiceChange(e.target.value)}
                   className="w-full text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-2 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
-                  {VOICES.map(v => (
-                    <option key={v.id} value={v.id}>{v.label}</option>
+                  {voices.map(v => (
+                    <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>
                   ))}
+                  {voices.length === 0 && <option value="">Loading voices...</option>}
                 </select>
               </div>
               

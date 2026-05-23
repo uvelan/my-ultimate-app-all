@@ -95,6 +95,7 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
   
   const [activeTab, setActiveTab] = useState<TabId>('problem');
   const [playingTTSField, setPlayingTTSField] = useState<string | null>(null);
+  const [currentSpokenSentence, setCurrentSpokenSentence] = useState<string>('');
 
   useEffect(() => {
     async function loadData() {
@@ -314,13 +315,20 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
                     <Lightbulb className="w-5 h-5 text-yellow-500 mr-2" /> 
                     Deep Dive Explanation
                     <TTSButton 
-                      questionId={question.id} 
-                      field="explanation" 
-                      onPlayStateChange={(isPlaying) => setPlayingTTSField(isPlaying ? 'explanation' : null)}
+                      text={question.explanation || ''} 
+                      onPlayStateChange={(isPlaying, sentence) => {
+                        setPlayingTTSField(isPlaying ? 'explanation' : null);
+                        if (sentence) setCurrentSpokenSentence(sentence);
+                      }}
                     />
                   </div>
                 </h3>
-                <div className={`prose-sm transition-all duration-700 ${playingTTSField === 'explanation' ? 'bg-yellow-50/80 dark:bg-yellow-900/20 p-4 rounded-xl border border-yellow-200/50 dark:border-yellow-800/50 shadow-inner' : ''}`}>
+                {playingTTSField === 'explanation' && currentSpokenSentence && (
+                  <div className="mb-4 p-4 bg-yellow-100/80 dark:bg-yellow-900/40 border border-yellow-300 dark:border-yellow-700 rounded-xl text-yellow-900 dark:text-yellow-100 font-medium text-lg text-center shadow-sm animate-pulse">
+                    "{currentSpokenSentence}"
+                  </div>
+                )}
+                <div className={`prose-sm transition-all duration-700 ${playingTTSField === 'explanation' ? 'opacity-50 blur-[1px]' : ''}`}>
                   <MarkdownContent>{question.explanation || '_No detailed explanation available. Use AI to regenerate._'}</MarkdownContent>
                 </div>
               </div>
@@ -354,12 +362,19 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
                   <h3 className="flex items-center text-base font-bold text-gray-900 dark:text-white mb-3">
                     {section.label}
                     <TTSButton 
-                      questionId={question.id} 
-                      field={section.field} 
-                      onPlayStateChange={(isPlaying) => setPlayingTTSField(isPlaying ? section.field : null)}
+                      text={section.content || ''} 
+                      onPlayStateChange={(isPlaying, sentence) => {
+                        setPlayingTTSField(isPlaying ? section.field : null);
+                        if (sentence) setCurrentSpokenSentence(sentence);
+                      }}
                     />
                   </h3>
-                  <div className={`prose-sm transition-all duration-700 ${playingTTSField === section.field ? 'bg-blue-50/80 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-200/50 dark:border-blue-800/50 shadow-inner' : ''}`}>
+                  {playingTTSField === section.field && currentSpokenSentence && (
+                    <div className="mb-4 p-4 bg-blue-100/80 dark:bg-blue-900/40 border border-blue-300 dark:border-blue-700 rounded-xl text-blue-900 dark:text-blue-100 font-medium text-lg text-center shadow-sm animate-pulse">
+                      "{currentSpokenSentence}"
+                    </div>
+                  )}
+                  <div className={`prose-sm transition-all duration-700 ${playingTTSField === section.field ? 'opacity-50 blur-[1px]' : ''}`}>
                     <MarkdownContent>{section.content}</MarkdownContent>
                   </div>
                 </div>
