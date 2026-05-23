@@ -14,37 +14,52 @@ export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const chapterId = searchParams.get('chapterId');
+        const questionId = searchParams.get('questionId');
+        const questionField = searchParams.get('questionField');
         const grammarModel = searchParams.get('grammarModel') || "OFF";
         const voice = searchParams.get('voice') || "en";
 
-        if (!chapterId) {
-            return NextResponse.json({ error: 'Chapter ID is required' }, { status: 400 });
+        if (!chapterId && !questionId) {
+            return NextResponse.json({ error: 'Chapter ID or Question ID is required' }, { status: 400 });
         }
 
-        // Fetch chapter
-        const chapter = await db.chapter.findUnique({
-            where: { id: chapterId }
-        });
-
-        if (!chapter) {
-            return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
-        }
-
-        // Generate Text into proper chunks (< 200 characters limit for google-tts-api)
-        // Combine all arrays into one long string, then chunk
         let contentArray: string[] = [];
-        try {
-            const parsedContent = typeof chapter.content === 'string'
-                ? JSON.parse(chapter.content)
-                : chapter.content;
 
-            if (Array.isArray(parsedContent)) {
-                contentArray = parsedContent;
-            } else {
+        if (chapterId) {
+            // Fetch chapter
+            const chapter = await db.chapter.findUnique({
+                where: { id: chapterId }
+            });
+
+            if (!chapter) {
+                return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
+            }
+
+            try {
+                const parsedContent = typeof chapter.content === 'string'
+                    ? JSON.parse(chapter.content)
+                    : chapter.content;
+
+                if (Array.isArray(parsedContent)) {
+                    contentArray = parsedContent;
+                } else {
+                    contentArray = [String(chapter.content)];
+                }
+            } catch (e) {
                 contentArray = [String(chapter.content)];
             }
-        } catch (e) {
-            contentArray = [String(chapter.content)];
+        } else if (questionId && questionField) {
+            const question = await db.interviewQuestion.findUnique({
+                where: { id: questionId }
+            });
+            if (!question) {
+                return NextResponse.json({ error: 'Question not found' }, { status: 404 });
+            }
+            const content = (question as any)[questionField];
+            if (!content || typeof content !== 'string') {
+                return NextResponse.json({ error: 'Field content not found or is not text' }, { status: 404 });
+            }
+            contentArray = [content];
         }
 
         // --- GRAMMAR CORRECTION PIPELINE ---

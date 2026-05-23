@@ -11,6 +11,7 @@ import CompleteButton from '@/components/interview/CompleteButton';
 import CodePlayground from '@/components/interview/CodePlayground';
 import MCQCard from '@/components/interview/MCQCard';
 import RegenerateAIModal from '@/components/interview/RegenerateAIModal';
+import TTSButton from '@/components/interview/TTSButton';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -308,7 +309,11 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
             <motion.div key="explanation" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
               <div className="p-6 bg-white/80 backdrop-blur-xl border border-gray-200/60 shadow-sm dark:bg-gray-900/80 dark:border-gray-800/60 rounded-[1.5rem]">
                 <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white mb-4">
-                  <Lightbulb className="w-5 h-5 text-yellow-500" /> Deep Dive Explanation
+                  <div className="flex items-center">
+                    <Lightbulb className="w-5 h-5 text-yellow-500 mr-2" /> 
+                    Deep Dive Explanation
+                    <TTSButton questionId={question.id} field="explanation" />
+                  </div>
                 </h3>
                 <div className="prose-sm">
                   <MarkdownContent>{question.explanation || '_No detailed explanation available. Use AI to regenerate._'}</MarkdownContent>
@@ -337,11 +342,14 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
           {activeTab === 'answers' && (
             <motion.div key="answers" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
               {[
-                { label: '🎓 Best Answer (Quick Revision)', content: question.bestAnswer, color: 'green' },
-                { label: '⚡ Alternative Answer', content: question.alternativeAnswer, color: 'blue' },
+                { label: '🎓 Best Answer (Quick Revision)', content: question.bestAnswer, field: 'bestAnswer', color: 'green' },
+                { label: '⚡ Alternative Answer', content: question.alternativeAnswer, field: 'alternativeAnswer', color: 'blue' },
               ].filter(s => s.content).map(section => (
                 <div key={section.label} className={`p-5 bg-white/80 backdrop-blur-xl border border-gray-200/60 dark:bg-gray-900/80 dark:border-gray-800/60 rounded-[1.5rem]`}>
-                  <h3 className="text-base font-bold text-gray-900 dark:text-white mb-3">{section.label}</h3>
+                  <h3 className="flex items-center text-base font-bold text-gray-900 dark:text-white mb-3">
+                    {section.label}
+                    <TTSButton questionId={question.id} field={section.field} />
+                  </h3>
                   <div className="prose-sm">
                     <MarkdownContent>{section.content}</MarkdownContent>
                   </div>
