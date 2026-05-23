@@ -100,8 +100,7 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
     }
 
     traverse(container);
-    cleanText = cleanText.trim();
-    if (!cleanText) return;
+    if (!cleanText.trim()) return;
 
     window.speechSynthesis.cancel();
 
@@ -168,17 +167,31 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
           }
 
           if (startNode && endNode) {
-            const range = document.createRange();
-            range.setStart(startNode, startOffset);
-            range.setEnd(endNode, endOffset);
-            
-            if ('highlights' in CSS) {
-              const highlight = new (window as any).Highlight(range);
-              (CSS as any).highlights.set('tts-reading', highlight);
-            } else {
-              const sel = window.getSelection();
-              sel?.removeAllRanges();
-              sel?.addRange(range);
+            try {
+              const range = document.createRange();
+              range.setStart(startNode, startOffset);
+              range.setEnd(endNode, endOffset);
+              
+              if ('highlights' in CSS) {
+                const highlight = new (window as any).Highlight(range);
+                (CSS as any).highlights.set('tts-reading', highlight);
+              } else {
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+              }
+
+              // Auto-scroll to the highlighted sentence
+              const element = startNode.parentElement;
+              if (element) {
+                const rect = element.getBoundingClientRect();
+                const isInView = rect.top >= 0 && rect.bottom <= window.innerHeight;
+                if (!isInView) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }
+            } catch (err) {
+              console.warn("TTS Highlight Range Error:", err);
             }
           }
         }
