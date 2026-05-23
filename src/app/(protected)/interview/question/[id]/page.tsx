@@ -94,6 +94,7 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
   const [isRegenModalOpen, setIsRegenModalOpen] = useState(false);
   
   const [activeTab, setActiveTab] = useState<TabId>('problem');
+  const [playingTTSField, setPlayingTTSField] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -312,10 +313,14 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
                   <div className="flex items-center">
                     <Lightbulb className="w-5 h-5 text-yellow-500 mr-2" /> 
                     Deep Dive Explanation
-                    <TTSButton questionId={question.id} field="explanation" />
+                    <TTSButton 
+                      questionId={question.id} 
+                      field="explanation" 
+                      onPlayStateChange={(isPlaying) => setPlayingTTSField(isPlaying ? 'explanation' : null)}
+                    />
                   </div>
                 </h3>
-                <div className="prose-sm">
+                <div className={`prose-sm transition-all duration-700 ${playingTTSField === 'explanation' ? 'bg-yellow-50/80 dark:bg-yellow-900/20 p-4 rounded-xl border border-yellow-200/50 dark:border-yellow-800/50 shadow-inner' : ''}`}>
                   <MarkdownContent>{question.explanation || '_No detailed explanation available. Use AI to regenerate._'}</MarkdownContent>
                 </div>
               </div>
@@ -348,9 +353,13 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
                 <div key={section.label} className={`p-5 bg-white/80 backdrop-blur-xl border border-gray-200/60 dark:bg-gray-900/80 dark:border-gray-800/60 rounded-[1.5rem]`}>
                   <h3 className="flex items-center text-base font-bold text-gray-900 dark:text-white mb-3">
                     {section.label}
-                    <TTSButton questionId={question.id} field={section.field} />
+                    <TTSButton 
+                      questionId={question.id} 
+                      field={section.field} 
+                      onPlayStateChange={(isPlaying) => setPlayingTTSField(isPlaying ? section.field : null)}
+                    />
                   </h3>
-                  <div className="prose-sm">
+                  <div className={`prose-sm transition-all duration-700 ${playingTTSField === section.field ? 'bg-blue-50/80 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-200/50 dark:border-blue-800/50 shadow-inner' : ''}`}>
                     <MarkdownContent>{section.content}</MarkdownContent>
                   </div>
                 </div>

@@ -155,9 +155,14 @@ ${JSON.stringify(contentArray)}`;
 
         let fullText = contentArray.join(' ');
 
-        // Strip HTML, markdown asterisks, or excessive whitespace to make TTS cleaner
-        fullText = fullText.replace(/<[^>]*>?/gm, '');
-        fullText = fullText.replace(/\*/g, '');
+        // Strip markdown and HTML to make TTS cleaner
+        fullText = fullText.replace(/```[\s\S]*?```/g, ' '); // remove code blocks
+        fullText = fullText.replace(/`[^`]*`/g, ' '); // remove inline code
+        fullText = fullText.replace(/!\[.*?\]\(.*?\)/g, ' '); // remove images
+        fullText = fullText.replace(/\[(.*?)\]\(.*?\)/g, '$1'); // replace links with their text
+        fullText = fullText.replace(/[#*~_>]/g, ''); // remove bold, italics, quotes, headers
+        fullText = fullText.replace(/<[^>]*>?/gm, ''); // HTML
+        fullText = fullText.replace(/\s+/g, ' ').trim(); // normalize whitespace
 
         // Split text into lines, ensuring no single chunk exceeds 200 chars
         const results = googleTTS.getAllAudioUrls(fullText, {
