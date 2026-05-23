@@ -102,7 +102,7 @@ export async function createQuestion(data: any) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
   try {
-    await prisma.interviewQuestion.create({
+    const newQuestion = await prisma.interviewQuestion.create({
       data: {
         title: data.title,
         topic: data.topic,
@@ -127,7 +127,7 @@ export async function createQuestion(data: any) {
     revalidatePath('/interview');
     revalidatePath('/interview/explore');
     revalidatePath('/interview/manage');
-    return { success: true };
+    return { success: true, id: newQuestion.id };
   } catch (error) {
     console.error('Error creating question:', error);
     return { success: false, error: 'Failed to create question' };

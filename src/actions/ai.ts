@@ -381,6 +381,8 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
 
     const normalized = normalizeAIResponse(parsedJson);
 
+    let finalQuestionId = updateId;
+
     if (updateId) {
       await updateQuestion(updateId, normalized);
     } else {
@@ -391,8 +393,12 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       
       if (existing) {
         await updateQuestion(existing.id, normalized);
+        finalQuestionId = existing.id;
       } else {
-        await createQuestion(normalized);
+        const res = await createQuestion(normalized);
+        if (res.success && res.id) {
+          finalQuestionId = res.id;
+        }
       }
     }
 
@@ -400,7 +406,8 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       where: { id: jobId },
       data: {
         status: 'COMPLETED',
-        timeTakenMs: Date.now() - startTime
+        timeTakenMs: Date.now() - startTime,
+        questionId: finalQuestionId || null
       }
     });
 

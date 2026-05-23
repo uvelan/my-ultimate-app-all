@@ -4,8 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob } from '@/actions/ai';
 import { Activity, Trash2, RefreshCw, Clock, Sparkles, Loader2, Play, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 
 export default function AIJobsPage() {
+  const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
   const [models, setModels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,7 +160,16 @@ export default function AIJobsPage() {
                 </tr>
               ) : (
                 jobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/20 transition-colors">
+                  <tr 
+                    key={job.id} 
+                    className={`hover:bg-gray-50 dark:hover:bg-gray-800/20 transition-colors ${job.status === 'COMPLETED' && job.questionId ? 'cursor-pointer' : ''}`}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      if (job.status === 'COMPLETED' && job.questionId) {
+                        router.push(`/interview/question/${job.questionId}`);
+                      }
+                    }}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(job.status)}
                     </td>
