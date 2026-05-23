@@ -50,14 +50,6 @@
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: var(--radius-full);
-}
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-muted);
-}
-
-/* TTS Text Highlighting (CSS Custom Highlight API) */
-::highlight(tts-reading) {
-  background-color: rgba(250, 204, 21, 0.4); /* Tailwind yellow-400 with opacity */
-  color: inherit;
-  border-radius: 4px;
 }

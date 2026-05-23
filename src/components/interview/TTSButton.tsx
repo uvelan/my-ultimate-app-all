@@ -297,6 +297,13 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
           </motion.div>
         )}
       </AnimatePresence>
+      <style dangerouslySetInnerHTML={{ __html: `
+        ::highlight(tts-reading) {
+          background-color: rgba(250, 204, 21, 0.4);
+          color: inherit;
+          border-radius: 4px;
+        }
+      `}} />
     </div>
   );
 }
