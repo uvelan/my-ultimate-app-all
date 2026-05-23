@@ -1,8 +1,14 @@
+import { verifyAuth } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // GET /api/novelscraper/settings
 export async function GET() {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const sources = await prisma.sourceWebsite.findMany();
         // Convert array of models into the Record<string, { replacements: WordReplacement[] }> format expected by the frontend
@@ -23,6 +29,11 @@ export async function GET() {
 
 // POST /api/novelscraper/settings
 export async function POST(req: NextRequest) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const body = await req.json();
         const { siteId, replacements } = body;

@@ -1,3 +1,4 @@
+import { verifyAuth } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { readNovels } from '@/lib/scraper-db';
 
@@ -6,6 +7,11 @@ export async function GET(
     _req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id } = await params;
     const novels = readNovels();
     const novel = novels.find(n => n.id === id);

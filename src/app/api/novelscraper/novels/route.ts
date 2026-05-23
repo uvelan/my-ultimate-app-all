@@ -1,3 +1,4 @@
+import { verifyAuth } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { readNovels, writeNovels, readSettings, SUPPORTED_SITES, ScrapedNovel } from '@/lib/scraper-db';
@@ -5,6 +6,11 @@ import { randomUUID } from 'crypto';
 
 // GET /api/novelscraper/novels — list all scraped novels
 export async function GET() {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const dbNovels = await prisma.novel.findMany({
             orderBy: { createdAt: 'desc' }
@@ -32,6 +38,11 @@ export async function GET() {
 
 // POST /api/novelscraper/novels — trigger a new scrape
 export async function POST(req: NextRequest) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const body = await req.json();
         const { site, sourceUrl, novelName, fromChapter, toChapter } = body;

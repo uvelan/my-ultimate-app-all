@@ -1,4 +1,6 @@
 export const runtime = 'nodejs';
+import { verifyAuth } from '@/lib/auth-server';
+
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -30,6 +32,11 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, retries 
 };
 
 export async function POST(req: NextRequest) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const body = await req.json();
         const { siteId, sourceUrl } = body;

@@ -1,3 +1,4 @@
+import { verifyAuth } from '@/lib/auth-server';
 import { NextResponse } from 'next/server';
 import { prisma as db } from '@/lib/prisma';
 import * as googleTTS from 'google-tts-api';
@@ -5,6 +6,11 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 
 export async function GET(request: Request) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const { searchParams } = new URL(request.url);
         const chapterId = searchParams.get('chapterId');

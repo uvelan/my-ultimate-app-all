@@ -468,6 +468,9 @@ function repairTruncatedJson(raw: string): string {
 }
 
 export async function getSchemaTemplate(): Promise<string> {
+  const { isAuthenticated } = await verifyAuth();
+  if (!isAuthenticated) throw new Error('Unauthorized');
+
   try {
     const latestAiQuestion = await prisma.interviewQuestion.findFirst({
       where: { isAiGenerated: true },

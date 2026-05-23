@@ -1,8 +1,14 @@
+import { verifyAuth } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // PUT /api/novelscraper/sources/[id]
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const id = (await params).id;
         const body = await req.json();
@@ -33,6 +39,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 // DELETE /api/novelscraper/sources/[id]
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const id = (await params).id;
 
