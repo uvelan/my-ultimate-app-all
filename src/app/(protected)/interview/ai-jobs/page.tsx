@@ -82,6 +82,7 @@ export default function AIJobsPage() {
     
     if (res.success) {
       toast.success('Retrying in the background!');
+      await deleteAIJob(retryJob.id);
       setRetryJob(null);
       loadJobs(false);
     } else {
