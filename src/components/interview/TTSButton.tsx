@@ -15,7 +15,7 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState('');
   const [speed, setSpeed] = useState(1);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const isPlayingRef = useRef(false);
 
   // Markdown strip helper is no longer needed since we read DOM directly
 
@@ -76,26 +76,42 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Traverse the DOM to extract clean text and map character indices to text nodes
     let cleanText = "";
     const indexMap: number[] = [];
     const textNodes: Text[] = [];
     let domIndex = 0;
 
     function traverse(node: Node) {
-      if (node.nodeName === 'PRE') return; // Optionally skip code blocks
+      if (node.nodeName === 'PRE') return; // Skip code blocks
+      
+      // Force breaks for block-level elements so words don't merge
+      const isBlock = ['P', 'DIV', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BR'].includes(node.nodeName);
+      if (isBlock && cleanText.length > 0 && !/\s$/.test(cleanText)) {
+        cleanText += ". "; 
+        indexMap.push(domIndex > 0 ? domIndex - 1 : 0); 
+        indexMap.push(domIndex > 0 ? domIndex - 1 : 0);
+      }
+
       if (node.nodeType === Node.TEXT_NODE) {
         const textContent = node.textContent || '';
-        textNodes.push(node as Text);
-        for (let i = 0; i < textContent.length; i++) {
-          indexMap.push(domIndex + i);
-          cleanText += textContent[i];
+        if (textContent) {
+          textNodes.push(node as Text);
+          for (let i = 0; i < textContent.length; i++) {
+            indexMap.push(domIndex + i);
+            cleanText += textContent[i];
+          }
+          domIndex += textContent.length;
         }
-        domIndex += textContent.length;
       } else {
         for (let i = 0; i < node.childNodes.length; i++) {
           traverse(node.childNodes[i]);
         }
+      }
+
+      if (isBlock && cleanText.length > 0 && !/\s$/.test(cleanText)) {
+        cleanText += ". ";
+        indexMap.push(domIndex > 0 ? domIndex - 1 : 0);
+        indexMap.push(domIndex > 0 ? domIndex - 1 : 0);
       }
     }
 
@@ -103,17 +119,49 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
     if (!cleanText.trim()) return;
 
     window.speechSynthesis.cancel();
+    isPlayingRef.current = true;
+    setIsPlaying(true);
 
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    if (selectedVoiceURI) {
-      const v = voices.find(voice => voice.voiceURI === selectedVoiceURI);
-      if (v) utterance.voice = v;
-    }
-    utterance.rate = speed;
-
-    utterance.onstart = () => setIsPlaying(true);
+    // Chunking to avoid mobile character limits
+    const sentences: { text: string, start: number, end: number }[] = [];
+    const regex = /[^.!?\n]+[.!?\n]+/g;
+    let match;
+    let fallbackRegexMatched = false;
     
-    const cleanupHighlight = () => {
+    while ((match = regex.exec(cleanText)) !== null) {
+      fallbackRegexMatched = true;
+      let startIdx = match.index;
+      let endIdx = startIdx + match[0].length;
+      
+      while (startIdx < endIdx && /\s/.test(cleanText[startIdx])) startIdx++;
+      
+      const trimmedText = cleanText.substring(startIdx, endIdx).trimEnd();
+      if (trimmedText) {
+        const actualStart = indexMap[startIdx] !== undefined ? indexMap[startIdx] : 0;
+        const lastCharIdx = startIdx + trimmedText.length - 1;
+        const actualEnd = (indexMap[lastCharIdx] !== undefined ? indexMap[lastCharIdx] : domIndex) + 1;
+
+        sentences.push({
+          text: trimmedText,
+          start: actualStart,
+          end: actualEnd
+        });
+      }
+    }
+    
+    if (!fallbackRegexMatched && cleanText.trim()) {
+       sentences.push({
+         text: cleanText.trim(),
+         start: indexMap[0] || 0,
+         end: domIndex
+       });
+    }
+
+    let currentChunkIndex = 0;
+
+    const clearOverlay = () => {
+      const existing = document.getElementById('tts-overlay-container');
+      if (existing) existing.remove();
       if ('highlights' in CSS) {
         (CSS as any).highlights.delete('tts-reading');
       } else {
@@ -121,95 +169,148 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
       }
     };
 
-    utterance.onend = () => {
-      setIsPlaying(false);
-      cleanupHighlight();
-      if (onPlayStateChange) onPlayStateChange(false);
+    const drawOverlay = (range: Range) => {
+      clearOverlay();
+      const rects = range.getClientRects();
+      if (!rects.length) return;
+
+      const overlayContainer = document.createElement('div');
+      overlayContainer.id = 'tts-overlay-container';
+      overlayContainer.style.position = 'absolute';
+      overlayContainer.style.top = '0';
+      overlayContainer.style.left = '0';
+      overlayContainer.style.width = '100%';
+      overlayContainer.style.height = '100%';
+      overlayContainer.style.pointerEvents = 'none';
+      overlayContainer.style.zIndex = '9999';
+      
+      for (let i = 0; i < rects.length; i++) {
+        const rect = rects[i];
+        const highlight = document.createElement('div');
+        highlight.style.position = 'absolute';
+        highlight.style.top = `${rect.top + window.scrollY}px`;
+        highlight.style.left = `${rect.left + window.scrollX}px`;
+        highlight.style.width = `${rect.width}px`;
+        highlight.style.height = `${rect.height}px`;
+        highlight.style.backgroundColor = 'rgba(250, 204, 21, 0.4)'; // tailwind yellow-400
+        highlight.style.borderRadius = '4px';
+        highlight.style.mixBlendMode = 'multiply';
+        overlayContainer.appendChild(highlight);
+      }
+      document.body.appendChild(overlayContainer);
     };
-    utterance.onerror = () => {
-      setIsPlaying(false);
-      cleanupHighlight();
-    };
 
-    utterance.onboundary = (event) => {
-      if (event.name === 'sentence' || event.name === 'word') {
-        const charIndex = event.charIndex;
-        
-        // Find rough sentence boundaries
-        let start = charIndex;
-        while (start > 0 && !/[.!?\n]/.test(cleanText[start - 1])) start--;
-        while (start < cleanText.length && /\s/.test(cleanText[start])) start++;
-        
-        let end = charIndex;
-        while (end < cleanText.length && !/[.!?\n]/.test(cleanText[end])) end++;
-        if (end < cleanText.length) end++; // include punctuation
+    const highlightChunk = (startIdx: number, endIdx: number) => {
+      if (!isPlayingRef.current) return;
+      const container = document.getElementById(containerId);
+      if (!container) return;
 
-        const domStart = indexMap[start];
-        const domEnd = indexMap[Math.min(end, indexMap.length - 1)];
-
-        if (domStart !== undefined && domEnd !== undefined) {
-          let currentIdx = 0;
-          let startNode, endNode;
-          let startOffset = 0, endOffset = 0;
-
-          for (let node of textNodes) {
-            const nodeLen = node.textContent?.length || 0;
-            if (!startNode && currentIdx + nodeLen > domStart) {
-              startNode = node;
-              startOffset = domStart - currentIdx;
-            }
-            if (startNode && currentIdx + nodeLen >= domEnd) {
-              endNode = node;
-              endOffset = domEnd - currentIdx;
-              break;
-            }
-            currentIdx += nodeLen;
+      const liveTextNodes: Text[] = [];
+      function liveTraverse(node: Node) {
+        if (node.nodeName === 'PRE') return;
+        if (node.nodeType === Node.TEXT_NODE) {
+          const textContent = node.textContent || '';
+          if (textContent) liveTextNodes.push(node as Text);
+        } else {
+          for (let i = 0; i < node.childNodes.length; i++) {
+            liveTraverse(node.childNodes[i]);
           }
+        }
+      }
+      liveTraverse(container);
 
-          if (startNode && endNode) {
-            try {
-              const range = document.createRange();
-              range.setStart(startNode, startOffset);
-              range.setEnd(endNode, endOffset);
-              
-              if ('highlights' in CSS) {
-                const highlight = new (window as any).Highlight(range);
-                (CSS as any).highlights.set('tts-reading', highlight);
-              } else {
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(range);
-              }
+      let currentIdx = 0;
+      let startNode, endNode;
+      let startOffset = 0, endOffset = 0;
 
-              // Auto-scroll to the highlighted sentence
-              const element = startNode.parentElement;
-              if (element) {
-                const rect = element.getBoundingClientRect();
-                const isInView = rect.top >= 0 && rect.bottom <= window.innerHeight;
-                if (!isInView) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-              }
-            } catch (err) {
-              console.warn("TTS Highlight Range Error:", err);
+      for (let node of liveTextNodes) {
+        const nodeLen = node.textContent?.length || 0;
+        if (!startNode && currentIdx + nodeLen > startIdx) {
+          startNode = node;
+          startOffset = startIdx - currentIdx;
+        }
+        if (startNode && currentIdx + nodeLen >= endIdx) {
+          endNode = node;
+          endOffset = endIdx - currentIdx;
+          break;
+        }
+        currentIdx += nodeLen;
+      }
+
+      if (startNode && endNode) {
+        try {
+          const range = document.createRange();
+          range.setStart(startNode, startOffset);
+          range.setEnd(endNode, endOffset);
+          
+          const element = startNode.parentElement;
+          if (element) {
+            const rect = element.getBoundingClientRect();
+            if (rect.top < 80 || rect.bottom > window.innerHeight - 80) {
+              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
           }
+          
+          if ('highlights' in CSS) {
+            const highlight = new (window as any).Highlight(range);
+            (CSS as any).highlights.set('tts-reading', highlight);
+          } else {
+            drawOverlay(range);
+          }
+        } catch (err) {
+          console.warn("TTS Highlight Range Error:", err);
         }
       }
     };
 
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+    const playNextChunk = () => {
+      if (!isPlayingRef.current || currentChunkIndex >= sentences.length) {
+        handleStop();
+        return;
+      }
+      
+      const chunk = sentences[currentChunkIndex];
+      const utterance = new SpeechSynthesisUtterance(chunk.text);
+      if (selectedVoiceURI) {
+        const v = voices.find(voice => voice.voiceURI === selectedVoiceURI);
+        if (v) utterance.voice = v;
+      }
+      utterance.rate = speed;
+
+      utterance.onstart = () => {
+        highlightChunk(chunk.start, chunk.end);
+      };
+
+      utterance.onend = () => {
+        currentChunkIndex++;
+        playNextChunk();
+      };
+
+      utterance.onerror = (e) => {
+        console.warn("Utterance error", e);
+        currentChunkIndex++;
+        playNextChunk();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    };
+
+    playNextChunk();
   };
 
   const handleStop = () => {
     window.speechSynthesis.cancel();
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    
+    const existing = document.getElementById('tts-overlay-container');
+    if (existing) existing.remove();
     if ('highlights' in CSS) {
       (CSS as any).highlights.delete('tts-reading');
     } else {
       window.getSelection()?.removeAllRanges();
     }
-    setIsPlaying(false);
+    
     if (onPlayStateChange) onPlayStateChange(false);
   };
 
