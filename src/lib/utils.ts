@@ -11,3 +11,12 @@ export const formatDate = (date: Date) => {
         timeStyle: 'short',
     }).format(date);
 };
+
+export const normalizeQuestionTitle = (title: string) => {
+    if (!title) return '';
+    return title
+        .replace(/^(?:Q\d+|\d+)[.)]?\s*/i, '')
+        .toLowerCase()
+        .replace(/\?$/, '')
+        .trim();
+};

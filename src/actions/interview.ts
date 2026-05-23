@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth-server';
 import { revalidatePath } from 'next/cache';
+import { normalizeQuestionTitle } from '@/lib/utils';
 
 export async function getTopics() {
   const { isAuthenticated, user } = await verifyAuth();
@@ -244,10 +245,16 @@ export async function bulkUploadQuestions(jsonData: string) {
       return [String(val)];
     };
 
+    const allTitlesDB = await prisma.interviewQuestion.findMany({ select: { id: true, title: true } });
+
     for (const q of validQuestions) {
-      const existing = await prisma.interviewQuestion.findFirst({
-        where: { title: q.title }
-      });
+      const qNormalized = normalizeQuestionTitle(q.title);
+      const existingMatch = allTitlesDB.find(t => normalizeQuestionTitle(t.title) === qNormalized);
+      
+      let existing = null;
+      if (existingMatch) {
+        existing = await prisma.interviewQuestion.findUnique({ where: { id: existingMatch.id } });
+      }
 
       const mappedData = {
         title: q.title,

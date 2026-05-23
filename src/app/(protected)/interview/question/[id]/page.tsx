@@ -6,6 +6,7 @@ import { getQuestionById, getQuestionTitles } from '@/actions/interview';
 import { generateQuestionWithAI } from '@/actions/ai';
 import toast from 'react-hot-toast';
 import { useInterviewStore } from '@/hooks/interview/useInterviewStore';
+import { normalizeQuestionTitle } from '@/lib/utils';
 import BookmarkButton from '@/components/interview/BookmarkButton';
 import CompleteButton from '@/components/interview/CompleteButton';
 import CodePlayground from '@/components/interview/CodePlayground';
@@ -111,10 +112,10 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
   }, [params]);
 
   const findMatchingQuestionId = (fq: string) => {
-    const fqLower = fq.toLowerCase().replace(/\?$/, '').trim();
+    const fqLower = normalizeQuestionTitle(fq);
     const match = allTitles.find(t => {
-      const tLower = t.title.toLowerCase().replace(/\?$/, '').trim();
-      return fqLower === tLower || (tLower.length > 8 && fqLower.includes(tLower));
+      const tLower = normalizeQuestionTitle(t.title);
+      return fqLower === tLower || (tLower.length > 8 && fqLower.includes(tLower)) || (fqLower.length > 8 && tLower.includes(fqLower));
     });
     return match?.id || null;
   };

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth-server';
 
 import { createQuestion, updateQuestion, getQuestionById } from './interview';
+import { normalizeQuestionTitle } from '@/lib/utils';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -387,9 +388,14 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       await updateQuestion(updateId, normalized);
     } else {
       // Check if a question with the same title already exists
-      const existing = await prisma.interviewQuestion.findFirst({
-        where: { title: normalized.title }
-      });
+      const allTitlesDB = await prisma.interviewQuestion.findMany({ select: { id: true, title: true } });
+      const qNormalized = normalizeQuestionTitle(normalized.title);
+      const existingMatch = allTitlesDB.find(t => normalizeQuestionTitle(t.title) === qNormalized);
+      
+      let existing = null;
+      if (existingMatch) {
+        existing = await prisma.interviewQuestion.findUnique({ where: { id: existingMatch.id } });
+      }
       
       if (existing) {
         await updateQuestion(existing.id, normalized);
