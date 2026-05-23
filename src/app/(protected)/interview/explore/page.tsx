@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, Loader2 } from 'lucide-react';
+import { Search, Filter, Loader2, Sparkles } from 'lucide-react';
 import { getQuestions, getTopics } from '@/actions/interview';
 import QuestionCard from '@/components/interview/QuestionCard';
 import TopicSidebar from '@/components/interview/TopicSidebar';
+import AskAIModal from '@/components/interview/AskAIModal';
 
 export default function ExplorePage() {
   const [questions, setQuestions] = useState<any[]>([]);
@@ -17,6 +18,8 @@ export default function ExplorePage() {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
   const [companyFilter, setCompanyFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  
+  const [isAskAIModalOpen, setIsAskAIModalOpen] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -100,6 +103,12 @@ export default function ExplorePage() {
               <option value="">All Tags</option>
               {uniqueTags.map(t => <option key={t as string} value={t as string}>{t as string}</option>)}
             </select>
+            <button
+              onClick={() => setIsAskAIModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-medium rounded-xl shadow-md transition-all ml-auto md:ml-2"
+            >
+              <Sparkles className="w-4 h-4" /> Ask AI
+            </button>
           </div>
         </div>
 
@@ -151,6 +160,7 @@ export default function ExplorePage() {
           )}
         </div>
       </div>
+      <AskAIModal isOpen={isAskAIModalOpen} onClose={() => setIsAskAIModalOpen(false)} />
     </div>
   );
 }

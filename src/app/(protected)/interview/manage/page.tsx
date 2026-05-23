@@ -5,9 +5,11 @@ import { getQuestions, deleteQuestion, bulkDeleteQuestions, deleteAllQuestions, 
 import { generateQuestionWithAI, getSchemaTemplate, getAiModels, addAiModel, updateAiModel, deleteAiModel } from '@/actions/ai';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Upload, Trash2, Sparkles, Loader2, X, Download, Search, Filter, ArrowUpDown, LayoutGrid, Cpu, Edit2, Plus, Check, GitMerge } from 'lucide-react';
+import { Settings, Upload, Trash2, Sparkles, Loader2, X, Download, Search, Filter, ArrowUpDown, LayoutGrid, Cpu, Edit2, Plus, Check, GitMerge, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import MergeQuestionsModal from '@/components/interview/MergeQuestionsModal';
+import BulkUploadModal from '@/components/interview/BulkUploadModal';
+import RegenerateAIModal from '@/components/interview/RegenerateAIModal';
 
 export default function ManageInterviewPage() {
   const router = useRouter();
@@ -17,7 +19,11 @@ export default function ManageInterviewPage() {
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  
+  // Regenerate Modal State
+  const [regenQuestionId, setRegenQuestionId] = useState<string | null>(null);
+  const [regenQuestionTitle, setRegenQuestionTitle] = useState<string>('');
+
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [isDownloading, setIsDownloading] = useState(false);
   
@@ -25,6 +31,9 @@ export default function ManageInterviewPage() {
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [mergeQuestionA, setMergeQuestionA] = useState<any>(null);
   const [mergeQuestionB, setMergeQuestionB] = useState<any>(null);
+  
+  // Upload Modal State
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   
   // Tabs & Models State
   const [activeTab, setActiveTab] = useState<'questions' | 'models'>('questions');
@@ -151,32 +160,6 @@ export default function ManageInterviewPage() {
     }
   };
 
-  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        setIsUploading(true);
-        const json = event.target?.result as string;
-        const res = await bulkUploadQuestions(json);
-        if (res.success) {
-          toast.success(`Successfully uploaded ${res.count} questions!`);
-          fetchQuestions();
-        } else {
-          toast.error(res.error || 'Upload failed');
-        }
-      } catch (err) {
-        toast.error('Invalid JSON file');
-      } finally {
-        setIsUploading(false);
-        e.target.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this question?')) {
       const res = await deleteQuestion(id);
@@ -256,17 +239,9 @@ export default function ManageInterviewPage() {
     setIsGenerating(false);
   };
 
-  const handleRegenerate = async (id: string) => {
-    setRegeneratingId(id);
-    
-    const res = await generateQuestionWithAI('', id, selectedModel);
-    
-    if (res.success) {
-      toast.success('Regeneration job submitted successfully! Check the AI Jobs tab.');
-    } else {
-      toast.error(res.error || 'Failed to submit job');
-    }
-    setRegeneratingId(null);
+  const openRegenerateModal = (id: string, title: string) => {
+    setRegenQuestionId(id);
+    setRegenQuestionTitle(title);
   };
 
   const handleDownloadSchema = async () => {
@@ -409,11 +384,13 @@ export default function ManageInterviewPage() {
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Download Schema</span>
           </button>
-          <label className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 cursor-pointer transition-colors disabled:opacity-50">
+          <button
+            onClick={() => setIsUploadModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+          >
             <Upload className="w-4 h-4" />
             <span className="hidden sm:inline">Bulk Upload</span>
-            <input type="file" accept=".json" className="hidden" onChange={handleBulkUpload} disabled={isUploading} />
-          </label>
+          </button>
         </div>
       </div>
     </div>
@@ -588,12 +565,8 @@ export default function ManageInterviewPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">{q.title}</div>
-                        {q.isAiGenerated && (
-                          <span title="Generated by AI" className="flex items-center">
-                            <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                          </span>
-                        )}
+                        {q.isAiGenerated && <span title="AI Generated" className="flex shrink-0"><Sparkles className="w-4 h-4 text-purple-500" /></span>}
+                        <div className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1" title={q.title}>{q.title}</div>
                       </div>
                       {q.tags?.length > 0 && (
                         <div className="flex gap-1 mt-1 flex-wrap">
@@ -620,12 +593,11 @@ export default function ManageInterviewPage() {
                     <td className="px-6 py-4 text-sm text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
                         <button 
-                          onClick={(e) => { e.stopPropagation(); handleRegenerate(q.id); }} 
-                          disabled={regeneratingId === q.id}
-                          className="p-2 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors disabled:opacity-50"
+                          onClick={() => openRegenerateModal(q.id, q.title)} 
+                          className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
                           title="Regenerate with AI"
                         >
-                          {regeneratingId === q.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                          <RefreshCw className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleDelete(q.id); }} 
@@ -712,6 +684,22 @@ export default function ManageInterviewPage() {
         }}
         questionA={mergeQuestionA}
         questionB={mergeQuestionB}
+      />
+
+      <BulkUploadModal 
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSuccess={fetchQuestions}
+      />
+
+      <RegenerateAIModal 
+        isOpen={!!regenQuestionId}
+        onClose={() => {
+          setRegenQuestionId(null);
+          setRegenQuestionTitle('');
+        }}
+        questionId={regenQuestionId || ''}
+        questionTitle={regenQuestionTitle}
       />
     </div>
   );

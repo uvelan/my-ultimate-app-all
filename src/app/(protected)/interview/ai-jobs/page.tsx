@@ -14,18 +14,11 @@ export default function AIJobsPage() {
   const [retryJob, setRetryJob] = useState<any>(null);
   const [selectedModel, setSelectedModel] = useState('');
 
-  const loadData = async (showLoading = true) => {
+  const loadJobs = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [fetchedJobs, fetchedModels] = await Promise.all([
-        getAIJobs(),
-        getAiModels()
-      ]);
+      const fetchedJobs = await getAIJobs();
       setJobs(fetchedJobs);
-      setModels(fetchedModels);
-      if (fetchedModels.length > 0 && !selectedModel) {
-        setSelectedModel(fetchedModels[0].modelId);
-      }
     } catch (err) {
       console.error("Failed to load AI Jobs", err);
     } finally {
@@ -34,18 +27,34 @@ export default function AIJobsPage() {
   };
 
   useEffect(() => {
-    loadData();
-    // Poll every 5 seconds for updates
-    const interval = setInterval(() => loadData(false), 5000);
-    return () => clearInterval(interval);
+    getAiModels().then(fetchedModels => {
+      setModels(fetchedModels);
+      if (fetchedModels.length > 0 && !selectedModel) {
+        setSelectedModel(fetchedModels[0].modelId);
+      }
+    });
+    loadJobs();
   }, []);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    // Check if any job is currently pending/generating
+    const hasPending = jobs.some(j => j.status === 'PENDING');
+    
+    if (hasPending) {
+      interval = setInterval(() => loadJobs(false), 5000);
+    }
+    
+    return () => clearInterval(interval);
+  }, [jobs]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this job record?')) return;
     const res = await deleteAIJob(id);
     if (res.success) {
       toast.success("Job record deleted");
-      loadData(false);
+      loadJobs(false);
     } else {
       toast.error(res.error || "Failed to delete");
     }
@@ -56,7 +65,7 @@ export default function AIJobsPage() {
     const res = await cancelAIJob(id);
     if (res.success) {
       toast.success("Job cancelled");
-      loadData(false);
+      loadJobs(false);
     } else {
       toast.error(res.error || "Failed to cancel");
     }
@@ -74,7 +83,7 @@ export default function AIJobsPage() {
     if (res.success) {
       toast.success('Retrying in the background!');
       setRetryJob(null);
-      loadData(false);
+      loadJobs(false);
     } else {
       toast.error(res.error || 'Failed to dispatch retry');
     }

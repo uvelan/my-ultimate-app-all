@@ -10,6 +10,7 @@ import BookmarkButton from '@/components/interview/BookmarkButton';
 import CompleteButton from '@/components/interview/CompleteButton';
 import CodePlayground from '@/components/interview/CodePlayground';
 import MCQCard from '@/components/interview/MCQCard';
+import RegenerateAIModal from '@/components/interview/RegenerateAIModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -88,7 +89,9 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
   const [question, setQuestion] = useState<any>(null);
   const [allTitles, setAllTitles] = useState<{id: string, title: string}[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRegenerating, setIsRegenerating] = useState(false);
+  
+  const [isRegenModalOpen, setIsRegenModalOpen] = useState(false);
+  
   const [activeTab, setActiveTab] = useState<TabId>('problem');
 
   useEffect(() => {
@@ -112,23 +115,6 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
       return fqLower === tLower || (tLower.length > 8 && fqLower.includes(tLower));
     });
     return match?.id || null;
-  };
-
-  const handleRegenerate = async () => {
-    if (!question) return;
-    setIsRegenerating(true);
-    toast.loading('AI is regenerating this question...', { id: 'regen-toast' });
-    
-    const res = await generateQuestionWithAI('', question.id);
-    
-    if (res.success) {
-      toast.success('Question successfully regenerated!', { id: 'regen-toast' });
-      const data = await getQuestionById(question.id);
-      if (data) setQuestion(data);
-    } else {
-      toast.error(res.error || 'Failed to regenerate question', { id: 'regen-toast' });
-    }
-    setIsRegenerating(false);
   };
 
   const { stats, markQuestionCompleted } = useInterviewStore();
@@ -225,16 +211,13 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
             )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {question.isAiGenerated && (
-              <button
-                onClick={handleRegenerate}
-                disabled={isRegenerating}
-                className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-50 text-purple-600 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400 dark:hover:bg-purple-900/40 transition-colors disabled:opacity-50"
-                title="Regenerate with AI"
-              >
-                <RefreshCw className={`w-5 h-5 ${isRegenerating ? 'animate-spin' : ''}`} />
-              </button>
-            )}
+            <button
+              onClick={() => setIsRegenModalOpen(true)}
+              className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-50 text-purple-600 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400 dark:hover:bg-purple-900/40 transition-colors"
+              title="Regenerate with AI"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
             <BookmarkButton questionId={question.id} />
             <CompleteButton questionId={question.id} showText={true} />
           </div>
@@ -422,6 +405,13 @@ export default function QuestionDetailPage({ params }: { params: Params }) {
 
         </AnimatePresence>
       </div>
+
+      <RegenerateAIModal 
+        isOpen={isRegenModalOpen}
+        onClose={() => setIsRegenModalOpen(false)}
+        questionId={question.id}
+        questionTitle={question.title}
+      />
     </div>
   );
 }

@@ -219,41 +219,73 @@ export async function bulkUploadQuestions(jsonData: string) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
   try {
-    const questions = JSON.parse(jsonData);
-    if (!Array.isArray(questions)) throw new Error("Expected an array of questions.");
+    let parsedData = JSON.parse(jsonData);
+    if (!Array.isArray(parsedData)) {
+      parsedData = [parsedData];
+    }
 
     // Filter valid questions
-    const validQuestions = questions.filter(q => q.title && q.problemStatement);
+    const validQuestions = parsedData.filter((q: any) => q.title && q.problemStatement);
 
     if (validQuestions.length === 0) {
       return { success: false, error: 'No valid questions found in JSON.' };
     }
 
-    await prisma.interviewQuestion.createMany({
-      data: validQuestions.map(q => ({
+    let updatedCount = 0;
+    let createdCount = 0;
+
+    const sanitizeStringArray = (val: any): string[] => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.map(String);
+      if (typeof val === 'object') {
+        // If it's an object like { basic: [], advanced: [] }, flatten the values
+        return Object.values(val).flat().map(String);
+      }
+      return [String(val)];
+    };
+
+    for (const q of validQuestions) {
+      const existing = await prisma.interviewQuestion.findFirst({
+        where: { title: q.title }
+      });
+
+      const mappedData = {
         title: q.title,
         topic: q.topic || 'general',
         difficulty: q.difficulty || 'Medium',
         estimatedTime: parseInt(q.estimatedTime) || 10,
         frequency: parseInt(q.frequency) || 50,
-        companies: q.companies || [],
-        tags: q.tags || [],
+        companies: sanitizeStringArray(q.companies),
+        tags: sanitizeStringArray(q.tags),
         problemStatement: q.problemStatement,
         expectation: q.expectation || '',
         explanation: q.explanation || '',
         bestAnswer: q.bestAnswer || '',
         alternativeAnswer: q.alternativeAnswer,
-        commonMistakes: q.commonMistakes || [],
-        followUpQuestions: q.followUpQuestions || [],
+        commonMistakes: sanitizeStringArray(q.commonMistakes),
+        followUpQuestions: sanitizeStringArray(q.followUpQuestions),
         realWorldUsage: q.realWorldUsage,
         codeSnippet: q.codeSnippet || undefined,
         mcqs: q.mcqs || undefined
-      }))
-    });
+      };
+
+      if (existing) {
+        await prisma.interviewQuestion.update({
+          where: { id: existing.id },
+          data: mappedData
+        });
+        updatedCount++;
+      } else {
+        await prisma.interviewQuestion.create({
+          data: mappedData
+        });
+        createdCount++;
+      }
+    }
 
     revalidatePath('/interview/explore');
     revalidatePath('/interview/manage');
-    return { success: true, count: validQuestions.length };
+    return { success: true, count: validQuestions.length, updatedCount, createdCount };
   } catch (error: any) {
     console.error('Bulk upload error:', error);
     return { success: false, error: error.message || 'Bulk upload failed' };

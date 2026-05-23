@@ -1,0 +1,38 @@
+[
+  {
+    "title": "Difference between == and .equals() and autoboxing",
+    "topic": "Java Evolution",
+    "difficulty": "Basic",
+    "estimatedTime": 5,
+    "frequency": 8,
+    "problemStatement": "What is the difference between `==` and `.equals()` in Java, and how does autoboxing affect `==` comparisons with Integer objects?",
+    "expectation": "Clear understanding of reference vs value comparison and Integer cache.",
+    "explanation": "`==` compares object references (memory addresses), whereas `.equals()` is a method used to compare the actual values (state) of the objects. Autoboxing converts primitives to wrapper classes. For `Integer`, Java caches values between -128 and 127. So, `Integer a = 100, b = 100; a == b` is true, but `Integer c = 200, d = 200; c == d` is false because they are outside the cache and refer to different objects.",
+    "bestAnswer": "In Java, `==` evaluates reference equality (whether two references point to the same object in memory). `.equals()` evaluates logical equality (whether the objects' values are equivalent). When comparing `Integer` objects using `==`, autoboxing relies on the Integer cache for values between -128 and 127. If the values fall in this range, they point to the same cached object, and `==` returns true. Outside this range, new objects are created, and `==` returns false. Always use `.equals()` for comparing object values.",
+    "isAiGenerated": true
+  },
+  {
+    "title": "Four functional interfaces in Java 8",
+    "topic": "Java Evolution",
+    "difficulty": "Basic",
+    "estimatedTime": 5,
+    "frequency": 9,
+    "problemStatement": "What are the four functional interfaces introduced in Java 8 — `Function`, `Predicate`, `Consumer`, `Supplier` — and what is the signature of each?",
+    "expectation": "Know the core functional interfaces and their abstract method signatures.",
+    "explanation": "Java 8 introduced the `java.util.function` package to support functional programming.",
+    "bestAnswer": "1. `Predicate<T>`: Represents a boolean-valued function of one argument. Signature: `boolean test(T t);`\n2. `Function<T, R>`: Represents a function that accepts one argument and produces a result. Signature: `R apply(T t);`\n3. `Consumer<T>`: Represents an operation that accepts a single input argument and returns no result (side-effects). Signature: `void accept(T t);`\n4. `Supplier<T>`: Represents a supplier of results, taking no arguments. Signature: `T get();`",
+    "isAiGenerated": true
+  },
+  {
+    "title": "map() vs flatMap() in Stream API",
+    "topic": "Java Evolution",
+    "difficulty": "Basic",
+    "estimatedTime": 5,
+    "frequency": 9,
+    "problemStatement": "What is the difference between `map()` and `flatMap()` in the Stream API?",
+    "expectation": "Explain 1-to-1 vs 1-to-many transformation.",
+    "explanation": "`map` is for 1-to-1 mapping, `flatMap` is for 1-to-many flattening.",
+    "bestAnswer": "`map()` is used for transforming each element in a stream into another object. It's a 1-to-1 mapping. E.g., `Stream<String>` to `Stream<Integer>`. `flatMap()` is used for both transformation and flattening. It takes each element and transforms it into a stream of zero or more elements, and then flattens all those generated streams into a single continuous stream. It is a 1-to-many mapping. Use `flatMap()` when your mapping function returns a `Stream` or a collection that you want to merge into the main stream.",
+    "isAiGenerated": true
+  }
+]

@@ -468,6 +468,38 @@ function repairTruncatedJson(raw: string): string {
 }
 
 export async function getSchemaTemplate(): Promise<string> {
+  try {
+    const latestAiQuestion = await prisma.interviewQuestion.findFirst({
+      where: { isAiGenerated: true },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    if (latestAiQuestion) {
+      const template = {
+        title: latestAiQuestion.title,
+        topic: latestAiQuestion.topic,
+        difficulty: latestAiQuestion.difficulty,
+        estimatedTime: latestAiQuestion.estimatedTime,
+        frequency: latestAiQuestion.frequency,
+        companies: latestAiQuestion.companies || [],
+        tags: latestAiQuestion.tags || [],
+        problemStatement: latestAiQuestion.problemStatement,
+        expectation: latestAiQuestion.expectation,
+        explanation: latestAiQuestion.explanation,
+        bestAnswer: latestAiQuestion.bestAnswer,
+        alternativeAnswer: latestAiQuestion.alternativeAnswer,
+        realWorldUsage: latestAiQuestion.realWorldUsage,
+        followUpQuestions: latestAiQuestion.followUpQuestions || [],
+        commonMistakes: latestAiQuestion.commonMistakes || [],
+        codeSnippet: latestAiQuestion.codeSnippet || null,
+        mcqs: latestAiQuestion.mcqs || null
+      };
+      return JSON.stringify([template], null, 2);
+    }
+  } catch (error) {
+    console.error('Failed to fetch latest AI question for schema:', error);
+  }
+
   const template = {
     title: "How does React Reconciliation work?",
     topic: "React",
