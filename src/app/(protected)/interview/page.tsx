@@ -5,12 +5,15 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import DashboardStats from '@/components/interview/DashboardStats';
 import { getQuestions, getTopics } from '@/actions/interview';
+import { syncInterviewBook } from '@/actions/interview-book';
 import { ArrowRight, Code, Terminal, Database } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function InterviewDashboard() {
   const [recommendedQuestions, setRecommendedQuestions] = useState<any[]>([]);
   const [topics, setTopics] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -26,6 +29,23 @@ export default function InterviewDashboard() {
     }
     loadData();
   }, []);
+
+  const handleCreateBook = async () => {
+      setIsSyncing(true);
+      const toastId = toast.loading('Generating Interview Book...');
+      try {
+          const res = await syncInterviewBook();
+          if (res.success) {
+              toast.success(res.message as string, { id: toastId });
+          } else {
+              toast.error((res.error as string) || 'Failed to create book', { id: toastId });
+          }
+      } catch (error) {
+          toast.error('An error occurred', { id: toastId });
+      } finally {
+          setIsSyncing(false);
+      }
+  };
 
   return (
     <div className="space-y-8 pb-20 md:pb-0">
@@ -57,6 +77,13 @@ export default function InterviewDashboard() {
             >
               Take Mock Interview
             </Link>
+            <button 
+              onClick={handleCreateBook} 
+              disabled={isSyncing}
+              className="px-6 py-3 font-semibold text-white bg-blue-600/50 hover:bg-blue-600 backdrop-blur-sm rounded-xl disabled:opacity-50 transition-colors border border-blue-400/30"
+            >
+              {isSyncing ? 'Generating...' : 'Create Prep Book'}
+            </button>
           </div>
         </div>
       </motion.section>
@@ -85,26 +112,27 @@ export default function InterviewDashboard() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.1 }}
-                  className="flex items-center justify-between p-4 bg-white border border-gray-100 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-2xl hover:border-blue-500 transition-colors group"
                 >
-                  <div>
-                    <div className="flex gap-2 mb-1">
-                      <span className="px-2 py-0.5 text-xs font-medium text-purple-600 bg-purple-100 rounded dark:bg-purple-900/30 dark:text-purple-400">
-                        {q.difficulty}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                        {q.topic.replace('-', ' ')} • {q.estimatedTime}m
-                      </span>
-                    </div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">
-                      {q.title}
-                    </h3>
-                  </div>
                   <Link 
                     href={`/interview/question/${q.id}`}
-                    className="p-2 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 bg-gray-50 dark:bg-gray-800 rounded-xl"
+                    className="flex items-center justify-between p-4 bg-white border border-gray-100 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-2xl hover:border-blue-500 transition-colors group"
                   >
-                    <ArrowRight className="w-5 h-5" />
+                    <div>
+                      <div className="flex gap-2 mb-1">
+                        <span className="px-2 py-0.5 text-xs font-medium text-purple-600 bg-purple-100 rounded dark:bg-purple-900/30 dark:text-purple-400">
+                          {q.difficulty}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                          {q.topic.replace('-', ' ')} • {q.estimatedTime}m
+                        </span>
+                      </div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">
+                        {q.title}
+                      </h3>
+                    </div>
+                    <div className="p-2 text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 bg-gray-50 dark:bg-gray-800 rounded-xl transition-colors">
+                      <ArrowRight className="w-5 h-5" />
+                    </div>
                   </Link>
                 </motion.div>
               ))

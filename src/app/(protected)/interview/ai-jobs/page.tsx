@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob } from '@/actions/ai';
+import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob, getDummyQuestions, checkJobStatus } from '@/actions/ai';
 import { Activity, Trash2, RefreshCw, Clock, Sparkles, Loader2, Play, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
@@ -12,9 +12,13 @@ export default function AIJobsPage() {
   const [models, setModels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Retry Modal State
   const [retryJob, setRetryJob] = useState<any>(null);
   const [selectedModel, setSelectedModel] = useState('');
+
+  // Bulk Process State
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState('');
+  const [showBulkModal, setShowBulkModal] = useState(false);
 
   const loadJobs = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -116,15 +120,109 @@ export default function AIJobsPage() {
     }
   };
 
+  const handleBulkProcess = async () => {
+    setShowBulkModal(false);
+    setBulkProcessing(true);
+    setBulkProgress('Fetching questions...');
+    
+    try {
+      const res = await getDummyQuestions();
+      if (!res.success || !res.questions || res.questions.length === 0) {
+        toast.error('No dummy/empty questions found.');
+        setBulkProcessing(false);
+        return;
+      }
+      
+      const questions = res.questions;
+      let i = 1;
+      
+      for (const q of questions) {
+        setBulkProgress(`Processing ${i} of ${questions.length}: ${q.title}`);
+        
+        let attempt = 1;
+        const maxAttempts = 4;
+        let jobSuccess = false;
+        
+        while (attempt <= maxAttempts && !jobSuccess) {
+           const jobRes = await generateQuestionWithAI(q.title, q.id, selectedModel);
+           if (!jobRes.success || !jobRes.jobId) {
+              toast.error(`Failed to start job for: ${q.title}`);
+              break; 
+           }
+           
+           const jobId = jobRes.jobId;
+           let isDone = false;
+           
+           while (!isDone) {
+             await new Promise(r => setTimeout(r, 5000));
+             const statusRes = await checkJobStatus(jobId);
+             if (statusRes.success) {
+               if (statusRes.status === 'COMPLETED') {
+                 isDone = true;
+                 jobSuccess = true;
+                 toast.success(`Completed: ${q.title}`);
+                 loadJobs(false);
+               } else if (statusRes.status === 'FAILED') {
+                 isDone = true;
+                 jobSuccess = false;
+                 console.error(`Job failed for ${q.title}:`, statusRes.error);
+                 loadJobs(false);
+               }
+             }
+           }
+           
+           if (!jobSuccess) {
+             if (attempt < maxAttempts) {
+                const waitSecs = 5 * Math.pow(2, attempt - 1); 
+                setBulkProgress(`Failed ${q.title}. Retrying in ${waitSecs}s...`);
+                await new Promise(r => setTimeout(r, waitSecs * 1000));
+                attempt++;
+             } else {
+                toast.error(`Max retries exhausted for ${q.title}`);
+                break;
+             }
+           }
+        }
+        i++;
+      }
+      toast.success('Bulk process finished.');
+    } catch (e) {
+      console.error(e);
+      toast.error('Bulk process encountered an error.');
+    } finally {
+      setBulkProcessing(false);
+      setBulkProgress('');
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-xl">
-          <Activity className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-xl">
+            <Activity className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AI Generation Jobs</h1>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Track the status of your background AI tasks.</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AI Generation Jobs</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Track the status of your background AI tasks.</p>
+        
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          {bulkProcessing && (
+            <div className="text-sm font-medium text-purple-600 dark:text-purple-400 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {bulkProgress}
+            </div>
+          )}
+          <button 
+            onClick={() => setShowBulkModal(true)} 
+            disabled={bulkProcessing || loading}
+            className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-xl shadow-sm hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 text-sm font-medium transition-colors"
+          >
+            {bulkProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            Bulk Auto-Regenerate
+          </button>
         </div>
       </div>
 
@@ -286,6 +384,63 @@ export default function AIJobsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Auto-Regenerate Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Bulk Auto-Regenerate</h3>
+              <button 
+                onClick={() => setShowBulkModal(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                This will automatically select up to 10 questions from your database that have missing or dummy answers, and regenerate them sequentially.
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Select AI Model
+                  </label>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-gray-900 dark:text-white"
+                  >
+                    {models.map((m: any) => (
+                      <option key={m.id || m.modelId} value={m.modelId}>
+                        {m.name} ({m.modelId})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowBulkModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkProcess}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 shadow-sm transition-colors flex items-center gap-2"
+              >
+                <Play className="w-4 h-4" /> Start Bulk Process
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -17,11 +17,10 @@ export default function DashboardStats() {
     { label: 'Current Streak', value: `${stats.streak} Days`, icon: Flame, color: 'text-orange-500', bg: 'bg-orange-500/10' },
     { label: 'Experience (XP)', value: stats.xp.toLocaleString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
     { label: 'Completed', value: stats.completedQuestions.length, icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-500/10' },
-    { label: 'Goal Progress', value: '45%', icon: Target, color: 'text-blue-500', bg: 'bg-blue-500/10' },
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       {items.map((item, index) => {
         const Icon = item.icon;
         return (

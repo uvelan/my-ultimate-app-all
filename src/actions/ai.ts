@@ -188,6 +188,44 @@ function normalizeAIResponse(parsedJson: any): any {
   };
 }
 
+export async function getDummyQuestions() {
+  const { isAuthenticated, user } = await verifyAuth();
+  if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized', questions: [] };
+
+  try {
+    const questions = await prisma.interviewQuestion.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const dummyQuestions = questions.filter(q => {
+      if (!q.bestAnswer) return true;
+      if (q.bestAnswer.includes('Please update via UI') || q.bestAnswer.includes('Please provide')) return true;
+      
+      const sentences = q.bestAnswer.split(/[.?!]/).filter(s => s.trim().length > 0);
+      if (sentences.length <= 3) return true;
+
+      return false;
+    }).slice(0, 10);
+
+    return { success: true, questions: dummyQuestions };
+  } catch (error) {
+    console.error("Failed to fetch dummy questions:", error);
+    return { success: false, error: 'Failed to fetch dummy questions', questions: [] };
+  }
+}
+
+export async function checkJobStatus(jobId: string) {
+  const { isAuthenticated } = await verifyAuth();
+  if (!isAuthenticated) return { success: false, status: 'UNKNOWN' };
+  
+  const job = await prisma.aIGenerationJob.findUnique({
+    where: { id: jobId }
+  });
+  
+  if (!job) return { success: false, status: 'NOT_FOUND' };
+  return { success: true, status: job.status, error: job.errorReason };
+}
+
 export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName: string = 'gemini-2.5-flash'): Promise<{success: boolean, jobId?: string, error?: string}> {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized' };
@@ -196,6 +234,24 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
   if (!finalPromptTitle && updateId) {
     const existing = await getQuestionById(updateId);
     finalPromptTitle = existing ? `Regenerate: ${existing.title}` : 'Regenerate Question';
+  }
+
+  // Ensure we maintain only one record per question (or exact prompt)
+  if (updateId) {
+    await prisma.aIGenerationJob.deleteMany({
+      where: {
+        userId: user.id,
+        questionId: updateId
+      }
+    });
+  } else if (finalPromptTitle) {
+    await prisma.aIGenerationJob.deleteMany({
+      where: {
+        userId: user.id,
+        prompt: finalPromptTitle,
+        questionId: null
+      }
+    });
   }
 
   const job = await prisma.aIGenerationJob.create({

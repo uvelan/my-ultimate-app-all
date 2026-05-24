@@ -13,6 +13,8 @@ const crimsonText = Crimson_Text({
 
 import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { saveBookToCache, getBookFromCache, deleteBookFromCache, Book as DBBook } from '@/lib/book-db';
@@ -243,11 +245,14 @@ export default function ReadBookPage() {
             return;
         }
 
+        // Strip markdown headings for TTS
+        const ttsText = text.replace(/^#+\s+/g, '');
+
         // Cancel previous speech and invalidate ref to prevent onend from advancing
         speechRef.current = null;
         window.speechSynthesis.cancel();
 
-        const utterance = new SpeechSynthesisUtterance(text);
+        const utterance = new SpeechSynthesisUtterance(ttsText);
         utterance.rate = playbackSpeed;
 
         const voice = voices.find(v => v.name === selectedVoice) || voices[0];
@@ -894,7 +899,7 @@ export default function ReadBookPage() {
     if (!book) return null;
 
     // Button Styles
-    const topBtnStyle = "px-3 py-2 bg-background-surface hover:bg-border text-text-primary font-semibold rounded-lg shadow-sm border border-border flex items-center gap-2 transition-colors text-sm whitespace-nowrap shrink-0";
+    const topBtnStyle = "p-2 sm:px-3 sm:py-2 bg-background-surface hover:bg-border text-text-primary font-semibold rounded-full sm:rounded-lg shadow-sm border border-border flex items-center justify-center gap-2 transition-colors text-sm whitespace-nowrap shrink-0";
     const iconBtnStyle = "p-2 bg-background-surface hover:bg-border text-text-primary rounded-full shadow-sm border border-border transition-colors flex items-center justify-center shrink-0";
 
     return (
@@ -902,10 +907,10 @@ export default function ReadBookPage() {
             <div className="flex flex-col h-screen bg-background text-text-primary font-serif overflow-hidden">
 
                 {/* Top Control Bar */}
-                <header className="bg-background-surface border-b border-border px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between gap-2 overflow-hidden">
+                <header className="bg-background-surface border-b border-border px-2 md:px-4 py-2 md:py-3 shadow-sm shrink-0 z-20 flex items-center justify-between gap-2 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
 
                     {/* Left: Navigation & Context */}
-                    <div className="flex items-center gap-2 md:gap-3 min-w-0 shrink">
+                    <div className="flex items-center gap-2 md:gap-3 shrink-0">
                         <Link href="/books" className={iconBtnStyle} title="Back to Library">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                         </Link>
@@ -1069,16 +1074,18 @@ export default function ReadBookPage() {
                                 style={{ fontSize: `${fontSize}px` }}
                             >
                                 {processedContent.map((paragraph, idx) => (
-                                    <p
+                                    <div
                                         key={idx}
                                         id={`paragraph-${idx}`}
-                                        className={`mb-6 md:mb-8 p-2 rounded-lg transition-colors duration-300 ${isPlaying && currentParagraphIndex === idx
+                                        className={`mb-6 md:mb-8 p-2 rounded-lg transition-colors duration-300 [&>p]:mb-0 [&>p]:mt-0 ${isPlaying && currentParagraphIndex === idx
                                             ? 'bg-accent/10 shadow-sm ring-1 ring-accent/50 text-text-primary'
                                             : 'text-text-primary'
                                             }`}
                                     >
-                                        {paragraph}
-                                    </p>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {paragraph}
+                                        </ReactMarkdown>
+                                    </div>
                                 ))}
                             </div>
 
