@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FlashcardType } from '@/types/interview';
-import { Check, X, RotateCw } from 'lucide-react';
+import { Check, X, RotateCw, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 
 interface FlashcardProps {
   card: FlashcardType;
@@ -35,6 +36,13 @@ export default function Flashcard({ card, onNext }: FlashcardProps) {
           <span className="absolute px-3 py-1 text-sm font-medium text-blue-600 bg-blue-100 rounded-full top-6 left-6 dark:bg-blue-900/30 dark:text-blue-400 z-10">
             {card.topic}
           </span>
+          <Link 
+            href={`/interview/question/${card.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute px-3 py-1 flex items-center gap-1 text-sm font-medium text-purple-600 bg-purple-100 rounded-full top-6 right-6 dark:bg-purple-900/30 dark:text-purple-400 z-10 hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+          >
+            Details <ExternalLink className="w-3 h-3" />
+          </Link>
           <div className="m-auto w-full py-12">
             <h2 className="text-2xl md:text-3xl font-bold text-center text-gray-900 dark:text-white">
               {card.front}
@@ -51,6 +59,16 @@ export default function Flashcard({ card, onNext }: FlashcardProps) {
           className="absolute inset-0 flex flex-col p-8 bg-gradient-to-br from-blue-50/90 to-indigo-50/90 backdrop-blur-xl border border-blue-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] dark:from-blue-950/80 dark:to-indigo-950/80 dark:border-blue-800/50 rounded-[2rem] overflow-y-auto custom-scrollbar"
           style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
         >
+          <span className="absolute px-3 py-1 text-sm font-medium text-blue-600 bg-blue-100 rounded-full top-6 left-6 dark:bg-blue-900/30 dark:text-blue-400 z-10">
+            {card.topic}
+          </span>
+          <Link 
+            href={`/interview/question/${card.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute px-3 py-1 flex items-center gap-1 text-sm font-medium text-purple-600 bg-purple-100 rounded-full top-6 right-6 dark:bg-purple-900/30 dark:text-purple-400 z-10 hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+          >
+            Details <ExternalLink className="w-3 h-3" />
+          </Link>
           <div className="m-auto w-full py-4">
             <h2 className="text-xl md:text-2xl font-medium leading-relaxed text-center text-gray-800 dark:text-gray-100">
               {card.back}
