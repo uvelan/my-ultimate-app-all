@@ -838,3 +838,71 @@ export async function cancelAIJob(id: string) {
     return { success: false, error: 'Failed to cancel job' };
   }
 }
+
+export async function startBulkBackgroundJob(modelName: string) {
+  const { isAuthenticated, user } = await verifyAuth();
+  if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized' };
+
+  try {
+    const res = await getDummyQuestions();
+    if (!res.success || !res.questions || res.questions.length === 0) {
+      return { success: false, error: 'No dummy questions found.' };
+    }
+
+    // Fire and forget
+    processBulkBackgroundSequence(res.questions, modelName, user.id).catch(console.error);
+
+    return { success: true, count: res.questions.length };
+  } catch (err) {
+    console.error("Bulk init error", err);
+    return { success: false, error: 'Failed to initialize bulk job' };
+  }
+}
+
+async function processBulkBackgroundSequence(questions: any[], modelName: string, userId: string) {
+  for (const q of questions) {
+    let attempt = 1;
+    const maxAttempts = 4;
+    let jobSuccess = false;
+
+    while (attempt <= maxAttempts && !jobSuccess) {
+      try {
+        await prisma.aIGenerationJob.deleteMany({
+          where: { userId, questionId: q.id }
+        });
+
+        const job = await prisma.aIGenerationJob.create({
+          data: {
+            userId,
+            prompt: `Regenerate: ${q.title}`,
+            modelName,
+            status: 'PENDING',
+            questionId: q.id,
+          }
+        });
+
+        await processBackgroundAIJob(job.id, q.title, q.id, modelName, userId);
+
+        const finishedJob = await prisma.aIGenerationJob.findUnique({ where: { id: job.id } });
+        if (finishedJob && finishedJob.status === 'COMPLETED') {
+          jobSuccess = true;
+        } else {
+          jobSuccess = false;
+        }
+      } catch (err) {
+        console.error(`Bulk job error for ${q.title}`, err);
+        jobSuccess = false;
+      }
+
+      if (!jobSuccess) {
+        if (attempt < maxAttempts) {
+          const waitSecs = 5 * Math.pow(2, attempt - 1);
+          await new Promise(r => setTimeout(r, waitSecs * 1000));
+          attempt++;
+        } else {
+          break; // move to next question
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob, getDummyQuestions, checkJobStatus } from '@/actions/ai';
+import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob, getDummyQuestions, checkJobStatus, startBulkBackgroundJob } from '@/actions/ai';
 import { Activity, Trash2, RefreshCw, Clock, Sparkles, Loader2, Play, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
@@ -123,72 +123,18 @@ export default function AIJobsPage() {
   const handleBulkProcess = async () => {
     setShowBulkModal(false);
     setBulkProcessing(true);
-    setBulkProgress('Fetching questions...');
+    setBulkProgress('Starting background job...');
     
     try {
-      const res = await getDummyQuestions();
-      if (!res.success || !res.questions || res.questions.length === 0) {
-        toast.error('No dummy/empty questions found.');
-        setBulkProcessing(false);
-        return;
+      const res = await startBulkBackgroundJob(selectedModel);
+      if (!res.success) {
+        toast.error(res.error || 'Failed to start bulk job.');
+      } else {
+        toast.success(`Started bulk generation for ${res.count} questions in the background.`);
+        loadJobs(true);
       }
-      
-      const questions = res.questions;
-      let i = 1;
-      
-      for (const q of questions) {
-        setBulkProgress(`Processing ${i} of ${questions.length}: ${q.title}`);
-        
-        let attempt = 1;
-        const maxAttempts = 4;
-        let jobSuccess = false;
-        
-        while (attempt <= maxAttempts && !jobSuccess) {
-           const jobRes = await generateQuestionWithAI(q.title, q.id, selectedModel);
-           if (!jobRes.success || !jobRes.jobId) {
-              toast.error(`Failed to start job for: ${q.title}`);
-              break; 
-           }
-           
-           const jobId = jobRes.jobId;
-           let isDone = false;
-           
-           while (!isDone) {
-             await new Promise(r => setTimeout(r, 5000));
-             const statusRes = await checkJobStatus(jobId);
-             if (statusRes.success) {
-               if (statusRes.status === 'COMPLETED') {
-                 isDone = true;
-                 jobSuccess = true;
-                 toast.success(`Completed: ${q.title}`);
-                 loadJobs(false);
-               } else if (statusRes.status === 'FAILED') {
-                 isDone = true;
-                 jobSuccess = false;
-                 console.error(`Job failed for ${q.title}:`, statusRes.error);
-                 loadJobs(false);
-               }
-             }
-           }
-           
-           if (!jobSuccess) {
-             if (attempt < maxAttempts) {
-                const waitSecs = 5 * Math.pow(2, attempt - 1); 
-                setBulkProgress(`Failed ${q.title}. Retrying in ${waitSecs}s...`);
-                await new Promise(r => setTimeout(r, waitSecs * 1000));
-                attempt++;
-             } else {
-                toast.error(`Max retries exhausted for ${q.title}`);
-                break;
-             }
-           }
-        }
-        i++;
-      }
-      toast.success('Bulk process finished.');
-    } catch (e) {
-      console.error(e);
-      toast.error('Bulk process encountered an error.');
+    } catch (err) {
+      toast.error('Error starting bulk job.');
     } finally {
       setBulkProcessing(false);
       setBulkProgress('');
