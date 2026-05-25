@@ -9,6 +9,7 @@ import Link from 'next/link';
 interface Chapter {
     id: string;
     title: string;
+    content?: any;
 }
 
 interface Book {
@@ -144,6 +145,21 @@ export default function ListenPage() {
 
         fetchAudioForChapter(currentChapter.id);
     }, [currentChapterIndex, book, grammarModel, ttsVoice]);
+
+    // Silently prefetch the next chapter when the current one starts playing (Only for Google TTS)
+    useEffect(() => {
+        const isGoogleTTS = !ttsVoice.startsWith('gemini');
+        
+        if (isPlaying && book && currentChapterIndex < book.chapters.length - 1 && isGoogleTTS) {
+            const nextChapterId = book.chapters[currentChapterIndex + 1].id;
+            const url = `/api/tts?chapterId=${nextChapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}`;
+            
+            // Use fetch with 'force-cache' or default to let browser handle the Cache-Control headers
+            fetch(url, { cache: 'default' })
+                .then(() => console.log('Successfully prefetched next chapter audio'))
+                .catch(e => console.warn("Prefetch failed:", e));
+        }
+    }, [isPlaying, currentChapterIndex, book, grammarModel, ttsVoice]);
 
     const fetchAudioForChapter = async (chapterId: string) => {
         setIsGenerating(true);
@@ -376,6 +392,8 @@ export default function ListenPage() {
                             title="TTS Voice Accent"
                         >
                             <option value="en">Voice: Default</option>
+                            <option value="gemini-3.1-kore">Voice: Gemini 3.1 (Kore)</option>
+                            <option value="gemini-2.5-kore">Voice: Gemini 2.5 (Kore)</option>
                             <option value="en-US">Voice: US English</option>
                             <option value="en-GB">Voice: British</option>
                             <option value="en-AU">Voice: Australian</option>
@@ -630,6 +648,43 @@ export default function ListenPage() {
                                         <svg width="16" height="16" className="sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"></path></svg>
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+
+                        {/* Lyrics / Chapter Text */}
+                        <div className="w-full max-w-2xl mx-auto mt-6 bg-[#2d3748] rounded-xl p-4 sm:p-6 shadow-xl border border-[#4a5568] max-h-96 overflow-y-auto">
+                            <h3 className="text-lg font-bold mb-4 text-[#e2e8f0] border-b border-[#4a5568] pb-2">Chapter Lyrics</h3>
+                            <div className="space-y-4 text-left">
+                                {currentChapter?.content && (() => {
+                                    let paragraphs: string[] = [];
+                                    try {
+                                        paragraphs = typeof currentChapter.content === 'string' 
+                                            ? JSON.parse(currentChapter.content) 
+                                            : currentChapter.content;
+                                        if (!Array.isArray(paragraphs)) paragraphs = [String(currentChapter.content)];
+                                    } catch(e) {
+                                        paragraphs = [String(currentChapter.content)];
+                                    }
+                                    return paragraphs.map((para, i) => {
+                                        const progress = duration > 0 ? (currentTime / duration) : 0;
+                                        const startThresh = i / paragraphs.length;
+                                        const endThresh = (i + 1) / paragraphs.length;
+                                        const isActive = progress >= startThresh && progress < endThresh;
+                                        const isPast = progress >= endThresh;
+                                        
+                                        return (
+                                            <p 
+                                                key={i} 
+                                                className={`transition-all duration-300 ${isActive ? 'text-[#4fd1c5] font-bold text-lg md:text-xl drop-shadow-md' : isPast ? 'text-white' : 'text-[#a0aec0]'}`}
+                                            >
+                                                {para}
+                                            </p>
+                                        );
+                                    });
+                                })()}
+                                {!currentChapter?.content && (
+                                    <p className="text-[#a0aec0] italic text-center">Lyrics not available for this chapter.</p>
+                                )}
                             </div>
                         </div>
 

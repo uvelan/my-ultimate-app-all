@@ -5,6 +5,9 @@ import * as googleTTS from 'google-tts-api';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 
+// Rate limiting map: { "userId_chapterId": count, expiresAt }
+const rateLimitMap = new Map<string, { count: number; expiresAt: number }>();
+
 export async function GET(request: Request) {
     const auth = await verifyAuth();
     if (!auth.isAuthenticated) {
@@ -22,6 +25,8 @@ export async function GET(request: Request) {
         if (!chapterId && !questionId) {
             return NextResponse.json({ error: 'Chapter ID or Question ID is required' }, { status: 400 });
         }
+
+        const userId = auth.user?.id || auth.user?.email || 'anonymous';
 
         let contentArray: string[] = [];
 
@@ -164,7 +169,92 @@ ${JSON.stringify(contentArray)}`;
         fullText = fullText.replace(/<[^>]*>?/gm, ''); // HTML
         fullText = fullText.replace(/\s+/g, ' ').trim(); // normalize whitespace
 
-        // Split text into lines, ensuring no single chunk exceeds 200 chars
+        if (voice === 'gemini-3.1-kore' || voice === 'gemini-2.5-kore') {
+            try {
+                if (chapterId) {
+                    const rateLimitKey = `${userId}_${chapterId}`;
+                    const now = Date.now();
+                    const currentLimit = rateLimitMap.get(rateLimitKey);
+                    
+                    if (currentLimit && currentLimit.expiresAt > now) {
+                        if (currentLimit.count >= 3) {
+                            throw new Error('Rate limit exceeded: Max 3 Gemini TTS API calls per chapter allowed.');
+                        }
+                        currentLimit.count += 1;
+                        rateLimitMap.set(rateLimitKey, currentLimit);
+                    } else {
+                        rateLimitMap.set(rateLimitKey, { count: 1, expiresAt: now + 24 * 60 * 60 * 1000 }); // 24 hours
+                    }
+                }
+
+                const apiKey = process.env.GEMINI_API_KEY;
+                if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
+
+                // Determine which model to use
+                const modelName = voice === 'gemini-3.1-kore' ? 'gemini-3.1-flash-tts-preview' : 'gemini-2.5-flash-preview-tts';
+
+                // Call Gemini TTS REST API
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{ text: fullText }]
+                        }],
+                        generationConfig: {
+                            speechConfig: {
+                                voiceConfig: {
+                                    prebuiltVoiceConfig: {
+                                        voiceName: "Kore"
+                                    }
+                                }
+                            }
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Gemini TTS API failed: ${response.status} ${response.statusText} - ${errorText}`);
+                }
+
+                const data = await response.json();
+                
+                // Extract base64 audio from response
+                let base64Audio = null;
+                if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+                    const parts = data.candidates[0].content.parts;
+                    for (const part of parts) {
+                        if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
+                            base64Audio = part.inlineData.data;
+                            break;
+                        }
+                    }
+                }
+
+                if (!base64Audio) {
+                    throw new Error("No audio data returned from Gemini TTS API.");
+                }
+
+                const audioBuffer = Buffer.from(base64Audio, 'base64');
+                
+                return new NextResponse(audioBuffer, {
+                    headers: {
+                        'Content-Type': 'audio/mpeg',
+                        'Content-Length': audioBuffer.length.toString(),
+                        'Accept-Ranges': 'bytes',
+                        'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
+                    }
+                });
+            } catch (error) {
+                console.error("Gemini TTS failed, falling back to Google TTS:", error);
+                // Fallthrough to the Google TTS logic below
+            }
+        }
+
+        // Default: Split text into lines, ensuring no single chunk exceeds 200 chars
         const results = googleTTS.getAllAudioUrls(fullText, {
             lang: voice,
             slow: false,

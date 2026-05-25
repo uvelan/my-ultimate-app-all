@@ -962,7 +962,7 @@ export default function ReadBookPage() {
                         </span>
 
                         {/* Desktop AI model selector + fix button */}
-                        <div className="hidden sm:flex items-center">
+                        <div className={`hidden sm:flex items-center ${isPlaying ? '!hidden' : ''}`}>
                             <select
                                 value={aiModel}
                                 onChange={handleAiModelChange}
@@ -994,7 +994,7 @@ export default function ReadBookPage() {
                         <button
                             onClick={handleGrammarCorrection}
                             disabled={isCorrectingGrammar || aiModel === 'OFF'}
-                            className={`sm:hidden ${iconBtnStyle} ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`sm:hidden ${iconBtnStyle} ${isCorrectingGrammar || aiModel === 'OFF' ? 'opacity-50 cursor-not-allowed' : ''} ${isPlaying ? '!hidden' : ''}`}
                             title="AI Grammar Fix"
                         >
                             {isCorrectingGrammar ? (
@@ -1064,9 +1064,11 @@ export default function ReadBookPage() {
                     >
                         <div className="w-full max-w-[95%] lg:max-w-4xl mx-auto">
                             {/* Chapter Title */}
-                            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-text-primary mb-6 md:mb-10 pb-4 border-b border-border">
-                                {currentChapter?.title}
-                            </h2>
+                            {!isPlaying && (
+                                <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-text-primary mb-6 md:mb-10 pb-4 border-b border-border">
+                                    {currentChapter?.title}
+                                </h2>
+                            )}
 
                             {/* Chapter Content */}
                             <div
