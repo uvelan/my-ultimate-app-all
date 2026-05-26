@@ -4,31 +4,9 @@ import { prisma as db } from '@/lib/prisma';
 import * as googleTTS from 'google-tts-api';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 // Rate limiting map: { "userId_chapterId": count, expiresAt }
 const rateLimitMap = new Map<string, { count: number; expiresAt: number }>();
-
-// ---------------------------------------------------------------------------
-// Microsoft Edge TTS (uses msedge-tts which auto-computes Sec-MS-GEC header)
-// ---------------------------------------------------------------------------
-async function fetchEdgeTTSAudio(text: string, voiceName: string): Promise<Buffer> {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-    const { audioStream } = tts.toStream(text);
-
-    const chunks: Buffer[] = [];
-    await new Promise<void>((resolve, reject) => {
-        audioStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-        audioStream.on('end', resolve);
-        audioStream.on('error', reject);
-        // Safety timeout: 20s
-        setTimeout(() => reject(new Error('Edge TTS stream timed out')), 20000);
-    });
-
-    tts.close();
-    return Buffer.concat(chunks);
-}
 
 export async function GET(request: Request) {
     const auth = await verifyAuth();
@@ -51,10 +29,11 @@ export async function GET(request: Request) {
         const userId = auth.user?.id || auth.user?.email || 'anonymous';
 
         let contentArray: string[] = [];
+        let chapter = null;
 
         if (chapterId) {
             // Fetch chapter
-            const chapter = await db.chapter.findUnique({
+            chapter = await db.chapter.findUnique({
                 where: { id: chapterId }
             });
 
@@ -226,6 +205,7 @@ ${JSON.stringify(contentArray)}`;
                             parts: [{ text: fullText }]
                         }],
                         generationConfig: {
+                            responseModalities: ['AUDIO'],
                             speechConfig: {
                                 voiceConfig: {
                                     prebuiltVoiceConfig: {
@@ -276,60 +256,95 @@ ${JSON.stringify(contentArray)}`;
             }
         }
 
-        // Edge TTS – Neeraja Natural voice
-        if (voice === 'edge-neeraja') {
-            try {
-                const audioBuffer = await fetchEdgeTTSAudio(fullText, 'en-IN-NeerajaNeural');
-                if (audioBuffer.length === 0) throw new Error('Edge TTS returned empty audio');
+        // ---------------------------------------------------------
+        // DB CACHE LOOKUP (For default Google TTS & Grammar OFF only)
+        // ---------------------------------------------------------
+        let combinedBuffer: Buffer | null = null;
+        let isFromCache = false;
+        const googleLang = voice.startsWith('gemini') ? 'en' : voice;
 
-                return new NextResponse(new Uint8Array(audioBuffer), {
-                    headers: {
-                        'Content-Type': 'audio/mpeg',
-                        'Content-Length': audioBuffer.length.toString(),
-                        'Accept-Ranges': 'bytes',
-                        'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
-                    }
-                });
-            } catch (err) {
-                console.error('Edge TTS failed, falling back to Google TTS:', err);
-                // Fallthrough to Google TTS
+        const fs = require('fs');
+        const logFile = 'k:/Projects/my-ultimate-app-all/tts_cache_debug.txt';
+        fs.appendFileSync(logFile, `\n\n--- TTS Request ---\nChapter: ${chapterId}\nVoice: ${voice}\nGrammar: ${grammarModel}\n`);
+
+        if (voice === 'en' && grammarModel === 'OFF' && chapterId) {
+            fs.appendFileSync(logFile, `Checking DB for chapter ${chapterId}...\n`);
+            const cachedAudio = await db.chapterAudio.findUnique({
+                where: { chapterId: chapterId }
+            });
+            if (cachedAudio) {
+                combinedBuffer = Buffer.from(cachedAudio.audio);
+                isFromCache = true;
+                console.log(`[TTS Cache] Served chapter ${chapterId} from DB.`);
             }
         }
 
-        // Default: Split text into lines, ensuring no single chunk exceeds 200 chars
-        const results = googleTTS.getAllAudioUrls(fullText, {
-            lang: voice,
-            slow: false,
-            host: 'https://translate.google.com',
-            splitPunct: ',.?',
-        });
+        if (!combinedBuffer) {
+            // Generate live from Google TTS
+            const results = googleTTS.getAllAudioUrls(fullText, {
+                lang: googleLang,
+                slow: false,
+                host: 'https://translate.google.com',
+                splitPunct: ',.?',
+            });
 
-        const buffers = await Promise.all(results.map(async (item) => {
-            let lastError: any = null;
-            for (let i = 0; i < 3; i++) {
-                try {
-                    const response = await fetch(item.url);
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
+            const buffers = await Promise.all(results.map(async (item) => {
+                let lastError: any = null;
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        const response = await fetch(item.url);
+                        if (!response.ok) {
+                            throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
+                        }
+                        const arrayBuffer = await response.arrayBuffer();
+                        return Buffer.from(arrayBuffer);
+                    } catch (error) {
+                        lastError = error;
+                        if (i < 2) await new Promise(res => setTimeout(res, 1000 * (i + 1))); // Backoff
                     }
-                    const arrayBuffer = await response.arrayBuffer();
-                    return Buffer.from(arrayBuffer);
-                } catch (error) {
-                    lastError = error;
-                    if (i < 2) await new Promise(res => setTimeout(res, 1000 * (i + 1))); // Backoff
+                }
+                throw new Error(`Audio conversion failed after 3 attempts: ${lastError?.message || 'Unknown error'}`);
+            }));
+
+            // Combine buffers into 1 file
+            combinedBuffer = Buffer.concat(buffers);
+
+            // Save to DB cache if applicable
+            fs.appendFileSync(logFile, `Generated buffer size: ${combinedBuffer.length}. Conditions for save: voice=${voice==='en'}, grammar=${grammarModel==='OFF'}, chapterId=${!!chapterId}, chapter=${!!chapter}\n`);
+            if (voice === 'en' && grammarModel === 'OFF' && chapterId && chapter) {
+                try {
+                    fs.appendFileSync(logFile, `Attempting upsert...\n`);
+                    await db.chapterAudio.upsert({
+                        where: { chapterId: chapterId },
+                        update: { audio: new Uint8Array(combinedBuffer) },
+                        create: {
+                            chapterId: chapterId,
+                            bookId: chapter.bookId,
+                            audio: new Uint8Array(combinedBuffer)
+                        }
+                    });
+                    fs.appendFileSync(logFile, `[TTS Cache] Saved chapter ${chapterId} to DB.\n`);
+                    console.log(`[TTS Cache] Saved chapter ${chapterId} to DB.`);
+                } catch (dbErr: any) {
+                    fs.appendFileSync(logFile, `[TTS Cache] Failed to save to DB: ${dbErr?.message || dbErr}\n`);
+                    console.error("[TTS Cache] Failed to save to DB:", dbErr);
                 }
             }
-            throw new Error(`Audio conversion failed after 3 attempts: ${lastError?.message || 'Unknown error'}`);
-        }));
+        }
 
-        // Combine buffers into 1 file
-        const combinedBuffer = Buffer.concat(buffers);
+        // Trigger smart background cache logic (fire and forget)
+        if (voice === 'en' && grammarModel === 'OFF' && chapter) {
+            fs.appendFileSync(logFile, `Triggering executeSmartCacheLogic...\n`);
+            executeSmartCacheLogic(chapter.bookId, chapter.order, googleLang).catch(err => 
+                console.error("[TTS Cache Background Error]", err)
+            );
+        }
 
         // Return the final combined audio stream with CDN caching headers
-        return new NextResponse(combinedBuffer, {
+        return new NextResponse(combinedBuffer ? new Uint8Array(combinedBuffer) : null, {
             headers: {
                 'Content-Type': 'audio/mpeg',
-                'Content-Length': combinedBuffer.length.toString(),
+                'Content-Length': combinedBuffer ? combinedBuffer.length.toString() : '0',
                 'Accept-Ranges': 'bytes',
                 'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
             }
@@ -338,5 +353,102 @@ ${JSON.stringify(contentArray)}`;
     } catch (error: any) {
         console.error("TTS GENERATION ERROR:", error);
         return NextResponse.json({ error: 'Internal server error while generating audio.' }, { status: 500 });
+    }
+}
+
+// ---------------------------------------------------------
+// Background DB Caching Logic
+// ---------------------------------------------------------
+async function executeSmartCacheLogic(bookId: string, currentOrder: number, lang: string) {
+    // 1. Prune caches outside of [currentOrder - 1, currentOrder, currentOrder + 1]
+    const allCaches = await db.chapterAudio.findMany({
+        where: { bookId },
+        include: { chapter: { select: { order: true } } }
+    });
+
+    const toDeleteIds: string[] = [];
+    for (const cache of allCaches) {
+        const order = cache.chapter?.order;
+        if (order !== undefined && (order < currentOrder - 1 || order > currentOrder + 1)) {
+            toDeleteIds.push(cache.id);
+        }
+    }
+
+    if (toDeleteIds.length > 0) {
+        await db.chapterAudio.deleteMany({
+            where: { id: { in: toDeleteIds } }
+        });
+        console.log(`[TTS Cache Prune] Deleted ${toDeleteIds.length} old chapters for book ${bookId}`);
+    }
+
+    // 2. Prefetch N-1 and N+1
+    const targetOrders = [currentOrder - 1, currentOrder + 1].filter(o => o >= 0);
+    const targetChapters = await db.chapter.findMany({
+        where: {
+            bookId,
+            order: { in: targetOrders }
+        }
+    });
+
+    for (const tChap of targetChapters) {
+        // Check if already cached
+        const exists = await db.chapterAudio.findUnique({
+            where: { chapterId: tChap.id }
+        });
+        if (exists) continue;
+
+        // Generate Audio
+        try {
+            let contentArray: string[] = [];
+            const rawContent = tChap.content;
+            if (Array.isArray(rawContent)) {
+                contentArray = rawContent.map(String);
+            } else if (typeof rawContent === 'object' && rawContent !== null) {
+                if (Array.isArray((rawContent as any).correctedContent)) {
+                    contentArray = (rawContent as any).correctedContent.map(String);
+                } else if (typeof (rawContent as any).content === 'string') {
+                    contentArray = [(rawContent as any).content];
+                } else {
+                    contentArray = [String(rawContent)];
+                }
+            } else {
+                contentArray = [String(rawContent)];
+            }
+
+            let fullText = contentArray.join(' ');
+            fullText = fullText.replace(/```[\s\S]*?```/g, ' ')
+                               .replace(/`[^`]*`/g, ' ')
+                               .replace(/!\[.*?\]\(.*?\)/g, ' ')
+                               .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+                               .replace(/[#*~_>]/g, '')
+                               .replace(/<[^>]*>?/gm, '')
+                               .replace(/\s+/g, ' ').trim();
+
+            if (!fullText) continue;
+
+            const results = googleTTS.getAllAudioUrls(fullText, {
+                lang, slow: false, host: 'https://translate.google.com', splitPunct: ',.?',
+            });
+
+            const buffers = await Promise.all(results.map(async (item) => {
+                const response = await fetch(item.url);
+                if (!response.ok) throw new Error('Fetch failed');
+                const arrayBuffer = await response.arrayBuffer();
+                return Buffer.from(arrayBuffer);
+            }));
+
+            const combinedBuffer = Buffer.concat(buffers);
+
+            await db.chapterAudio.create({
+                data: {
+                    chapterId: tChap.id,
+                    bookId: tChap.bookId,
+                    audio: new Uint8Array(combinedBuffer)
+                }
+            });
+            console.log(`[TTS Cache Prefetch] Generated and saved chapter ${tChap.order}`);
+        } catch (err) {
+            console.error(`[TTS Cache Prefetch] Failed for chapter ${tChap.order}:`, err);
+        }
     }
 }

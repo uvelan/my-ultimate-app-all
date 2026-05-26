@@ -146,20 +146,7 @@ export default function ListenPage() {
         fetchAudioForChapter(currentChapter.id);
     }, [currentChapterIndex, book, grammarModel, ttsVoice]);
 
-    // Silently prefetch the next chapter when the current one starts playing (Only for Google TTS)
-    useEffect(() => {
-        const isGoogleTTS = !ttsVoice.startsWith('gemini') && ttsVoice !== 'edge-neeraja';
-        
-        if (isPlaying && book && currentChapterIndex < book.chapters.length - 1 && isGoogleTTS) {
-            const nextChapterId = book.chapters[currentChapterIndex + 1].id;
-            const url = `/api/tts?chapterId=${nextChapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}`;
-            
-            // Use fetch with 'force-cache' or default to let browser handle the Cache-Control headers
-            fetch(url, { cache: 'default' })
-                .then(() => console.log('Successfully prefetched next chapter audio'))
-                .catch(e => console.warn("Prefetch failed:", e));
-        }
-    }, [isPlaying, currentChapterIndex, book, grammarModel, ttsVoice]);
+    // Client-side prefetch logic has been removed as the server now handles smart caching in MongoDB
 
     const fetchAudioForChapter = async (chapterId: string) => {
         setIsGenerating(true);
@@ -168,7 +155,7 @@ export default function ListenPage() {
         try {
             // Using our new API route. Because building this audio file might take a second, 
             // returning the direct URL to the <audio> src is sometimes better, but here we preload to show spinning until ready.
-            const url = `/api/tts?chapterId=${chapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}`;
+            const url = `/api/tts?chapterId=${chapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}&t=${Date.now()}`;
 
             // To test if it exists and handles generation, we can fetch it once
             const response = await fetch(url);
@@ -392,7 +379,6 @@ export default function ListenPage() {
                             title="TTS Voice Accent"
                         >
                             <option value="en">Voice: Default</option>
-                            <option value="edge-neeraja">🎙️ Edge: Neeraja (Natural)</option>
                             <option value="gemini-3.1-kore">Voice: Gemini 3.1 (Kore)</option>
                             <option value="gemini-2.5-kore">Voice: Gemini 2.5 (Kore)</option>
                             <option value="en-US">Voice: US English</option>
@@ -522,7 +508,7 @@ export default function ListenPage() {
                     <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-8 relative bg-gradient-to-b from-[#1a202c] to-[#000000] overflow-y-auto">
 
                         {/* Artwork / CD Style UI */}
-                        <div className={`w-32 h-32 sm:w-48 sm:h-48 md:w-64 md:h-64 rounded-xl shadow-2xl mb-4 sm:mb-8 border border-[#2d3748] overflow-hidden bg-[#2d3748] flex items-center justify-center transition-all shrink-0 ${!isGenerating && audioUrl ? 'scale-105' : 'scale-100 opacity-80'}`}>
+                        <div className={`w-32 h-48 sm:w-40 sm:h-60 md:w-48 md:h-72 rounded-xl shadow-2xl mb-4 sm:mb-8 border border-[#2d3748] overflow-hidden bg-[#2d3748] flex items-center justify-center transition-all shrink-0 ${!isGenerating && audioUrl ? 'scale-105' : 'scale-100 opacity-80'}`}>
                             {book.cover ? (
                                 <img src={book.cover} alt="Cover" className="w-full h-full object-cover" />
                             ) : (
@@ -538,7 +524,7 @@ export default function ListenPage() {
                             <p className="text-[#a0aec0] mb-3 sm:mb-8 text-xs sm:text-sm md:text-base font-medium">Chapter {currentChapterIndex + 1} of {book.chapters.length}</p>
 
                             {/* Audio Player */}
-                            <div className="bg-[#2d3748] rounded-xl p-3 sm:p-4 md:p-6 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
+                            <div className="bg-[#2d3748] rounded-xl p-3 sm:p-4 md:p-4 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
 
                                 {isGenerating ? (
                                     <div className="flex flex-col items-center justify-center py-4">
@@ -546,7 +532,7 @@ export default function ListenPage() {
                                         <p className="text-sm text-[#a0aec0]">Generating High-Quality Audio...</p>
                                     </div>
                                 ) : audioUrl ? (
-                                    <div className="flex flex-col items-center gap-4 w-full">
+                                    <div className="flex flex-col items-center gap-2 w-full">
                                         <audio
                                             ref={audioRef}
                                             src={audioUrl}
@@ -572,7 +558,7 @@ export default function ListenPage() {
                                         )}
 
                                         {/* Complete Progress Timeline */}
-                                        <div className="w-full flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-[#a0aec0] font-mono mb-2">
+                                        <div className="w-full flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-[#a0aec0] font-mono mb-1">
                                             <span>{formatTime(currentTime)}</span>
                                             <input
                                                 type="range"
@@ -600,8 +586,8 @@ export default function ListenPage() {
                                                 className="text-[#a0aec0] hover:text-[#e2e8f0] transition-colors flex flex-col items-center p-2"
                                                 title="Rewind 15s"
                                             >
-                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" /></svg>
-                                                <span className="text-[10px] mt-1 font-bold tracking-wider">-15s</span>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" /></svg>
+                                                <span className="text-[9px] mt-0.5 font-bold tracking-wider">-15s</span>
                                             </button>
 
                                             {/* Play/Pause */}
@@ -611,12 +597,12 @@ export default function ListenPage() {
                                                     if (isPlaying) audioRef.current.pause();
                                                     else audioRef.current.play();
                                                 }}
-                                                className="w-14 h-14 sm:w-16 sm:h-16 shrink-0 bg-[#4fd1c5] hover:bg-[#38b2ac] text-[#1a202c] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(79,209,197,0.4)] transition transform hover:scale-105"
+                                                className="w-12 h-12 sm:w-14 sm:h-14 shrink-0 bg-[#4fd1c5] hover:bg-[#38b2ac] text-[#1a202c] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(79,209,197,0.4)] transition transform hover:scale-105"
                                             >
                                                 {isPlaying ? (
-                                                    <svg width="24" height="24" className="sm:w-7 sm:h-7" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+                                                    <svg width="24" height="24" className="sm:w-6 sm:h-6" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
                                                 ) : (
-                                                    <svg width="24" height="24" className="sm:w-7 sm:h-7 ml-1" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                                    <svg width="24" height="24" className="sm:w-6 sm:h-6 ml-1" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                                                 )}
                                             </button>
 
@@ -626,24 +612,24 @@ export default function ListenPage() {
                                                 className="text-[#a0aec0] hover:text-[#e2e8f0] transition-colors flex flex-col items-center p-2"
                                                 title="Skip 15s"
                                             >
-                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17l5-5-5-5M6 17l5-5-5-5" /></svg>
-                                                <span className="text-[10px] mt-1 font-bold tracking-wider">+15s</span>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17l5-5-5-5M6 17l5-5-5-5" /></svg>
+                                                <span className="text-[9px] mt-0.5 font-bold tracking-wider">+15s</span>
                                             </button>
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="text-[#a0aec0] text-sm py-6">Could not load audio.</div>
+                                    <div className="text-[#a0aec0] text-sm py-4">Could not load audio.</div>
                                 )}
 
                                 {/* Prev / Next Fast Controls Below */}
-                                <div className="flex justify-between items-center mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-[#4a5568]">
-                                    <button onClick={handlePrevChapter} disabled={currentChapterIndex === 0} className={`p-1 sm:p-2 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-xs sm:text-sm flex items-center gap-1 ${currentChapterIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
-                                        <svg width="16" height="16" className="sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
+                                <div className="flex justify-between items-center mt-3 pt-3 border-t border-[#4a5568]">
+                                    <button onClick={handlePrevChapter} disabled={currentChapterIndex === 0} className={`p-1 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-xs flex items-center gap-1 ${currentChapterIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"></path></svg>
                                         <span className="hidden sm:inline">Prev Chapter</span>
                                         <span className="sm:hidden">Prev</span>
                                     </button>
 
-                                    <button onClick={handleNextChapter} disabled={currentChapterIndex === book.chapters.length - 1} className={`p-1 sm:p-2 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-xs sm:text-sm flex items-center gap-1 ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
+                                    <button onClick={handleNextChapter} disabled={currentChapterIndex === book.chapters.length - 1} className={`p-1 rounded hover:bg-[#4a5568] text-[#a0aec0] transition text-xs flex items-center gap-1 ${currentChapterIndex === book.chapters.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-white'}`}>
                                         <span className="hidden sm:inline">Next Chapter</span>
                                         <span className="sm:hidden">Next</span>
                                         <svg width="16" height="16" className="sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"></path></svg>
@@ -655,7 +641,7 @@ export default function ListenPage() {
                         {/* Lyrics / Chapter Text */}
                         <div className="w-full max-w-2xl mx-auto mt-6 bg-[#2d3748] rounded-xl p-4 sm:p-6 shadow-xl border border-[#4a5568] max-h-96 overflow-y-auto">
                             <h3 className="text-lg font-bold mb-4 text-[#e2e8f0] border-b border-[#4a5568] pb-2">Chapter Lyrics</h3>
-                            <div className="space-y-4 text-left">
+                            <div className="space-y-4 text-left pb-8 pr-2">
                                 {currentChapter?.content && (() => {
                                     let paragraphs: string[] = [];
                                     try {
