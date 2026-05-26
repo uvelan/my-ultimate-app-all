@@ -353,7 +353,7 @@ ${JSON.stringify(contentArray)}`;
                 const audioBuffer = await fetchEdgeTTSAudio(fullText, 'en-IN-NeerajaNeural');
                 if (audioBuffer.length === 0) throw new Error('Edge TTS returned empty audio');
 
-                return new NextResponse(audioBuffer, {
+                return new NextResponse(new Uint8Array(audioBuffer), {
                     headers: {
                         'Content-Type': 'audio/mpeg',
                         'Content-Length': audioBuffer.length.toString(),
