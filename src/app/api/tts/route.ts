@@ -263,12 +263,7 @@ ${JSON.stringify(contentArray)}`;
         let isFromCache = false;
         const googleLang = voice.startsWith('gemini') ? 'en' : voice;
 
-        const fs = require('fs');
-        const logFile = 'k:/Projects/my-ultimate-app-all/tts_cache_debug.txt';
-        fs.appendFileSync(logFile, `\n\n--- TTS Request ---\nChapter: ${chapterId}\nVoice: ${voice}\nGrammar: ${grammarModel}\n`);
-
         if (voice === 'en' && grammarModel === 'OFF' && chapterId) {
-            fs.appendFileSync(logFile, `Checking DB for chapter ${chapterId}...\n`);
             const cachedAudio = await db.chapterAudio.findUnique({
                 where: { chapterId: chapterId }
             });
@@ -310,10 +305,8 @@ ${JSON.stringify(contentArray)}`;
             combinedBuffer = Buffer.concat(buffers);
 
             // Save to DB cache if applicable
-            fs.appendFileSync(logFile, `Generated buffer size: ${combinedBuffer.length}. Conditions for save: voice=${voice==='en'}, grammar=${grammarModel==='OFF'}, chapterId=${!!chapterId}, chapter=${!!chapter}\n`);
             if (voice === 'en' && grammarModel === 'OFF' && chapterId && chapter) {
                 try {
-                    fs.appendFileSync(logFile, `Attempting upsert...\n`);
                     await db.chapterAudio.upsert({
                         where: { chapterId: chapterId },
                         update: { audio: new Uint8Array(combinedBuffer) },
@@ -323,10 +316,8 @@ ${JSON.stringify(contentArray)}`;
                             audio: new Uint8Array(combinedBuffer)
                         }
                     });
-                    fs.appendFileSync(logFile, `[TTS Cache] Saved chapter ${chapterId} to DB.\n`);
                     console.log(`[TTS Cache] Saved chapter ${chapterId} to DB.`);
                 } catch (dbErr: any) {
-                    fs.appendFileSync(logFile, `[TTS Cache] Failed to save to DB: ${dbErr?.message || dbErr}\n`);
                     console.error("[TTS Cache] Failed to save to DB:", dbErr);
                 }
             }
@@ -334,7 +325,6 @@ ${JSON.stringify(contentArray)}`;
 
         // Trigger smart background cache logic (fire and forget)
         if (voice === 'en' && grammarModel === 'OFF' && chapter) {
-            fs.appendFileSync(logFile, `Triggering executeSmartCacheLogic...\n`);
             executeSmartCacheLogic(chapter.bookId, chapter.order, googleLang).catch(err => 
                 console.error("[TTS Cache Background Error]", err)
             );
