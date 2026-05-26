@@ -4,9 +4,102 @@ import { prisma as db } from '@/lib/prisma';
 import * as googleTTS from 'google-tts-api';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
+import WebSocket from 'ws';
+import { randomUUID } from 'crypto';
 
 // Rate limiting map: { "userId_chapterId": count, expiresAt }
 const rateLimitMap = new Map<string, { count: number; expiresAt: number }>();
+
+// ---------------------------------------------------------------------------
+// Microsoft Edge TTS via WebSocket (no API key required)
+// ---------------------------------------------------------------------------
+const EDGE_TTS_WSS = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&Sec-MS-GEC-Version=1-130.0.2849.68';
+
+function buildSSML(text: string, voiceName: string): string {
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-IN">
+        <voice name="${voiceName}">
+            <prosody rate="0%" pitch="0Hz">${escaped}</prosody>
+        </voice>
+    </speak>`;
+}
+
+function fetchEdgeTTSAudio(text: string, voiceName: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const requestId = randomUUID().replace(/-/g, '');
+        const wsUrl = EDGE_TTS_WSS;
+        const ws = new WebSocket(wsUrl, {
+            headers: {
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+                'Accept-Language': 'en-IN,en;q=0.9',
+            }
+        });
+
+        const audioChunks: Buffer[] = [];
+        let timeout: ReturnType<typeof setTimeout>;
+
+        const resetTimeout = () => {
+            if (timeout) clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                ws.terminate();
+                reject(new Error('Edge TTS WebSocket timed out'));
+            }, 15000);
+        };
+
+        ws.on('open', () => {
+            resetTimeout();
+
+            // 1. Send speech.config
+            const configMsg = `X-Timestamp:${new Date().toUTCString()}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-96kbitrate-mono-mp3"}}}}`;
+            ws.send(configMsg);
+
+            // 2. Send SSML synthesis request
+            const ssml = buildSSML(text, voiceName);
+            const ssmlMsg = `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${new Date().toUTCString()}\r\nPath:ssml\r\n\r\n${ssml}`;
+            ws.send(ssmlMsg);
+        });
+
+        ws.on('message', (data: WebSocket.RawData, isBinary: boolean) => {
+            resetTimeout();
+
+            if (isBinary) {
+                // Binary frames contain: header (text up to \r\n\r\n + 2-byte prefix for each audio chunk)
+                const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+                // Find the separator between header and audio data
+                const separator = Buffer.from('Path:audio\r\n');
+                const sepIdx = buf.indexOf(separator);
+                if (sepIdx !== -1) {
+                    const audioData = buf.slice(sepIdx + separator.length);
+                    if (audioData.length > 0) {
+                        audioChunks.push(audioData);
+                    }
+                }
+            } else {
+                // Text frame - check if it's the turn.end signal
+                const text = data.toString();
+                if (text.includes('Path:turn.end')) {
+                    clearTimeout(timeout);
+                    ws.close();
+                    resolve(Buffer.concat(audioChunks));
+                }
+            }
+        });
+
+        ws.on('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+        });
+
+        ws.on('close', () => {
+            clearTimeout(timeout);
+            if (audioChunks.length > 0) {
+                resolve(Buffer.concat(audioChunks));
+            }
+        });
+    });
+}
 
 export async function GET(request: Request) {
     const auth = await verifyAuth();
@@ -251,6 +344,26 @@ ${JSON.stringify(contentArray)}`;
             } catch (error) {
                 console.error("Gemini TTS failed, falling back to Google TTS:", error);
                 // Fallthrough to the Google TTS logic below
+            }
+        }
+
+        // Edge TTS – Neeraja Natural voice
+        if (voice === 'edge-neeraja') {
+            try {
+                const audioBuffer = await fetchEdgeTTSAudio(fullText, 'en-IN-NeerajaNeural');
+                if (audioBuffer.length === 0) throw new Error('Edge TTS returned empty audio');
+
+                return new NextResponse(audioBuffer, {
+                    headers: {
+                        'Content-Type': 'audio/mpeg',
+                        'Content-Length': audioBuffer.length.toString(),
+                        'Accept-Ranges': 'bytes',
+                        'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
+                    }
+                });
+            } catch (err) {
+                console.error('Edge TTS failed, falling back to Google TTS:', err);
+                // Fallthrough to Google TTS
             }
         }
 

@@ -148,7 +148,7 @@ export default function ListenPage() {
 
     // Silently prefetch the next chapter when the current one starts playing (Only for Google TTS)
     useEffect(() => {
-        const isGoogleTTS = !ttsVoice.startsWith('gemini');
+        const isGoogleTTS = !ttsVoice.startsWith('gemini') && ttsVoice !== 'edge-neeraja';
         
         if (isPlaying && book && currentChapterIndex < book.chapters.length - 1 && isGoogleTTS) {
             const nextChapterId = book.chapters[currentChapterIndex + 1].id;
@@ -392,6 +392,7 @@ export default function ListenPage() {
                             title="TTS Voice Accent"
                         >
                             <option value="en">Voice: Default</option>
+                            <option value="edge-neeraja">🎙️ Edge: Neeraja (Natural)</option>
                             <option value="gemini-3.1-kore">Voice: Gemini 3.1 (Kore)</option>
                             <option value="gemini-2.5-kore">Voice: Gemini 2.5 (Kore)</option>
                             <option value="en-US">Voice: US English</option>
