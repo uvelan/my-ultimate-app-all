@@ -43,7 +43,7 @@ export function Step2Summary() {
   // Sync external changes (if any)
   useEffect(() => {
     if (editor && data.summary !== editor.getHTML()) {
-      editor.commands.setContent(data.summary, false);
+      editor.commands.setContent(data.summary, { emitUpdate: false });
     }
   }, [data.summary, editor]);
 
@@ -64,7 +64,7 @@ export function Step2Summary() {
       const res = await generateResumeSummaryWithAI(targetRole, data, activeAiModel);
       if (res.success && res.summary) {
         // Set the editor content
-        editor?.commands.setContent(res.summary, false);
+        editor?.commands.setContent(res.summary, { emitUpdate: false });
         // Also update the store directly
         updateSummary(res.summary);
       } else {

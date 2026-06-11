@@ -22,7 +22,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     // Security check
     if (resume.userId) {
-      if (!auth.isAuthenticated || (auth.user.id !== resume.userId && auth.user.role !== 'SUPERUSER')) {
+      if (!auth.isAuthenticated || (auth.user?.id !== resume.userId && auth.user?.role !== 'SUPERUSER' && auth.user?.role !== 'ADMIN')) {
         return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 });
       }
     }

@@ -9,7 +9,7 @@ interface TemplateProps {
 }
 
 export function ExecutivePremium({ data, customization }: TemplateProps) {
-  const { personalInfo = {}, summary = '', experience = [], education = [], skills = { technical: [], languages: [], frameworks: [], tools: [], platforms: [], soft: [] } } = data || {};
+  const { personalInfo, summary = '', experience = [], education = [], skills } = data || ({} as ResumeData);
   const accentColor = customization?.accentColor || '#1E1E1E';
 
   return (

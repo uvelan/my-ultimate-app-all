@@ -10,7 +10,7 @@ interface TemplateProps {
 }
 
 export function EnterpriseArchitect({ data, customization }: TemplateProps) {
-  const { personalInfo = {}, summary = '', experience = [], education = [], skills = { technical: [], platforms: [], tools: [], languages: [], frameworks: [] } } = data || {};
+  const { personalInfo, summary = '', experience = [], education = [], skills } = data || ({} as ResumeData);
   const accentColor = customization?.accentColor || '#10B981'; // Emerald/Green theme by default
 
   return (

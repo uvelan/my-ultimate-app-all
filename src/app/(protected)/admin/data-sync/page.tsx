@@ -212,7 +212,7 @@ export default function DataSyncPage() {
                                 <Button 
                                     onClick={handleImport} 
                                     disabled={!selectedFile || isImporting}
-                                    variant={importMode === 'REPLACE' ? 'destructive' : 'default'}
+                                    variant={importMode === 'REPLACE' ? 'danger' : 'primary'}
                                     className="w-full"
                                 >
                                     {isImporting ? 'Importing...' : importMode === 'REPLACE' ? 'Wipe & Import Backup' : 'Import Backup'}

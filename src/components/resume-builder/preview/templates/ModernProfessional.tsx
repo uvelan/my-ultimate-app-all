@@ -10,7 +10,7 @@ interface TemplateProps {
 }
 
 export function ModernProfessional({ data, customization }: TemplateProps) {
-  const { personalInfo = {}, summary = '', experience = [], education = [], skills = { technical: [] }, projects = [] } = data || {};
+  const { personalInfo, summary = '', experience = [], education = [], skills, projects = [] } = data || ({} as ResumeData);
   const accentColor = customization?.accentColor || '#4F46E5';
 
   return (

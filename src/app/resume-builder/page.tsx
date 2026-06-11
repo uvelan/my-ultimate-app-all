@@ -80,7 +80,7 @@ export default function ResumeDashboard() {
   const handleCreateNew = () => {
     // Clear local store before creating new
     setFullData({
-      id: null,
+      id: '',
       personalInfo: { fullName: '', email: '', phone: '', location: '', linkedIn: '', gitHub: '', portfolio: '', professionalTitle: '', photoUrl: '' },
       summary: '',
       experience: [],
@@ -93,13 +93,13 @@ export default function ResumeDashboard() {
       meta: {
         templateId: 'stitch-premium',
         customization: {
-          primaryColor: '#d4af37',
-          fontFamily: 'inter',
-          fontSize: '10pt',
-          spacing: 'normal',
-          layout: 'classic',
-          sectionOrder: ['experience', 'education', 'skills', 'projects', 'certifications', 'awards', 'publications'],
-          theme: 'dark'
+          accentColor: '#d4af37',
+          fontPairing: 'modern',
+          fontSizeScale: 'M',
+          spacingDensity: 'balanced',
+          columnLayout: '1-col',
+          sectionOrder: [],
+          hiddenSections: []
         },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

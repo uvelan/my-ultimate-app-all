@@ -10,7 +10,7 @@ interface TemplateProps {
 }
 
 export function StitchPremium({ data, customization }: TemplateProps) {
-  const { personalInfo = {}, summary = '', experience = [], education = [], skills = { technical: [] }, projects = [] } = data || {};
+  const { personalInfo, summary = '', experience = [], education = [], skills, projects = [] } = data || ({} as ResumeData);
   
   // Enforce Stitch premium colors
   const bg = '#050505';

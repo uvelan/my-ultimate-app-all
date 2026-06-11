@@ -8,7 +8,8 @@ export type TemplateId =
   | 'product-manager' 
   | 'data-science' 
   | 'minimal-corporate' 
-  | 'creative-professional';
+  | 'creative-professional'
+  | 'stitch-premium';
 
 export interface TemplateCustomization {
   accentColor: string;
@@ -101,6 +102,7 @@ export interface ResumeMeta {
   templateId: TemplateId;
   customization: TemplateCustomization;
   targetRole?: string;
+  isDraft?: boolean;
 }
 
 export interface ResumeData {

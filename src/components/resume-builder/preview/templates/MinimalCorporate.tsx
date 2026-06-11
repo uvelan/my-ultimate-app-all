@@ -9,7 +9,7 @@ interface TemplateProps {
 }
 
 export function MinimalCorporate({ data, customization }: TemplateProps) {
-  const { personalInfo = {}, summary = '', experience = [], education = [], skills = { technical: [] } } = data || {};
+  const { personalInfo, summary = '', experience = [], education = [], skills } = data || ({} as ResumeData);
   const accentColor = customization?.accentColor || '#333333';
 
   return (

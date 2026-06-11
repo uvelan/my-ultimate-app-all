@@ -10,7 +10,7 @@ interface TemplateProps {
 }
 
 export function SoftwareEngineerElite({ data, customization }: TemplateProps) {
-  const { personalInfo = {}, summary = '', experience = [], education = [], skills = { languages: [], technical: [], frameworks: [], tools: [], platforms: [] }, projects = [] } = data || {};
+  const { personalInfo, summary = '', experience = [], education = [], skills, projects = [] } = data || ({} as ResumeData);
   const accentColor = customization?.accentColor || '#6366F1';
 
   return (

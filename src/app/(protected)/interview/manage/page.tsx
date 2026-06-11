@@ -268,6 +268,8 @@ export default function ManageInterviewPage() {
         </div>
       </div>
     </div>
+  </div>
+</div>
 
       {/* Toolbar: Filters & Bulk Actions */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-white border border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-2xl">
@@ -488,7 +490,6 @@ export default function ManageInterviewPage() {
             </tbody>
           </table>
         </div>
-      </div>
       </div>
 
       <AskAIModal 

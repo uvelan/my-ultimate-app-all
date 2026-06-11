@@ -19,7 +19,7 @@ export async function GET(req: Request) {
         // Return 401 or empty array for anonymous users querying the dashboard
         return NextResponse.json([]);
       }
-      whereClause = { userId: auth.user.id };
+      whereClause = { userId: auth.user?.id };
     }
 
     const resumes = await prisma.resume.findMany({
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     const auth = await verifyAuth();
     const body = await req.json();
     
-    const userId = auth.isAuthenticated ? auth.user.id : null; 
+    const userId = auth.isAuthenticated ? auth.user?.id : null; 
 
     // Extract title dynamically from the content
     let title = 'Untitled Resume';
@@ -78,7 +78,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ success: false, error: 'Resume not found' }, { status: 404 });
     }
 
-    if (existing.userId && (!auth.isAuthenticated || (auth.user.id !== existing.userId && auth.user.role !== 'SUPERUSER'))) {
+    if (existing.userId && (!auth.isAuthenticated || (auth.user?.id !== existing.userId && auth.user?.role !== 'SUPERUSER'))) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -89,11 +89,11 @@ export async function PUT(req: Request) {
 
     // Allow SUPERUSER to assign to another user
     const dataToUpdate: any = { title, content };
-    if (auth.isAuthenticated && auth.user.role === 'SUPERUSER' && assignUserId !== undefined) {
+    if (auth.isAuthenticated && auth.user?.role === 'SUPERUSER' && assignUserId !== undefined) {
       dataToUpdate.userId = assignUserId;
     } else if (auth.isAuthenticated && !existing.userId) {
       // Claim anonymous resume if saving while logged in
-      dataToUpdate.userId = auth.user.id;
+      dataToUpdate.userId = auth.user?.id;
     }
 
     const updatedResume = await prisma.resume.update({
@@ -119,7 +119,7 @@ export async function DELETE(req: Request) {
     const existing = await prisma.resume.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ success: false, error: 'Resume not found' }, { status: 404 });
 
-    if (existing.userId && (!auth.isAuthenticated || (auth.user.id !== existing.userId && auth.user.role !== 'SUPERUSER'))) {
+    if (existing.userId && (!auth.isAuthenticated || (auth.user?.id !== existing.userId && auth.user?.role !== 'SUPERUSER'))) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -147,7 +147,7 @@ export async function PATCH(req: Request) {
 
     if (userId !== undefined) {
       // Only SUPERUSER can arbitrarily assign resumes
-      if (!auth.isAuthenticated || auth.user.role !== 'SUPERUSER') {
+      if (!auth.isAuthenticated || auth.user?.role !== 'SUPERUSER') {
         return NextResponse.json({ success: false, error: 'Unauthorized. Only superusers can reassign resumes.' }, { status: 403 });
       }
       dataToUpdate.userId = userId;
@@ -155,7 +155,7 @@ export async function PATCH(req: Request) {
 
     if (title !== undefined) {
       // Owner or SUPERUSER can rename
-      if (existing.userId && (!auth.isAuthenticated || (auth.user.id !== existing.userId && auth.user.role !== 'SUPERUSER'))) {
+      if (existing.userId && (!auth.isAuthenticated || (auth.user?.id !== existing.userId && auth.user?.role !== 'SUPERUSER'))) {
         return NextResponse.json({ success: false, error: 'Unauthorized. You do not own this resume.' }, { status: 403 });
       }
       dataToUpdate.title = title;
