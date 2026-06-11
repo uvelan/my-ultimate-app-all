@@ -19,7 +19,7 @@ export default function FlashcardsPage() {
     const generatedDeck = randomQs.map((q: any) => ({
       id: q.id,
       topic: q.topic,
-      front: q.title,
+      front: q.problemStatement || q.title, // Use full problem statement, fallback to title
       back: q.bestAnswer || q.explanation || "Please check the full explanation."
     }));
     setDeck(generatedDeck);

@@ -8,7 +8,7 @@ const CreateUserSchema = z.object({
     name: z.string().min(2),
     email: z.string().email(),
     password: z.string().min(6),
-    role: z.enum(['USER', 'ADMIN']),
+    role: z.enum(['USER', 'ADMIN', 'SUPERUSER']),
     isActive: z.boolean().optional().default(true),
 });
 
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
         const payload = verifyAccessToken(accessToken) as { role: string } | null;
 
-        if (!payload || payload.role !== 'ADMIN') {
+        if (!payload || !['ADMIN', 'SUPERUSER'].includes(payload.role)) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
@@ -36,12 +36,16 @@ export async function POST(request: Request) {
 
         const { name, email, password, role, isActive } = result.data;
 
+        if (role === 'SUPERUSER' && payload.role !== 'SUPERUSER') {
+            return NextResponse.json({ error: 'Forbidden. Only Superusers can create other Superusers.' }, { status: 403 });
+        }
+
         const existingUser = await prisma.user.findUnique({
             where: { email },
         });
 
         if (existingUser) {
-            return NextResponse.json({ error: 'User already exists' }, { status: 400 });
+            return NextResponse.json({ error: 'Email is already in use by another account' }, { status: 400 });
         }
 
         const hashedPassword = await hashPassword(password);

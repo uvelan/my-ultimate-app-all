@@ -34,7 +34,7 @@ import { Typography } from '@/components/ui/Typography';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
-import { Modal } from '@/components/ui/Modal';
+import { Drawer } from '@/components/ui/Drawer';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/Table';
@@ -216,7 +216,7 @@ export default function NovelScraperPage() {
                 </Section>
 
                 {showGenerateModal && (
-                    <Modal 
+                    <Drawer 
                         isOpen={showGenerateModal} 
                         onClose={() => setShowGenerateModal(false)}
                         title="Generate Novel"
@@ -230,7 +230,7 @@ export default function NovelScraperPage() {
                                 setActiveTab('dashboard'); 
                             }}
                         />
-                    </Modal>
+                    </Drawer>
                 )}
             </DashboardLayout>
         </ProtectedRoute>
@@ -714,7 +714,7 @@ function SettingsTab({ sites, settings, loading, onSave, refreshSites }: {
             </Stack>
 
             {showSiteModal && (
-                <Modal 
+                <Drawer 
                     isOpen={showSiteModal} 
                     onClose={() => setShowSiteModal(false)}
                     title={editingSite ? "Edit Website" : "Add Website"}
@@ -724,7 +724,7 @@ function SettingsTab({ sites, settings, loading, onSave, refreshSites }: {
                         onClose={() => setShowSiteModal(false)}
                         onSuccess={() => { setShowSiteModal(false); refreshSites(); }}
                     />
-                </Modal>
+                </Drawer>
             )}
         </Grid>
     );

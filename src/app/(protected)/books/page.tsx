@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Typography } from '@/components/ui/Typography';
-import { Modal } from '@/components/ui/Modal';
+import { Drawer } from '@/components/ui/Drawer';
 import { Section, Grid } from '@/components/layout/Primitives';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Book as BookIcon, Plus, Download, Search, Loader2, ArrowLeft } from 'lucide-react';
@@ -206,7 +206,7 @@ export default function BooksPage() {
                         </Grid>
                     )}
 
-                    <Modal
+                    <Drawer
                         isOpen={showUploadModal}
                         onClose={() => setShowUploadModal(false)}
                         title="Add to Collection"
@@ -294,7 +294,7 @@ export default function BooksPage() {
                                 </Button>
                             </div>
                         </form>
-                    </Modal>
+                    </Drawer>
                 </Section>
             </DashboardLayout>
         </ProtectedRoute>

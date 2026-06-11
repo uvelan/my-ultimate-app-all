@@ -32,10 +32,10 @@ export default function DashboardLayout({
                 "flex-1 flex flex-col h-full min-w-0 transition-all duration-premium",
                 isCollapsed ? "md:ml-20" : "md:ml-64"
             )}>
-                {/* Fixed Header Portion */}
+                {/* Fixed Header Portion (Google Stitch Contextual Topbar) */}
                 <div className={cn(
-                    "sticky top-0 z-30 flex-none px-space-4 py-space-2 md:px-space-8 md:py-space-2 backdrop-blur-xl bg-background/80",
-                    isDashboard ? "border-b border-border" : "border-none md:hidden"
+                    "sticky top-0 z-30 flex-none px-space-4 py-space-2 md:px-space-8 md:py-space-2 bg-background border-b border-border transition-all duration-base ease-stitch",
+                    "md:border-none" // Stitched look hides border on desktop when scrolled top, but let's keep it clean
                 )}>
                     <div className="flex items-center gap-space-4">
                         <button

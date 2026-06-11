@@ -25,7 +25,7 @@ export async function GET(
         }
 
         // Only allow owner or admin
-        if (auth.user.role !== 'ADMIN' && book.userName !== auth.user.email) {
+        if (auth.user.role !== 'ADMIN' && auth.user.role !== 'SUPERUSER' && book.userName !== auth.user.email) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
@@ -51,7 +51,7 @@ export async function GET(
         const options = {
             title: book.title || 'Unknown Title',
             author: book.userName || 'Unknown Author',
-            publisher: 'My Ultimate App',
+            publisher: 'Ekam',
             description: book.description || '',
             cover: book.cover && book.cover.startsWith('http') ? book.cover : undefined,
         };

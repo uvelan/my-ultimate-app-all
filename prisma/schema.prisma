@@ -21,6 +21,7 @@ model User {
   interviewProgress  InterviewProgress[]
   aiGenerationJobs   AIGenerationJob[]
   mockSessions       MockInterviewSession[]
+  resumes            Resume[]
 }
 
 enum Role {
@@ -282,3 +283,15 @@ model MockInterviewAnswer {
   session     MockInterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   question    InterviewQuestion    @relation(fields: [questionId], references: [id], onDelete: Cascade)
 }
+
+model Resume {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String?  @db.ObjectId
+  title     String   @default("Untitled Resume")
+  content   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+

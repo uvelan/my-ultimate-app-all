@@ -59,7 +59,7 @@ export async function DELETE(
         }
 
         // Check ownership or admin status
-        if (auth.user.role !== 'ADMIN' && book.userName !== auth.user.email) {
+        if (auth.user.role !== 'ADMIN' && auth.user.role !== 'SUPERUSER' && book.userName !== auth.user.email) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 

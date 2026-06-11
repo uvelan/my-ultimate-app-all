@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Typography } from '@/components/ui/Typography';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
-import { UserPlus, Trash2, Shield, UserX, UserCheck, ArrowLeft, Loader2 } from 'lucide-react';
+import { UserPlus, Trash2, Shield, UserX, UserCheck, ArrowLeft, Loader2, Edit2 } from 'lucide-react';
 import Link from 'next/link';
 
 interface User {
@@ -29,7 +29,9 @@ export default function UsersPage() {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
     const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'USER' as const, isActive: true });
+    const [editFormData, setEditFormData] = useState({ id: '', name: '', email: '', password: '' });
     const { user } = useAuth();
 
     useEffect(() => {
@@ -132,6 +134,39 @@ export default function UsersPage() {
         }
     };
 
+    const openEditModal = (u: User) => {
+        setEditFormData({ id: u.id, name: u.name, email: u.email, password: '' });
+        setShowEditModal(true);
+    };
+
+    const handleEditUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const updatePayload: any = { name: editFormData.name, email: editFormData.email };
+            if (editFormData.password.trim() !== '') {
+                updatePayload.password = editFormData.password;
+            }
+
+            const res = await fetch(`/api/admin/users/${editFormData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatePayload),
+            });
+
+            if (res.ok) {
+                const updatedUser = await res.json();
+                toast.success('User updated successfully');
+                setUsers(users.map(u => u.id === updatedUser.id ? { ...u, name: updatedUser.name, email: updatedUser.email } : u));
+                setShowEditModal(false);
+            } else {
+                const data = await res.json();
+                toast.error(data.error || 'Failed to update user');
+            }
+        } catch (error) {
+            toast.error('Error updating user');
+        }
+    };
+
     return (
         <ProtectedRoute adminOnly>
             <DashboardLayout>
@@ -231,16 +266,27 @@ export default function UsersPage() {
                                                             <Shield size={16} />
                                                         </Button>
                                                         {user?.role === 'SUPERUSER' && (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => deleteUser(u.id)}
-                                                                disabled={u.id === user?.id}
-                                                                title="Delete User"
-                                                                className="text-error hover:text-error hover:bg-error/10"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </Button>
+                                                            <>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => openEditModal(u)}
+                                                                    title="Edit User"
+                                                                    className="text-info hover:text-info hover:bg-info/10"
+                                                                >
+                                                                    <Edit2 size={16} />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => deleteUser(u.id)}
+                                                                    disabled={u.id === user?.id}
+                                                                    title="Delete User"
+                                                                    className="text-error hover:text-error hover:bg-error/10"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </Button>
+                                                            </>
                                                         )}
                                                     </div>
                                                 </TableCell>
@@ -314,6 +360,49 @@ export default function UsersPage() {
                                 </Button>
                                 <Button type="submit" variant="primary" className="flex-1">
                                     Create User
+                                </Button>
+                            </div>
+                        </form>
+                    </Modal>
+
+                    {/* Edit User Modal */}
+                    <Modal
+                        isOpen={showEditModal}
+                        onClose={() => setShowEditModal(false)}
+                        title="Edit User Details"
+                        description="Modify user profile information and credentials."
+                    >
+                        <form onSubmit={handleEditUser} className="space-y-space-4 pt-space-4">
+                            <Input
+                                label="Full Name"
+                                placeholder="Enter user's name"
+                                value={editFormData.name}
+                                onChange={e => setEditFormData({ ...editFormData, name: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="Email Address"
+                                type="email"
+                                placeholder="email@example.com"
+                                value={editFormData.email}
+                                onChange={e => setEditFormData({ ...editFormData, email: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="New Password (Optional)"
+                                type="password"
+                                placeholder="Leave blank to keep current password"
+                                value={editFormData.password}
+                                onChange={e => setEditFormData({ ...editFormData, password: e.target.value })}
+                                minLength={6}
+                            />
+                            
+                            <div className="flex gap-space-3 pt-space-6 border-t border-border mt-space-6">
+                                <Button type="button" variant="ghost" className="flex-1" onClick={() => setShowEditModal(false)}>
+                                    Cancel
+                                </Button>
+                                <Button type="submit" variant="primary" className="flex-1">
+                                    Save Changes
                                 </Button>
                             </div>
                         </form>

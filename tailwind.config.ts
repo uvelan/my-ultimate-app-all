@@ -13,6 +13,8 @@ const config: Config = {
         background: {
           DEFAULT: "var(--color-bg)",
           surface: "var(--color-surface)",
+          "surface-2": "var(--color-surface-2)",
+          "surface-3": "var(--color-surface-3)",
         },
         primary: {
           DEFAULT: "var(--color-accent)",
@@ -20,12 +22,13 @@ const config: Config = {
           foreground: "var(--color-text)",
         },
         secondary: {
-          DEFAULT: "var(--color-surface)",
-          hover: "var(--color-border)",
+          DEFAULT: "var(--color-surface-2)",
+          hover: "var(--color-surface-3)",
           foreground: "var(--color-text)",
         },
         border: {
           DEFAULT: "var(--color-border)",
+          hover: "var(--color-border-hover)",
           focus: "var(--color-accent)",
         },
         text: {
@@ -81,11 +84,11 @@ const config: Config = {
         'slow': 'var(--duration-slow)',
       },
       fontSize: {
-        'display': ['3.75rem', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' }],
-        'h1': ['2.25rem', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '700' }],
-        'h2': ['1.875rem', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '600' }],
-        'h3': ['1.5rem', { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '600' }],
-        'h4': ['1.25rem', { lineHeight: '1.3', letterSpacing: '-0.01em', fontWeight: '600' }],
+        'display': ['clamp(2.5rem, 5vw + 1rem, 3.75rem)', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'h1': ['clamp(2rem, 4vw + 1rem, 2.5rem)', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'h2': ['clamp(1.5rem, 3vw + 1rem, 2rem)', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '600' }],
+        'h3': ['clamp(1.25rem, 2vw + 1rem, 1.5rem)', { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '600' }],
+        'h4': ['1.125rem', { lineHeight: '1.3', letterSpacing: '-0.01em', fontWeight: '600' }],
         'body': ['1rem', { lineHeight: '1.6', fontWeight: '400' }],
         'small': ['0.875rem', { lineHeight: '1.5', fontWeight: '400' }],
         'caption': ['0.75rem', { lineHeight: '1.4', fontWeight: '400' }],

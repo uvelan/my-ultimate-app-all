@@ -37,6 +37,7 @@ export default function AdminAppsPage() {
         appLink: '',
         isNative: false,
     });
+    const [imageFile, setImageFile] = useState<File | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
 
     useEffect(() => {
@@ -57,16 +58,40 @@ export default function AdminAppsPage() {
         }
     };
 
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setImageFile(file);
+            // Just read as DataURL for local preview
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setFormData({ ...formData, imageLink: reader.result as string });
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
             const url = editingId ? `/api/admin/my-apps/${editingId}` : '/api/admin/my-apps';
             const method = editingId ? 'PATCH' : 'POST';
 
+            const formDataToSend = new FormData();
+            formDataToSend.append('name', formData.name);
+            formDataToSend.append('description', formData.description);
+            formDataToSend.append('appLink', formData.appLink);
+            formDataToSend.append('isNative', formData.isNative.toString());
+            
+            if (imageFile) {
+                formDataToSend.append('imageFile', imageFile);
+            } else if (formData.imageLink) {
+                formDataToSend.append('imageLink', formData.imageLink);
+            }
+
             const res = await fetch(url, {
                 method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: formDataToSend,
             });
 
             if (res.ok) {
@@ -104,6 +129,7 @@ export default function AdminAppsPage() {
             appLink: app.appLink,
             isNative: app.isNative,
         });
+        setImageFile(null);
         setEditingId(app.id);
         setShowModal(true);
     };
@@ -116,6 +142,7 @@ export default function AdminAppsPage() {
             appLink: '',
             isNative: false,
         });
+        setImageFile(null);
         setEditingId(null);
         setShowModal(false);
     };
@@ -247,13 +274,36 @@ export default function AdminAppsPage() {
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
                                     required
                                 />
-                                <Input
-                                    label="Icon/Image URL"
-                                    placeholder="https://..."
-                                    value={formData.imageLink}
-                                    onChange={e => setFormData({ ...formData, imageLink: e.target.value })}
-                                    required
-                                />
+                                <div>
+                                    <label className="text-sm font-medium text-text-primary mb-2 block">App Icon/Image</label>
+                                    <div className="flex items-center gap-4">
+                                        {formData.imageLink ? (
+                                            <div className="w-12 h-12 rounded-md bg-background-surface border border-border flex-shrink-0 overflow-hidden relative group">
+                                                <img src={formData.imageLink} alt="Preview" className="w-full h-full object-cover" />
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => {
+                                                        setFormData({ ...formData, imageLink: '' });
+                                                        setImageFile(null);
+                                                    }}
+                                                    className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="w-12 h-12 rounded-md bg-background-surface border border-border border-dashed flex items-center justify-center text-text-muted flex-shrink-0">
+                                                <Globe size={18} />
+                                            </div>
+                                        )}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageUpload}
+                                            className="text-sm text-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
                             </Grid>
                             <Textarea
                                 label="Description"

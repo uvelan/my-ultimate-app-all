@@ -56,6 +56,30 @@ export default function AdminDashboard() {
                                 </Link>
                             </CardContent>
                         </Card>
+
+                        {/* Data Sync */}
+                        <Card className="group hover:shadow-shadow-lg transition-premium border-border bg-background-surface">
+                            <CardHeader>
+                                <div className="p-space-3 w-fit rounded-radius-lg bg-red-500/10 text-red-500 mb-space-2 group-hover:bg-red-500 group-hover:text-white transition-premium">
+                                    <ArrowRight className="h-6 w-6 rotate-90" />
+                                </div>
+                                <CardTitle className="text-h3 flex items-center gap-2">
+                                    Data Sync 
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-500 border border-red-500/30">Superuser</span>
+                                </CardTitle>
+                                <CardDescription>
+                                    Export or import a full JSON dump of the database. Useful for migrating environments.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Link href="/admin/data-sync" passHref>
+                                    <Button variant="outline" className="w-full group/btn hover:border-red-500 hover:text-red-500">
+                                        Go to Data Sync
+                                        <ArrowRight className="ml-space-2 h-4 w-4 transition-premium group-hover/btn:translate-x-1" />
+                                    </Button>
+                                </Link>
+                            </CardContent>
+                        </Card>
                     </Grid>
                 </Section>
             </DashboardLayout>

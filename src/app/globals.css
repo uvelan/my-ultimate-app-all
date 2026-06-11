@@ -17,8 +17,14 @@
   /* Smooth page transitions */
   * { 
     transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter;
-    transition-timing-function: var(--ease-out);
-    transition-duration: var(--duration-fast); 
+    transition-timing-function: var(--ease-stitch);
+    transition-duration: var(--duration-base); 
+  }
+
+  /* Universal Focus Rings for Accessibility (Google Stitch) */
+  *:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
 
   /* Disable motion for accessibility */
@@ -53,4 +59,20 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-muted);
+}
+
+@media print {
+  .print-no-transform {
+    transform: none !important;
+    margin: 0 !important;
+    width: 8.5in !important;
+    height: 11in !important;
+  }
+  @page {
+    margin: 0;
+    size: letter;
+  }
+  body {
+    background-color: white !important;
+  }
 }

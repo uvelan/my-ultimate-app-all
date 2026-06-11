@@ -8,8 +8,8 @@ export async function proxy(request: NextRequest) {
     const accessToken = request.cookies.get('accessToken')?.value;
     const refreshToken = request.cookies.get('refreshToken')?.value;
 
-    // Protect dashboard and admin routes
-    if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
+    // Protect dashboard, admin, and resume-builder routes
+    if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin') || pathname.startsWith('/resume-builder')) {
         if (!accessToken && !refreshToken) {
             return NextResponse.redirect(new URL('/login', request.url));
         }
@@ -59,5 +59,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/login', '/register'],
+    matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/resume-builder/:path*', '/login', '/register'],
 };

@@ -67,14 +67,11 @@ export default function AuthForm({ type }: AuthFormProps) {
     };
 
     return (
-        <Card className="max-w-md mx-auto w-full p-space-8 border-border shadow-shadow-lg relative overflow-hidden">
-            {/* Soft decorative glow behind the card content */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[150%] h-32 bg-accent/10 blur-[50px] pointer-events-none rounded-full" />
-            
-            <h2 className="text-h2 font-bold text-center mb-space-8 text-text-primary relative z-10">
+        <div className="w-full max-w-sm mx-auto relative overflow-visible animate-in fade-in slide-in-from-bottom-4 duration-base ease-stitch">
+            <h2 className="text-3xl font-bold text-center mb-10 text-white tracking-tight relative z-10">
                 {type === 'login' ? 'Welcome Back' : 'Create Account'}
             </h2>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-space-4 relative z-10">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 relative z-10">
                 {type === 'register' && (
                     <Input
                         id="name"
@@ -92,6 +89,7 @@ export default function AuthForm({ type }: AuthFormProps) {
                     placeholder="john@example.com"
                     error={errors.email?.message as string}
                     {...register('email')}
+                    className="bg-[#151515] border-transparent rounded-xl text-white placeholder:text-[#555] focus:border-[#5B6EF2] focus:ring-[#5B6EF2]/20"
                 />
 
                 <Input
@@ -101,6 +99,7 @@ export default function AuthForm({ type }: AuthFormProps) {
                     placeholder="••••••••"
                     error={errors.password?.message as string}
                     {...register('password')}
+                    className="bg-[#151515] border-transparent rounded-xl text-white placeholder:text-[#555] focus:border-[#5B6EF2] focus:ring-[#5B6EF2]/20 tracking-widest"
                 />
 
                 {type === 'register' && (
@@ -116,10 +115,10 @@ export default function AuthForm({ type }: AuthFormProps) {
                 )}
 
                 {type === 'login' && (
-                    <div className="flex items-center gap-space-3 mt-space-2 mb-space-4 group">
+                    <div className="flex items-center gap-3 mt-4 mb-6 group">
                         <div className="relative flex items-center justify-center">
                             <input 
-                                className="peer w-5 h-5 rounded-radius-sm border-2 border-border text-accent focus:ring-2 focus:ring-accent/30 bg-background-surface cursor-pointer appearance-none transition-all checked:bg-accent checked:border-accent" 
+                                className="peer w-5 h-5 rounded-md border-transparent bg-[#151515] text-[#5B6EF2] focus:ring-2 focus:ring-[#5B6EF2]/30 cursor-pointer appearance-none transition-all checked:bg-[#5B6EF2] checked:border-transparent" 
                                 type="checkbox" 
                                 id="rememberMe" 
                             />
@@ -133,26 +132,26 @@ export default function AuthForm({ type }: AuthFormProps) {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
                         </div>
-                        <label className="text-small text-text-secondary cursor-pointer select-none font-medium group-hover:text-text-primary transition-colors duration-fast" htmlFor="rememberMe">
+                        <label className="text-sm text-[#888] cursor-pointer select-none font-medium group-hover:text-[#ccc] transition-colors duration-fast" htmlFor="rememberMe">
                             Remember me
                         </label>
                     </div>
                 )}
 
-                <Button type="submit" className="w-full mt-space-6 shadow-shadow-md hover:shadow-shadow-glow transition-all" size="lg" isLoading={loading}>
+                <Button type="submit" className="w-full mt-6 bg-[#5B6EF2] hover:bg-[#4959cc] text-white rounded-xl shadow-lg border-none transition-all py-6 text-base font-semibold" size="lg" isLoading={loading}>
                     {type === 'login' ? 'Sign In' : 'Sign Up'}
                 </Button>
 
-                <p className="text-center mt-space-6 text-text-secondary text-small">
+                <p className="text-center mt-6 text-[#888] text-sm">
                     {type === 'login' ? "Don't have an account? " : "Already have an account? "}
                     <Link
                         href={type === 'login' ? '/register' : '/login'}
-                        className="text-text-primary font-semibold hover:text-accent transition-colors underline decoration-border underline-offset-4 hover:decoration-accent"
+                        className="text-white font-semibold hover:text-[#5B6EF2] transition-colors"
                     >
                         {type === 'login' ? 'Sign Up' : 'Sign In'}
                     </Link>
                 </p>
             </form>
-        </Card>
+        </div>
     );
 }

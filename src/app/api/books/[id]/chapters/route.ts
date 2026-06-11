@@ -29,7 +29,7 @@ export async function GET(
             return NextResponse.json({ error: 'Book not found' }, { status: 404 });
         }
 
-        if (auth.user.role !== 'ADMIN' && book.userName !== auth.user.email) {
+        if (auth.user.role !== 'ADMIN' && auth.user.role !== 'SUPERUSER' && book.userName !== auth.user.email) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 

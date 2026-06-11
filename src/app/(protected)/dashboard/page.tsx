@@ -52,7 +52,7 @@ export default function DashboardPage() {
     return (
         <ProtectedRoute>
             <DashboardLayout>
-                <Section className="pt-0 md:pt-0" title="Explore Apps" description="Discover and manage your connected accounts and services.">
+                <Section className="pt-0 md:pt-0" title="Power Up Ekam" description="Access and manage your essential tools across work, wealth, and leisure.">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center h-64 text-text-muted gap-space-4">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />

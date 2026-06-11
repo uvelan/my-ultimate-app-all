@@ -1,6 +1,13 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+interface TabsContextValue {
+  value: string;
+  onValueChange: (value: string) => void;
+}
+
+const TabsContext = React.createContext<TabsContextValue | undefined>(undefined);
+
 interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   value: string;
   onValueChange: (value: string) => void;
@@ -8,23 +15,17 @@ interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export const Tabs = ({ value, onValueChange, children, className, ...props }: TabsProps) => {
   return (
-    <div className={cn("w-full", className)} {...props}>
-      {React.Children.map(children, (child) => {
-        if (React.isValidElement(child)) {
-          return React.cloneElement(child as React.ReactElement<any>, { activeValue: value, onValueChange });
-        }
-        return child;
-      })}
-    </div>
+    <TabsContext.Provider value={{ value, onValueChange }}>
+      <div className={cn("w-full", className)} {...props}>
+        {children}
+      </div>
+    </TabsContext.Provider>
   );
 };
 
-interface TabsListProps extends React.HTMLAttributes<HTMLDivElement> {
-  activeValue?: string;
-  onValueChange?: (value: string) => void;
-}
+interface TabsListProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-export const TabsList = ({ activeValue, onValueChange, children, className, ...props }: TabsListProps) => {
+export const TabsList = ({ children, className, ...props }: TabsListProps) => {
   return (
     <div
       className={cn(
@@ -33,33 +34,29 @@ export const TabsList = ({ activeValue, onValueChange, children, className, ...p
       )}
       {...props}
     >
-      {React.Children.map(children, (child) => {
-        if (React.isValidElement<{ value: string }>(child)) {
-          return React.cloneElement(child, {
-            active: child.props.value === activeValue,
-            onClick: () => onValueChange?.(child.props.value),
-          } as any);
-        }
-        return child;
-      })}
+      {children}
     </div>
   );
 };
 
 interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   value: string;
-  active?: boolean;
 }
 
 export const TabsTrigger = ({
   value,
-  active,
   children,
   className,
   ...props
 }: TabsTriggerProps) => {
+  const context = React.useContext(TabsContext);
+  if (!context) throw new Error("TabsTrigger must be used within Tabs");
+  
+  const active = context.value === value;
+
   return (
     <button
+      onClick={() => context.onValueChange(value)}
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap px-space-4 py-space-2 text-small font-medium transition-premium border-b-2",
         active
@@ -76,7 +73,7 @@ export const TabsTrigger = ({
 
 interface TabsContentProps extends React.HTMLAttributes<HTMLDivElement> {
   value: string;
-  activeValue?: string;
+  activeValue?: string; // Kept for backwards compatibility if passed explicitly somewhere
 }
 
 export const TabsContent = ({
@@ -86,7 +83,13 @@ export const TabsContent = ({
   className,
   ...props
 }: TabsContentProps) => {
-  if (value !== activeValue) return null;
+  const context = React.useContext(TabsContext);
+  
+  // Use context value if available, fallback to activeValue prop for backwards compatibility
+  const currentValue = context ? context.value : activeValue;
+  
+  if (value !== currentValue) return null;
+
   return (
     <div
       className={cn("mt-space-6 animate-in fade-in duration-premium", className)}

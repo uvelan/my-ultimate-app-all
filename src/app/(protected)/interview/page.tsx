@@ -93,8 +93,8 @@ export default function InterviewDashboard() {
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Recommended for you</h2>
-            <Link href="/interview/explore" className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+            <h2 className="text-h2 font-bold text-text-primary tracking-tight">Recommended for you</h2>
+            <Link href="/interview/explore" className="flex items-center gap-1 text-small font-medium text-accent hover:underline">
               View all <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
@@ -115,7 +115,7 @@ export default function InterviewDashboard() {
                 >
                   <Link 
                     href={`/interview/question/${q.id}`}
-                    className="flex items-center justify-between p-4 bg-white border border-gray-100 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-2xl hover:border-blue-500 transition-colors group"
+                    className="flex items-center justify-between p-space-4 bg-secondary border border-border shadow-shadow-sm rounded-radius-xl hover:border-accent/50 hover:shadow-shadow-md transition-all duration-base ease-stitch group"
                   >
                     <div>
                       <div className="flex gap-2 mb-1">
@@ -126,11 +126,11 @@ export default function InterviewDashboard() {
                           {q.topic.replace('-', ' ')} • {q.estimatedTime}m
                         </span>
                       </div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">
+                      <h3 className="font-semibold text-text-primary group-hover:text-accent transition-colors">
                         {q.title}
                       </h3>
                     </div>
-                    <div className="p-2 text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 bg-gray-50 dark:bg-gray-800 rounded-xl transition-colors">
+                    <div className="p-2 text-text-muted group-hover:text-accent bg-background rounded-radius-lg transition-colors">
                       <ArrowRight className="w-5 h-5" />
                     </div>
                   </Link>
@@ -141,10 +141,10 @@ export default function InterviewDashboard() {
         </div>
 
         <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Topics</h2>
+          <h2 className="text-h2 font-bold text-text-primary tracking-tight">Topics</h2>
           <div className="grid gap-3">
             {topics.length === 0 && !loading && (
-              <div className="p-4 text-sm text-center text-gray-500 border border-dashed border-gray-200 rounded-xl dark:border-gray-800">
+              <div className="p-4 text-small text-center text-text-muted border border-dashed border-border rounded-radius-xl">
                 No topics available.
               </div>
             )}
@@ -152,15 +152,15 @@ export default function InterviewDashboard() {
               <Link 
                 key={topic.id}
                 href={`/interview/explore?topic=${topic.id}`}
-                className="flex items-center justify-between p-4 bg-white border border-gray-100 shadow-sm dark:bg-gray-900 dark:border-gray-800 rounded-xl hover:shadow-md transition-all"
+                className="flex items-center justify-between p-space-4 bg-secondary border border-border shadow-shadow-sm rounded-radius-xl hover:shadow-shadow-md hover:border-accent/40 transition-all duration-base ease-stitch"
               >
-                <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
-                  <div className="p-2 bg-gray-100 rounded-lg dark:bg-gray-800">
-                    <Database className="w-5 h-5" />
+                <div className="flex items-center gap-3 text-text-primary">
+                  <div className="p-2 bg-background rounded-radius-lg border border-border/50">
+                    <Database className="w-5 h-5 text-accent" />
                   </div>
-                  <span className="font-medium capitalize">{topic.name || topic.topicId?.replace('-', ' ')}</span>
+                  <span className="font-medium capitalize text-small">{topic.name || topic.topicId?.replace('-', ' ')}</span>
                 </div>
-                <span className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full dark:bg-gray-800 dark:text-gray-400">
+                <span className="px-2.5 py-1 text-caption font-medium text-text-secondary bg-background border border-border/50 rounded-radius-full">
                   {topic.count}
                 </span>
               </Link>

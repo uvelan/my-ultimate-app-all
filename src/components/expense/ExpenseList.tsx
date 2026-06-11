@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/Button'
 import { Typography } from '@/components/ui/Typography'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
+import { Drawer } from '@/components/ui/Drawer'
 import { Badge } from '@/components/ui/Badge'
 import { 
     Table, 
@@ -49,6 +50,7 @@ export default function ExpenseList() {
     const [expenses, setExpenses] = useState<any[]>([])
     const [categories, setCategories] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
     // Form states
     const [amount, setAmount] = useState('')
@@ -115,6 +117,7 @@ export default function ExpenseList() {
             setAmount('')
             setNotes('')
             loadData()
+            setIsDrawerOpen(false)
         } catch (e: any) {
             if (e?.message?.includes('Unauthorized')) {
                 window.location.href = '/login';
@@ -269,64 +272,67 @@ export default function ExpenseList() {
 
     return (
         <Stack gap="space-8" align="stretch" className="w-full">
-            {/* Add Expense Form */}
-            <Card className="border-none shadow-shadow-md">
-                <CardHeader>
-                    <CardTitle className="text-h4">Add Expense</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <form onSubmit={handleAdd}>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-4 items-end">
-                            <Input 
-                                label="Amount" 
-                                type="number" 
-                                step="0.01" 
-                                value={amount} 
-                                onChange={e => setAmount(e.target.value)} 
-                                required 
-                                leftIcon={<span className="text-small">₹</span>}
-                            />
-                            <Select 
-                                label="Category" 
-                                value={categoryId} 
-                                onChange={e => setCategoryId(e.target.value)} 
-                                required
-                            >
-                                <option value="" disabled>Select Category</option>
-                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </Select>
-                            <Select 
-                                label="Payment Method" 
-                                value={paymentMethod} 
-                                onChange={e => setPaymentMethod(e.target.value)}
-                            >
-                                <option value="Cash">Cash</option>
-                                <option value="Card">Card</option>
-                                <option value="UPI">UPI</option>
-                                <option value="Bank Transfer">Bank Transfer</option>
-                            </Select>
-                            <Input 
-                                label="Date" 
-                                type="date" 
-                                value={date} 
-                                onChange={e => setDate(e.target.value)} 
-                                required 
-                            />
-                            <div className="lg:col-span-3">
-                                <Input 
-                                    label="Notes (Optional)" 
-                                    value={notes} 
-                                    onChange={e => setNotes(e.target.value)} 
-                                    placeholder="e.g. Lunch at subways" 
-                                />
-                            </div>
-                            <Button type="submit" variant="primary" className="w-full" disabled={categories.length === 0} leftIcon={categories.length > 0 ? <Plus size={18} /> : null}>
+            {/* Add Expense Drawer */}
+            <Drawer 
+                isOpen={isDrawerOpen} 
+                onClose={() => setIsDrawerOpen(false)}
+                title="Add New Expense"
+                description="Enter the details of your transaction below."
+            >
+                <form onSubmit={handleAdd} className="mt-space-4">
+                    <div className="flex flex-col gap-space-4">
+                        <Input 
+                            label="Amount" 
+                            type="number" 
+                            step="0.01" 
+                            value={amount} 
+                            onChange={e => setAmount(e.target.value)} 
+                            required 
+                            leftIcon={<span className="text-small">₹</span>}
+                        />
+                        <Select 
+                            label="Category" 
+                            value={categoryId} 
+                            onChange={e => setCategoryId(e.target.value)} 
+                            required
+                        >
+                            <option value="" disabled>Select Category</option>
+                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </Select>
+                        <Select 
+                            label="Payment Method" 
+                            value={paymentMethod} 
+                            onChange={e => setPaymentMethod(e.target.value)}
+                        >
+                            <option value="Cash">Cash</option>
+                            <option value="Card">Card</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                        </Select>
+                        <Input 
+                            label="Date" 
+                            type="date" 
+                            value={date} 
+                            onChange={e => setDate(e.target.value)} 
+                            required 
+                        />
+                        <Input 
+                            label="Notes (Optional)" 
+                            value={notes} 
+                            onChange={e => setNotes(e.target.value)} 
+                            placeholder="e.g. Lunch at subways" 
+                        />
+                        <div className="mt-space-4 pt-space-4 border-t border-border flex justify-end gap-space-3">
+                            <Button type="button" variant="ghost" onClick={() => setIsDrawerOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button type="submit" variant="primary" disabled={categories.length === 0} leftIcon={categories.length > 0 ? <Plus size={18} /> : null}>
                                 {categories.length === 0 ? 'Create a Category First' : 'Add Expense'}
                             </Button>
                         </div>
-                    </form>
-                </CardContent>
-            </Card>
+                    </div>
+                </form>
+            </Drawer>
 
             {/* List Controls */}
             <Stack gap="space-4">
@@ -354,6 +360,9 @@ export default function ExpenseList() {
 
                         <Button variant="outline" size="sm" onClick={handleExportCSV} leftIcon={<Download size={14} />}>
                             Export CSV
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={() => setIsDrawerOpen(true)} leftIcon={<Plus size={14} />}>
+                            New Expense
                         </Button>
                     </div>
                 </div>
@@ -487,18 +496,18 @@ export default function ExpenseList() {
                                 return (
                                     <TableRow key={exp.id} className="bg-primary/5">
                                         <TableCell className="pl-space-6">
-                                            <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="h-9" />
+                                            <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="h-9" wrapperClassName="min-w-[160px]" />
                                         </TableCell>
                                         <TableCell>
-                                            <Select value={editCategoryId} onChange={e => setEditCategoryId(e.target.value)} className="h-9">
+                                            <Select value={editCategoryId} onChange={e => setEditCategoryId(e.target.value)} className="h-9" wrapperClassName="min-w-[200px]">
                                                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                             </Select>
                                         </TableCell>
                                         <TableCell>
-                                            <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" className="h-9" />
+                                            <Input value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes" className="h-9" wrapperClassName="min-w-[250px]" />
                                         </TableCell>
                                         <TableCell>
-                                            <Select value={editPaymentMethod} onChange={e => setEditPaymentMethod(e.target.value)} className="h-9">
+                                            <Select value={editPaymentMethod} onChange={e => setEditPaymentMethod(e.target.value)} className="h-9" wrapperClassName="min-w-[180px]">
                                                 <option value="Cash">Cash</option>
                                                 <option value="Card">Card</option>
                                                 <option value="UPI">UPI</option>
@@ -506,7 +515,7 @@ export default function ExpenseList() {
                                             </Select>
                                         </TableCell>
                                         <TableCell>
-                                            <Input type="number" step="0.01" value={editAmount} onChange={e => setEditAmount(e.target.value)} className="h-9" leftIcon={<span className="text-small">₹</span>} />
+                                            <Input type="number" step="0.01" value={editAmount} onChange={e => setEditAmount(e.target.value)} className="h-9" wrapperClassName="min-w-[150px]" leftIcon={<span className="text-small">₹</span>} />
                                         </TableCell>
                                         <TableCell className="text-right pr-space-6">
                                             <div className="flex justify-end gap-1">

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { cookies } from 'next/headers';
 import { verifyAccessToken } from '@/lib/auth-node';
+import bcrypt from 'bcryptjs';
 
 export async function DELETE(
     request: Request,
@@ -54,7 +55,7 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json();
-    const { role, isActive } = body;
+    const { role, isActive, name, email, password } = body;
 
     const userToUpdate = await prisma.user.findUnique({ where: { id } });
     if (!userToUpdate) {
@@ -65,7 +66,13 @@ export async function PATCH(
         return NextResponse.json({ error: 'Forbidden. Admins cannot modify Superusers.' }, { status: 403 });
     }
 
-    const updateData: { role?: 'USER' | 'ADMIN' | 'SUPERUSER'; isActive?: boolean } = {};
+    const updateData: { 
+        role?: 'USER' | 'ADMIN' | 'SUPERUSER'; 
+        isActive?: boolean;
+        name?: string;
+        email?: string;
+        password?: string;
+    } = {};
 
     if (role) {
         if (payload.role === 'ADMIN' && role === 'SUPERUSER') {
@@ -79,6 +86,33 @@ export async function PATCH(
 
     if (typeof isActive === 'boolean') {
         updateData.isActive = isActive;
+    }
+
+    // Only SUPERUSERs can edit name, email, and password via this admin endpoint
+    if (name || email || password) {
+        if (payload.role !== 'SUPERUSER') {
+            return NextResponse.json({ error: 'Forbidden. Only Superusers can edit user details and passwords.' }, { status: 403 });
+        }
+
+        if (name) updateData.name = name;
+        if (email) {
+            // Basic email validation
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+            }
+            // Check if email is already taken by another user
+            const existingEmail = await prisma.user.findUnique({ where: { email } });
+            if (existingEmail && existingEmail.id !== id) {
+                return NextResponse.json({ error: 'Email is already in use by another account' }, { status: 400 });
+            }
+            updateData.email = email;
+        }
+        if (password) {
+            if (password.length < 6) {
+                return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+            }
+            updateData.password = await bcrypt.hash(password, 12);
+        }
     }
 
     if (Object.keys(updateData).length === 0) {

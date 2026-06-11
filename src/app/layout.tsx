@@ -14,8 +14,8 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-    title: 'My Complete Apps',
-    description: 'Secure End-to-End Authentication',
+    title: 'Ekam',
+    description: 'Access and manage your essential tools across work, wealth, and leisure.',
 };
 
 import ClientLayout from '@/components/layout/ClientLayout';

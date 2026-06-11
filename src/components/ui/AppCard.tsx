@@ -17,10 +17,10 @@ import Image from 'next/image';
 export default function AppCard({ name, description, image, onClick }: AppCardProps) {
     return (
         <Card 
-            className="group cursor-pointer overflow-hidden bg-background-surface border border-transparent hover:border-accent/30 hover:shadow-shadow-glow transition-all duration-300 h-full flex flex-col w-full"
+            className="group cursor-pointer overflow-hidden bg-secondary border border-border hover:border-accent/40 hover:-translate-y-1 transition-all duration-base ease-stitch h-full flex flex-col w-full"
             onClick={onClick}
         >
-            <div className="relative w-full h-40 md:h-48 overflow-hidden bg-background-muted flex flex-col items-center justify-center transition-all duration-500 group-hover:bg-primary/10">
+            <div className="relative w-full h-40 md:h-48 overflow-hidden flex flex-col items-center justify-center transition-all duration-base ease-stitch group-hover:bg-primary/5">
                 {image ? (
                     <Image
                         src={image}

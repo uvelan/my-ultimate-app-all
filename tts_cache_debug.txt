@@ -1,0 +1,81 @@
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f637
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f637...
+Generated buffer size: 7216896. Conditions for save: voice=true, grammar=true, chapterId=true, chapter=true
+Attempting upsert...
+[TTS Cache] Saved chapter 6a10673348ad35a6ca08f637 to DB.
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f638
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f638...
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f639
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f639...
+Generated buffer size: 7266240. Conditions for save: voice=true, grammar=true, chapterId=true, chapter=true
+Attempting upsert...
+[TTS Cache] Saved chapter 6a10673348ad35a6ca08f639 to DB.
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f638
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f638...
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f637
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f637...
+Generated buffer size: 7216704. Conditions for save: voice=true, grammar=true, chapterId=true, chapter=true
+Attempting upsert...
+[TTS Cache] Saved chapter 6a10673348ad35a6ca08f637 to DB.
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f637
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f637...
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f638
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f638...
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f639
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f639...
+Triggering executeSmartCacheLogic...
+
+
+--- TTS Request ---
+Chapter: 6a10673348ad35a6ca08f63a
+Voice: en
+Grammar: OFF
+Checking DB for chapter 6a10673348ad35a6ca08f63a...
+Triggering executeSmartCacheLogic...

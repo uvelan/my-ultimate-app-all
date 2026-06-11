@@ -40,19 +40,19 @@ export default function ExpenseClient() {
                         </TabsList>
 
                         <div className="p-space-6 bg-background-muted/30">
-                            <TabsContent value="dashboard" activeValue={activeTab}>
+                            <TabsContent value="dashboard">
                                 <Dashboard />
                             </TabsContent>
-                            <TabsContent value="expenses" activeValue={activeTab}>
+                            <TabsContent value="expenses">
                                 <ExpenseList />
                             </TabsContent>
-                            <TabsContent value="income" activeValue={activeTab}>
+                            <TabsContent value="income">
                                 <IncomeList />
                             </TabsContent>
-                            <TabsContent value="categories" activeValue={activeTab}>
+                            <TabsContent value="categories">
                                 <CategoryManager />
                             </TabsContent>
-                            <TabsContent value="calendar" activeValue={activeTab}>
+                            <TabsContent value="calendar">
                                 <CalendarView />
                             </TabsContent>
                         </div>
