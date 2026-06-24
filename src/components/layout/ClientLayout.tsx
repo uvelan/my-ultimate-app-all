@@ -12,7 +12,7 @@ export default function ClientLayout({
 
     // Check if the current path is the dashboard or full-screen app
     // We can extend this logic if other detailed pages need full screen
-    const isDashboard = pathname?.startsWith('/dashboard') || pathname?.startsWith('/books') || pathname?.startsWith('/myexpence') || pathname?.startsWith('/novelscraper') || pathname?.startsWith('/interview') || pathname?.startsWith('/resume-builder');
+    const isDashboard = pathname?.startsWith('/dashboard') || pathname?.startsWith('/books') || pathname?.startsWith('/finance') || pathname?.startsWith('/novelscraper') || pathname?.startsWith('/interview') || pathname?.startsWith('/resume-builder');
     const isAuthPage = pathname?.startsWith('/login') || pathname?.startsWith('/register');
 
     if (isDashboard) {

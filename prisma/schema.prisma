@@ -30,6 +30,17 @@ enum Role {
   SUPERUSER
 }
 
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum SourceModel {
+  INCOME
+  EXPENSE
+  RECURRING
+}
+
 model MyApp {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   name        String
@@ -96,38 +107,85 @@ model ReplacementRule {
 }
 
 model Category {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String    @db.ObjectId
-  name      String
-  color     String    @default("#3b82f6")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  expenses  Expense[]
+  id         String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String            @db.ObjectId
+  name       String
+  type       TransactionType   @default(EXPENSE)
+  color      String            @default("#3b82f6")
+  isArchived Boolean           @default(false)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  transactions Transaction[]
+  budgets    Budget[]
+  recurringTransactions RecurringTransaction[]
+
+  @@unique([userId, type, name])
 }
 
-model Expense {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String   @db.ObjectId
-  amount        Float
-  categoryId    String   @db.ObjectId
-  category      Category @relation(fields: [categoryId], references: [id])
-  paymentMethod String   @default("Cash")
-  date          DateTime
-  notes         String?
-  isRecurring   Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+
+
+model Transaction {
+  id               String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String          @db.ObjectId
+  type             TransactionType
+  amountPaise      Int
+  categoryId       String          @db.ObjectId
+  category         Category        @relation(fields: [categoryId], references: [id])
+  transactionDate  DateTime
+  description      String?
+  paymentMethod    String?
+  deletedAt        DateTime?
+  sourceModel      SourceModel?
+  sourceId         String?
+  migrationBatchId String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([userId, transactionDate(sort: Desc)])
+  @@index([userId, categoryId, transactionDate(sort: Desc)])
+  @@index([userId, type, transactionDate(sort: Desc)])
+  @@index([userId, deletedAt, transactionDate(sort: Desc)])
+  @@unique([sourceModel, sourceId, userId])
 }
 
-model Income {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  amount    Float
-  source    String
-  date      DateTime
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum Frequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+model RecurringTransaction {
+  id               String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String          @db.ObjectId
+  type             TransactionType
+  amountPaise      Int
+  categoryId       String          @db.ObjectId
+  category         Category        @relation(fields: [categoryId], references: [id])
+  description      String?
+  paymentMethod    String?
+  frequency        Frequency
+  startDate        DateTime
+  endDate          DateTime?
+  lastProcessed    DateTime?
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([userId, isActive])
+}
+
+model Budget {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String    @db.ObjectId
+  categoryId     String?   @db.ObjectId
+  category       Category? @relation(fields: [categoryId], references: [id])
+  paymentMethod  String?
+  month          String   // Format YYYY-MM
+  amountPaise    Int
+  alertThreshold Int      @default(80)
+
+  @@unique([userId, month, categoryId, paymentMethod])
 }
 
 model SourceWebsite {
