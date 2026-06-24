@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth-server'
 import { TransactionType } from '@prisma/client'
 import { z } from 'zod'
+import { revalidatePath } from 'next/cache'
 
 const CategorySchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -33,12 +34,14 @@ export async function addCategory(data: z.infer<typeof CategorySchema>) {
 
     const validated = CategorySchema.parse(data)
 
-    return await prisma.category.create({
+    const newCat = await prisma.category.create({
         data: {
             ...validated,
             userId: user.id
         }
     })
+    revalidatePath('/finance', 'layout')
+    return newCat
 }
 
 export async function updateCategory(id: string, data: Partial<z.infer<typeof CategorySchema>>) {
@@ -47,18 +50,22 @@ export async function updateCategory(id: string, data: Partial<z.infer<typeof Ca
 
     const validated = CategorySchema.partial().parse(data)
 
-    return await prisma.category.update({
+    const updatedCat = await prisma.category.update({
         where: { id, userId: user.id },
         data: validated
     })
+    revalidatePath('/finance', 'layout')
+    return updatedCat
 }
 
 export async function archiveCategory(id: string, isArchived: boolean = true) {
     const { isAuthenticated, user } = await verifyAuth()
     if (!isAuthenticated || !user) throw new Error('Unauthorized')
 
-    return await prisma.category.update({
+    const deletedCat = await prisma.category.update({
         where: { id, userId: user.id },
         data: { isArchived }
     })
+    revalidatePath('/finance', 'layout')
+    return deletedCat
 }

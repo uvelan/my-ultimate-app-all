@@ -8,36 +8,10 @@ export async function proxy(request: NextRequest) {
     const accessToken = request.cookies.get('accessToken')?.value;
     const refreshToken = request.cookies.get('refreshToken')?.value;
 
-    // Protect dashboard, admin, and resume-builder routes
-    if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin') || pathname.startsWith('/resume-builder')) {
-        if (!accessToken && !refreshToken) {
-            return NextResponse.redirect(new URL('/login', request.url));
-        }
-
-        if (accessToken) {
-            const payload = await verifyJwtEdge(accessToken) as { role?: string } | null;
-            if (!payload) {
-                // Token invalid, try refresh logic on client or redirect to logout/refresh? 
-                // For simplicity, if invalid, redirect to login (or let client handle refresh flow, but middleware blocks access)
-                // Actually, if we have a refresh token, we might want to let them pass? 
-                // No, standard practice is: if access token invalid/missing, we fail here. 
-                // But Next.js LocalStorage refresh logic is on client. 
-                // Server-side: we could try to refresh here but setting cookies in middleware is tricky with response.
-                // Let's assume if no valid access token, we redirect.
-                return NextResponse.redirect(new URL('/login', request.url));
-            }
-
-            // Check admin role
-            if (pathname.startsWith('/admin') && !['ADMIN', 'SUPERUSER'].includes(payload.role as string)) {
-                return NextResponse.redirect(new URL('/dashboard', request.url));
-            }
-        }
-    }
-
     // Redirect root to dashboard if authenticated, else login
     if (pathname === '/') {
         if (accessToken) {
-            const payload = await verifyJwtEdge(accessToken);
+            const payload = await verifyJwtEdge(accessToken).catch(() => null);
             if (payload) {
                 return NextResponse.redirect(new URL('/dashboard', request.url));
             }
@@ -48,10 +22,28 @@ export async function proxy(request: NextRequest) {
     // Redirect authenticated users away from auth pages
     if (pathname === '/login' || pathname === '/register') {
         if (accessToken) {
-            const payload = await verifyJwtEdge(accessToken);
+            const payload = await verifyJwtEdge(accessToken).catch(() => null);
             if (payload) {
                 return NextResponse.redirect(new URL('/dashboard', request.url));
             }
+        }
+        return NextResponse.next();
+    }
+
+    // All other routes are protected
+    if (!accessToken && !refreshToken) {
+        return NextResponse.redirect(new URL('/login', request.url));
+    }
+
+    if (accessToken) {
+        const payload = await verifyJwtEdge(accessToken).catch(() => null) as { role?: string } | null;
+        if (!payload) {
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
+
+        // Check admin role
+        if (pathname.startsWith('/admin') && !['ADMIN', 'SUPERUSER'].includes(payload.role as string)) {
+            return NextResponse.redirect(new URL('/dashboard', request.url));
         }
     }
 
@@ -59,5 +51,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ['/', '/dashboard/:path*', '/admin/:path*', '/resume-builder/:path*', '/login', '/register'],
+    matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };

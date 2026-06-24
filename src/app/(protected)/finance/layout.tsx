@@ -111,7 +111,8 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
           align-items: center;
           justify-content: center;
           gap: 2px;
-          padding: 6px 16px;
+          padding: 6px 12px;
+          min-width: 72px;
           border-radius: 20px;
           color: var(--ft-on-surface-variant);
           text-decoration: none;
@@ -127,7 +128,7 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
         }
       `}</style>
 
-      <div className="ft-root flex h-screen" style={{ background: 'var(--ft-surface)' }}>
+      <div className="ft-root flex h-[100dvh]" style={{ background: 'var(--ft-surface)' }}>
         {/* Sidebar — Desktop */}
         <aside
           className="hidden lg:flex flex-col fixed left-0 top-0 h-full w-72 z-50"
@@ -135,6 +136,15 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
         >
           {/* Brand */}
           <div className="px-8 pt-8 pb-6">
+            <Link 
+              href="/dashboard" 
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 600, textDecoration: 'none', marginBottom: 16, transition: 'color 0.2s' }}
+              onMouseEnter={e => e.currentTarget.style.color = '#fff'} 
+              onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.6)'}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_back</span>
+              Main App
+            </Link>
             <h1 style={{ fontFamily: 'Inter', fontSize: 20, fontWeight: 900, color: '#fff', letterSpacing: '-0.03em', lineHeight: 1.2 }}>
               Finance
             </h1>
@@ -166,7 +176,7 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
         </aside>
 
         {/* Main content */}
-        <div className="flex-1 lg:ml-72 flex flex-col h-screen min-h-0 overflow-hidden">
+        <div className="flex-1 lg:ml-72 flex flex-col h-[100dvh] min-h-0 overflow-hidden">
           {/* Top bar — desktop */}
           <header
             className="hidden lg:flex sticky top-0 z-40 h-16 items-center justify-between px-8 flex-shrink-0"
@@ -198,11 +208,16 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
             className="lg:hidden sticky top-0 z-40 h-14 flex items-center px-4"
             style={{ background: 'var(--ft-glass-bg)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid var(--ft-glass-border)' }}
           >
-            <h2 style={{ fontSize: 18, fontWeight: 900, color: 'var(--ft-primary)', letterSpacing: '-0.02em' }}>Finance</h2>
+            <div className="flex items-center gap-3">
+              <Link href="/dashboard" style={{ color: 'var(--ft-on-surface-variant)', display: 'flex' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 22 }}>arrow_back</span>
+              </Link>
+              <h2 style={{ fontSize: 18, fontWeight: 900, color: 'var(--ft-primary)', letterSpacing: '-0.02em' }}>Finance</h2>
+            </div>
           </header>
 
           {/* Page content */}
-          <main className="flex-1 overflow-y-auto no-scrollbar pb-24 lg:pb-8" style={{ background: 'var(--ft-surface)' }}>
+          <main className="flex-1 overflow-y-auto no-scrollbar pb-32 lg:pb-8" style={{ background: 'var(--ft-surface)' }}>
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
               {children}
             </div>
@@ -211,7 +226,7 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
 
         {/* Mobile Bottom Nav */}
         <nav
-          className="lg:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-around items-center px-4 h-16"
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-start items-center px-2 h-16 overflow-x-auto no-scrollbar gap-1"
           style={{ background: 'var(--ft-glass-bg)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderTop: '1px solid var(--ft-glass-border)' }}
         >
           {NAV_ITEMS.map(item => {

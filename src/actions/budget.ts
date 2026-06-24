@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth-server'
 import { z } from 'zod'
+import { revalidatePath } from 'next/cache'
 
 const BudgetSchema = z.object({
   categoryId: z.string().optional(),
@@ -60,8 +61,9 @@ export async function upsertBudget(data: BudgetInput) {
         }
     })
 
+    let result;
     if (existing) {
-        return await prisma.budget.update({
+        result = await prisma.budget.update({
             where: { id: existing.id },
             data: {
                 amountPaise: validatedData.amountPaise,
@@ -70,7 +72,7 @@ export async function upsertBudget(data: BudgetInput) {
             include: { category: true }
         })
     } else {
-        return await prisma.budget.create({
+        result = await prisma.budget.create({
             data: {
                 month: validatedData.month,
                 amountPaise: validatedData.amountPaise,
@@ -82,13 +84,18 @@ export async function upsertBudget(data: BudgetInput) {
             include: { category: true }
         })
     }
+
+    revalidatePath('/finance', 'layout')
+    return result
 }
 
 export async function deleteBudget(id: string) {
     const { isAuthenticated, user } = await verifyAuth()
     if (!isAuthenticated || !user) throw new Error('Unauthorized')
 
-    return await prisma.budget.delete({
+    const deletedBudget = await prisma.budget.delete({
         where: { id, userId: user.id }
     })
+    revalidatePath('/finance', 'layout')
+    return deletedBudget
 }

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth-server'
 import { z } from 'zod'
 import { TransactionType } from '@prisma/client'
+import { revalidatePath } from 'next/cache'
 
 const TransactionSchema = z.object({
   type: z.nativeEnum(TransactionType),
@@ -71,13 +72,15 @@ export async function addTransaction(data: TransactionInput) {
 
     const validatedData = TransactionSchema.parse(data)
 
-    return await prisma.transaction.create({
+    const newTxn = await prisma.transaction.create({
         data: {
             ...validatedData,
             userId: user.id
         },
         include: { category: true }
     })
+    revalidatePath('/finance', 'layout')
+    return newTxn
 }
 
 export async function updateTransaction(id: string, data: Partial<TransactionInput>) {
@@ -87,11 +90,13 @@ export async function updateTransaction(id: string, data: Partial<TransactionInp
     const partialSchema = TransactionSchema.partial()
     const validatedData = partialSchema.parse(data)
 
-    return await prisma.transaction.update({
+    const updatedTxn = await prisma.transaction.update({
         where: { id, userId: user.id, deletedAt: null },
         data: validatedData,
         include: { category: true }
     })
+    revalidatePath('/finance', 'layout')
+    return updatedTxn
 }
 
 export async function deleteTransaction(id: string) {
@@ -99,10 +104,12 @@ export async function deleteTransaction(id: string) {
     if (!isAuthenticated || !user) throw new Error('Unauthorized')
 
     // Soft delete implementation
-    return await prisma.transaction.update({
+    const deletedTxn = await prisma.transaction.update({
         where: { id, userId: user.id },
         data: { deletedAt: new Date() }
     })
+    revalidatePath('/finance', 'layout')
+    return deletedTxn
 }
 
 export async function getDashboardAggregates(startDate: Date, endDate: Date) {
