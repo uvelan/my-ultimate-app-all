@@ -46,18 +46,18 @@ export function Step10Review() {
         </Button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
+      <div className="bg-surface rounded-xl shadow-sm border border-border overflow-hidden relative">
         {/* Loading Overlay */}
         {isScoring && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center">
+          <div className="absolute inset-0 bg-surface/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center">
             <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-3" />
-            <div className="text-base font-bold text-slate-900">Scanning Resume...</div>
-            <div className="text-xs text-slate-500">Checking keywords, formatting, and impact.</div>
+            <div className="text-base font-bold text-text-primary">Scanning Resume...</div>
+            <div className="text-xs text-text-muted">Checking keywords, formatting, and impact.</div>
           </div>
         )}
         
         {/* Top gauge area */}
-        <div className="p-6 border-b border-slate-200 flex flex-col items-center text-center">
+        <div className="p-6 border-b border-border flex flex-col items-center text-center">
           <div className="relative mb-4">
             <svg className="w-36 h-36 transform -rotate-90">
               <circle cx="72" cy="72" r="60" stroke="currentColor" strokeWidth="10" fill="transparent" className="text-slate-100" />
@@ -65,11 +65,11 @@ export function Step10Review() {
                 strokeDasharray="377" strokeDashoffset={377 * (1 - score.overall / 100)} className="text-indigo-600 transition-all duration-1000 ease-out" />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-4xl font-extrabold text-slate-900">{score.overall}</span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-1">ATS Score</span>
+              <span className="text-4xl font-extrabold text-text-primary">{score.overall}</span>
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider mt-1">ATS Score</span>
             </div>
           </div>
-          <p className="text-slate-600 max-w-sm">
+          <p className="text-text-muted max-w-sm">
             {score.overall >= 90 
               ? "Outstanding! Your resume is highly optimized and ready for top-tier applications."
               : score.overall >= 70
@@ -82,11 +82,11 @@ export function Step10Review() {
         </div>
 
         {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-200 bg-slate-50">
+        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-200 bg-surface-2">
           <div className="p-6 flex flex-col gap-2">
             <div className="flex justify-between text-sm font-medium">
-              <span className="text-slate-700">Keyword Coverage</span>
-              <span className="text-slate-900">{score.keywordCoveragePct}%</span>
+              <span className="text-text-secondary">Keyword Coverage</span>
+              <span className="text-text-primary">{score.keywordCoveragePct}%</span>
             </div>
             <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
               <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${score.keywordCoveragePct}%` }} />
@@ -94,8 +94,8 @@ export function Step10Review() {
           </div>
           <div className="p-6 flex flex-col gap-2">
             <div className="flex justify-between text-sm font-medium">
-              <span className="text-slate-700">Recruiter Readiness</span>
-              <span className="text-slate-900">{score.recruiterReadiness}%</span>
+              <span className="text-text-secondary">Recruiter Readiness</span>
+              <span className="text-text-primary">{score.recruiterReadiness}%</span>
             </div>
             <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
               <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${score.recruiterReadiness}%` }} />
@@ -105,11 +105,11 @@ export function Step10Review() {
       </div>
 
       {/* Suggestions List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        <h3 className="text-lg font-bold text-slate-900 mb-4">Improvement Suggestions</h3>
+      <div className="bg-surface rounded-xl shadow-sm border border-border p-6">
+        <h3 className="text-lg font-bold text-text-primary mb-4">Improvement Suggestions</h3>
         <div className="space-y-4">
           {score.suggestions.map((suggestion, i) => (
-            <div key={i} className="flex gap-4 p-4 rounded-lg border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+            <div key={i} className="flex gap-4 p-4 rounded-lg border border-slate-100 bg-surface-2/50 hover:bg-surface-2 transition-colors">
               <div className="mt-0.5">
                 {suggestion.severity === 'error' && <AlertCircle className="text-red-500" size={20} />}
                 {suggestion.severity === 'warning' && <AlertCircle className="text-amber-500" size={20} />}
@@ -126,7 +126,7 @@ export function Step10Review() {
                     {suggestion.section}
                   </span>
                 </div>
-                <p className="text-sm text-slate-700 leading-relaxed">{suggestion.message}</p>
+                <p className="text-sm text-text-secondary leading-relaxed">{suggestion.message}</p>
                 {suggestion.actionLabel && (
                   <button className="mt-3 text-sm font-medium text-indigo-600 flex items-center gap-1 hover:text-indigo-700 transition-colors">
                     {suggestion.actionLabel} <ArrowRight size={14} />

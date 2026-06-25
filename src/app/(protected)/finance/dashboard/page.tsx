@@ -42,11 +42,25 @@ export default async function FinanceDashboard(props: { searchParams: Promise<{ 
   // Resolve category names for breakdown
   const categoryMap = Object.fromEntries(categories.map(c => [c.id, c]))
   const categoryBreakdown = Object.entries(aggregates.categorySpending)
-    .map(([categoryId, amountPaise]) => ({
-      name: categoryMap[categoryId]?.name ?? 'Other',
-      color: categoryMap[categoryId]?.color ?? '#888',
-      amountPaise,
-    }))
+    .filter(([categoryId]) => !categoryMap[categoryId]?.parentId) // Only show top-level parents
+    .map(([categoryId, amountPaise]) => {
+      // Find children that have spending
+      const children = Object.entries(aggregates.categorySpending)
+        .filter(([childId]) => categoryMap[childId]?.parentId === categoryId)
+        .map(([childId, childAmount]) => ({
+          name: categoryMap[childId]?.name ?? 'Other',
+          color: categoryMap[childId]?.color ?? '#888',
+          amountPaise: childAmount,
+        }))
+        .sort((a, b) => b.amountPaise - a.amountPaise)
+
+      return {
+        name: categoryMap[categoryId]?.name ?? 'Other',
+        color: categoryMap[categoryId]?.color ?? '#888',
+        amountPaise,
+        children: children.length > 0 ? children : undefined,
+      }
+    })
     .sort((a, b) => b.amountPaise - a.amountPaise)
 
   const totalCatSpend = categoryBreakdown.reduce((s, c) => s + c.amountPaise, 0)

@@ -6,6 +6,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import { cn } from '@/lib/utils';
 import { Menu } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function DashboardLayout({
     children,
@@ -47,6 +48,9 @@ export default function DashboardLayout({
 
                         <div className="flex-1">
                             {isDashboard && <Header />}
+                        </div>
+                        <div className="flex items-center">
+                            <ThemeToggle />
                         </div>
                     </div>
                 </div>

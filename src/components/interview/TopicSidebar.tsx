@@ -30,7 +30,7 @@ export default function TopicSidebar({ topics, selectedTopic, onSelectTopic }: T
         className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
           selectedTopic === null 
             ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 dark:from-blue-900/40 dark:to-indigo-900/40 dark:text-blue-300 font-semibold shadow-sm border border-blue-100/50 dark:border-blue-800/50' 
-            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white border border-transparent'
+            : 'text-text-secondary hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white border border-transparent'
         }`}
       >
         <span>All Topics</span>
@@ -43,14 +43,14 @@ export default function TopicSidebar({ topics, selectedTopic, onSelectTopic }: T
           className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
             selectedTopic === topic.id 
               ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 dark:from-blue-900/40 dark:to-indigo-900/40 dark:text-blue-300 font-semibold shadow-sm border border-blue-100/50 dark:border-blue-800/50' 
-              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white border border-transparent'
+              : 'text-text-secondary hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white border border-transparent'
           }`}
         >
           <div className="flex items-center gap-3">
             {topic.icon && icons[topic.icon]}
             <span>{topic.name.replace('-', ' ')}</span>
           </div>
-          <span className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${selectedTopic === topic.id ? 'bg-blue-200/50 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200' : 'bg-gray-100/80 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
+          <span className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${selectedTopic === topic.id ? 'bg-blue-200/50 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200' : 'bg-gray-100/80 bg-surface-2 text-text-muted'}`}>
             {topic.count}
           </span>
         </button>

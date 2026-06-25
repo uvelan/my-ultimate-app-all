@@ -259,7 +259,7 @@ export default function ResumeDashboard() {
           <div className="bg-[#1a1a1a] border border-white/10 rounded-xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-white/10">
               <h3 className="text-lg font-bold text-white">Assign Resume</h3>
-              <button onClick={() => setAssignModalOpen(false)} className="text-gray-400 hover:text-white transition-colors">
+              <button onClick={() => setAssignModalOpen(false)} className="text-text-muted hover:text-white transition-colors">
                 <X size={20} />
               </button>
             </div>

@@ -336,7 +336,7 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
 
       <button
         onClick={() => setShowSettings(!showSettings)}
-        className="flex items-center justify-center p-1.5 text-gray-500 bg-gray-100 rounded-lg hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
+        className="flex items-center justify-center p-1.5 text-gray-500 bg-gray-100 rounded-lg hover:bg-gray-200 bg-surface-2 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
         title="TTS Settings"
       >
         <Settings className="w-4 h-4" />
@@ -348,10 +348,10 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute top-full right-0 mt-2 p-4 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-2xl rounded-xl z-50"
+            className="absolute top-full right-0 mt-2 p-4 w-64 bg-surface border border-border shadow-2xl rounded-xl z-50"
           >
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-gray-700 dark:text-gray-200">Audio Settings</span>
+              <span className="text-sm font-bold text-text-secondary">Audio Settings</span>
               <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                 <X className="w-4 h-4" />
               </button>
@@ -364,7 +364,7 @@ export default function TTSButton({ containerId, onPlayStateChange }: TTSButtonP
                 <select 
                   value={selectedVoiceURI}
                   onChange={(e) => handleVoiceChange(e.target.value)}
-                  className="w-full text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-2 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  className="w-full text-sm bg-surface-2 border border-border rounded-lg px-2 py-2 text-text-secondary focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
                   {voices.map(v => (
                     <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>

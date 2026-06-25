@@ -10,7 +10,7 @@ export function RightPanel() {
   const { previewMode, setPreviewMode, previewZoom, setPreviewZoom } = useUiStore();
 
   return (
-    <div className="h-full w-full flex flex-col text-[#e5e2e1] bg-[#121212] print:bg-white print:text-black">
+    <div className="h-full w-full flex flex-col text-[#e5e2e1] bg-[#121212] print:bg-surface print:text-black">
       {/* Header Row */}
       <div className="print:hidden h-[48px] shrink-0 border-b border-white/10 bg-[#121212] flex items-center justify-between px-4">
         <div className="flex bg-[#050505] rounded-md p-0.5 border border-white/5">
@@ -50,10 +50,10 @@ export function RightPanel() {
       </div>
 
       {/* Preview Area */}
-      <div className="flex-1 overflow-auto bg-[#050505] print:bg-white print:p-0 print:overflow-visible p-8 flex flex-col items-center relative">
+      <div className="flex-1 overflow-auto bg-[#050505] print:bg-surface print:p-0 print:overflow-visible p-8 flex flex-col items-center relative">
         {/* The Live Resume Paper Preview */}
         <div 
-          className="bg-white shadow-[0_0_40px_rgba(212,175,55,0.05)] border border-[#ffffff]/10 shrink-0 origin-top overflow-hidden print-no-transform print:shadow-none print:border-none"
+          className="bg-surface shadow-[0_0_40px_rgba(212,175,55,0.05)] border border-[#ffffff]/10 shrink-0 origin-top overflow-hidden print-no-transform print:shadow-none print:border-none"
           style={{ 
             width: '8.5in', 
             height: '11in',

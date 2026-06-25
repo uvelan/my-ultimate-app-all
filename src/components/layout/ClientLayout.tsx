@@ -21,7 +21,7 @@ export default function ClientLayout({
 
     if (isAuthPage) {
         return (
-            <main className="h-screen w-full grid grid-cols-1 md:grid-cols-2 overflow-hidden bg-[#0a0a0a] relative">
+            <main className="h-screen w-full grid grid-cols-1 md:grid-cols-2 overflow-hidden bg-background relative">
                 {/* Mobile Background */}
                 <div className="absolute inset-0 z-0 md:hidden bg-no-repeat bg-cover bg-center opacity-20" style={{ backgroundImage: "url('/ekam-login-bg.png?v=2')" }} />
 
@@ -31,7 +31,7 @@ export default function ClientLayout({
                 </div>
                 
                 {/* Auth Form Panel */}
-                <div className="flex flex-col justify-center items-center p-8 sm:p-12 md:p-16 lg:p-24 bg-transparent md:bg-[#0a0a0a] relative overflow-y-auto z-10">
+                <div className="flex flex-col justify-center items-center p-8 sm:p-12 md:p-16 lg:p-24 bg-transparent md:bg-surface relative overflow-y-auto z-10">
                     <div className="w-full max-w-md mx-auto relative z-10">
                         {children}
                     </div>

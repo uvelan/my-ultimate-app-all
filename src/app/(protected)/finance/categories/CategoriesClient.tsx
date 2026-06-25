@@ -11,6 +11,7 @@ interface Cat {
   color: string
   type: string
   isArchived: boolean
+  parentId?: string | null
 }
 
 interface Props {
@@ -23,11 +24,12 @@ const PRESET_COLORS = [
 ]
 
 function CategoryModal({
-  open, onClose, editing,
+  open, onClose, editing, allCategories
 }: {
   open: boolean
   onClose: () => void
   editing: Cat | null
+  allCategories: Cat[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -35,6 +37,7 @@ function CategoryModal({
   const [type, setType] = useState<'INCOME' | 'EXPENSE'>(editing ? (editing.type as 'INCOME' | 'EXPENSE') : 'EXPENSE')
   const [name, setName] = useState(editing?.name ?? '')
   const [color, setColor] = useState(editing?.color ?? PRESET_COLORS[0])
+  const [parentId, setParentId] = useState(editing?.parentId ?? '')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -42,9 +45,12 @@ function CategoryModal({
       setType(editing ? (editing.type as 'INCOME' | 'EXPENSE') : 'EXPENSE')
       setName(editing?.name ?? '')
       setColor(editing?.color ?? PRESET_COLORS[0])
+      setParentId(editing?.parentId ?? '')
       setErrors({})
     }
   }, [open, editing])
+
+  const eligibleParents = allCategories.filter(c => c.type === type && c.id !== editing?.id && !c.parentId)
 
   function validate() {
     const errs: Record<string, string> = {}
@@ -61,7 +67,8 @@ function CategoryModal({
       name: name.trim(),
       color,
       type,
-      isArchived: false
+      isArchived: false,
+      parentId: parentId || null
     }
 
     startTransition(async () => {
@@ -86,7 +93,7 @@ function CategoryModal({
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(4,27,60,0.4)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-        <div onClick={e => e.stopPropagation()} style={{ background: 'var(--ft-surface)', borderRadius: 24, width: '100%', maxWidth: 400, boxShadow: '0 24px 80px rgba(4,27,60,0.2)', overflow: 'hidden', animation: 'slideUp 0.25s ease' }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: 'var(--ft-surface)', borderRadius: 24, width: '100%', maxWidth: 400, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(4,27,60,0.2)', animation: 'slideUp 0.25s ease' }}>
           <style>{`@keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }`}</style>
           <div style={{ background: 'var(--ft-primary)', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>{editing ? 'Edit Category' : 'New Category'}</h2>
@@ -98,7 +105,7 @@ function CategoryModal({
             <div style={{ display: 'flex', background: 'var(--ft-surface-container)', borderRadius: 14, padding: 4, gap: 4 }}>
               {(['EXPENSE', 'INCOME'] as const).map(t => (
                 <button
-                  key={t} type="button" onClick={() => setType(t)}
+                  key={t} type="button" onClick={() => { setType(t); setParentId(''); }}
                   style={{
                     flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', transition: 'all 0.2s',
                     background: type === t ? (t === 'EXPENSE' ? 'var(--ft-error)' : 'var(--ft-secondary)') : 'transparent',
@@ -113,6 +120,19 @@ function CategoryModal({
               <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Groceries, Salary..." style={inputStyle} />
               {errors.name && <p style={errStyle}>{errors.name}</p>}
             </div>
+            
+            {eligibleParents.length > 0 && (
+              <div>
+                <label style={labelStyle}>Parent Category (Optional)</label>
+                <select value={parentId} onChange={e => setParentId(e.target.value)} style={inputStyle}>
+                  <option value="">None (Top-level)</option>
+                  {eligibleParents.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div>
               <label style={labelStyle}>Color</label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -174,7 +194,7 @@ export default function CategoriesClient({ initialCategories }: Props) {
 
   return (
     <>
-      <CategoryModal open={modalOpen} onClose={closeModal} editing={editingCat} />
+      <CategoryModal open={modalOpen} onClose={closeModal} editing={editingCat} allCategories={initialCategories} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
@@ -205,31 +225,70 @@ export default function CategoriesClient({ initialCategories }: Props) {
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {filtered.length === 0 && (
-             <div style={{ gridColumn: '1 / -1', padding: '48px 20px', textAlign: 'center', color: 'var(--ft-on-surface-variant)', fontSize: 14 }}>
+             <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--ft-on-surface-variant)', fontSize: 14 }}>
                No categories found
              </div>
           )}
-          {filtered.map(c => (
-            <div key={c.id} className="ft-glass" style={{ borderRadius: 16, padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: c.isArchived ? 0.6 : 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-                <div>
-                  <h3 style={{ fontSize: 14, fontWeight: 800, color: 'var(--ft-on-surface)', margin: 0 }}>{c.name}</h3>
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: c.type === 'INCOME' ? 'var(--ft-secondary)' : 'var(--ft-error)', textTransform: 'uppercase' }}>
-                    {c.type} {c.isArchived && '· Archived'}
-                  </span>
+          {(() => {
+            const topLevel = filtered.filter(c => !c.parentId)
+            
+            // Collect any children whose parent isn't in 'filtered' (e.g. if the parent is archived but child is not)
+            const topLevelIds = new Set(topLevel.map(c => c.id))
+            const orphans = filtered.filter(c => c.parentId && !topLevelIds.has(c.parentId))
+            const renderCats = [...topLevel, ...orphans]
+
+            return renderCats.map(parent => {
+              const children = filtered.filter(c => c.parentId === parent.id)
+              
+              return (
+                <div key={parent.id} className="ft-glass" style={{ borderRadius: 20, padding: 24, opacity: parent.isArchived ? 0.6 : 1 }}>
+                  
+                  {/* Parent Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: children.length > 0 ? 4 : 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: parent.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 12px ${parent.color}40` }} />
+                      <div>
+                        <h3 style={{ fontSize: 16, fontWeight: 900, color: 'var(--ft-on-surface)', margin: 0 }}>
+                          {parent.name}
+                        </h3>
+                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: parent.type === 'INCOME' ? 'var(--ft-secondary)' : 'var(--ft-error)', textTransform: 'uppercase' }}>
+                          {parent.type} {parent.isArchived && '· Archived'}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                       <button onClick={() => openEdit(parent)} style={{ background: 'var(--ft-surface-container)', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 10, color: 'var(--ft-on-surface)' }}><span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span></button>
+                       <button onClick={() => handleArchiveToggle(parent)} style={{ background: 'var(--ft-surface-container)', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 10, color: 'var(--ft-on-surface)' }} title={parent.isArchived ? "Restore" : "Archive"}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{parent.isArchived ? 'unarchive' : 'archive'}</span>
+                       </button>
+                    </div>
+                  </div>
+
+                  {/* Children Grid */}
+                  {children.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginTop: 16, paddingTop: 16, borderTop: '1px dashed var(--ft-outline-variant)' }}>
+                      {children.map(c => (
+                        <div key={c.id} style={{ background: 'var(--ft-surface)', borderRadius: 14, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: c.isArchived ? 0.6 : 1, border: '1px solid var(--ft-outline-variant)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 14, height: 14, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+                            <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--ft-on-surface)', margin: 0 }}>{c.name}</h4>
+                          </div>
+                          <div style={{ display: 'flex', gap: 2 }}>
+                             <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ft-outline)' }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
+                             <button onClick={() => handleArchiveToggle(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ft-outline)' }} title={c.isArchived ? "Restore" : "Archive"}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{c.isArchived ? 'unarchive' : 'archive'}</span>
+                             </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                 <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: 'var(--ft-outline)' }}><span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span></button>
-                 <button onClick={() => handleArchiveToggle(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: 'var(--ft-outline)' }} title={c.isArchived ? "Restore" : "Archive"}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{c.isArchived ? 'unarchive' : 'archive'}</span>
-                 </button>
-              </div>
-            </div>
-          ))}
+              )
+            })
+          })()}
         </div>
       </div>
     </>

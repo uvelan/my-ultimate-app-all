@@ -64,7 +64,7 @@ export function Step3Experience() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#e5e2e1] mb-1">Work Experience</h2>
-          <p className="text-sm text-slate-500">Add your relevant experience, focusing on your measurable impact and achievements.</p>
+          <p className="text-sm text-text-muted">Add your relevant experience, focusing on your measurable impact and achievements.</p>
         </div>
       </div>
 
@@ -78,16 +78,17 @@ export function Step3Experience() {
                     <div 
                       ref={provided.innerRef} 
                       {...provided.draggableProps}
-                      className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
+                        style={provided.draggableProps.style as React.CSSProperties}
+                      className="bg-surface rounded-xl shadow-sm border border-border overflow-hidden"
                     >
-                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-3">
-                        <div {...provided.dragHandleProps} className="text-slate-400 hover:text-slate-600 cursor-grab">
+                      <div className="bg-surface-2 px-4 py-3 border-b border-border flex items-center gap-3">
+                        <div {...provided.dragHandleProps} className="text-text-muted hover:text-text-muted cursor-grab">
                           <GripVertical size={18} />
                         </div>
-                        <span className="font-semibold text-slate-700 flex-1">
+                        <span className="font-semibold text-text-secondary flex-1">
                           {exp.position || 'Job Title'} at {exp.company || 'Company'}
                         </span>
-                        <button onClick={() => removeExperience(exp.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <button onClick={() => removeExperience(exp.id)} className="text-text-muted hover:text-red-500 transition-colors">
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -128,21 +129,21 @@ export function Step3Experience() {
                               id={`current-${exp.id}`}
                               checked={exp.isCurrent}
                               onChange={(e) => updateExperience(exp.id, { isCurrent: e.target.checked, endDate: undefined })}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-600"
+                              className="rounded border-border-hover text-indigo-600 focus:ring-indigo-600"
                             />
-                            <label htmlFor={`current-${exp.id}`} className="text-sm font-medium text-slate-700">I currently work here</label>
+                            <label htmlFor={`current-${exp.id}`} className="text-sm font-medium text-text-secondary">I currently work here</label>
                           </div>
                         </div>
 
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <label className="text-sm font-medium text-slate-700">Achievements & Responsibilities</label>
+                            <label className="text-sm font-medium text-text-secondary">Achievements & Responsibilities</label>
                           </div>
                           
                           <div className="space-y-3">
                             {exp.achievements.map((bullet, bIndex) => (
                               <div key={bIndex} className="flex gap-2">
-                                <div className="mt-2 text-slate-400"><GripVertical size={16} /></div>
+                                <div className="mt-2 text-text-muted"><GripVertical size={16} /></div>
                                 <div className="flex-1 relative group">
                                   <textarea 
                                     value={bullet}
@@ -151,7 +152,7 @@ export function Step3Experience() {
                                       newB[bIndex] = e.target.value;
                                       updateExperience(exp.id, { achievements: newB });
                                     }}
-                                    className="w-full min-h-[60px] p-3 pr-10 border border-slate-200 rounded-md focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm resize-y text-slate-900 bg-white placeholder:text-slate-400"
+                                    className="w-full min-h-[60px] p-3 pr-10 border border-border rounded-md focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm resize-y text-text-primary bg-surface placeholder:text-text-muted"
                                     placeholder="Implemented a new feature that increased conversion by 15%..."
                                   />
                                   <button 
@@ -168,7 +169,7 @@ export function Step3Experience() {
                                     const newB = exp.achievements.filter((_, i) => i !== bIndex);
                                     updateExperience(exp.id, { achievements: newB });
                                   }}
-                                  className="text-slate-400 hover:text-red-500 mt-2 px-2"
+                                  className="text-text-muted hover:text-red-500 mt-2 px-2"
                                 >
                                   <Trash2 size={16} />
                                 </button>
@@ -181,7 +182,7 @@ export function Step3Experience() {
                             size="sm" 
                             leftIcon={<Plus size={16} />} 
                             onClick={() => updateExperience(exp.id, { achievements: [...exp.achievements, ''] })}
-                            className="mt-3 text-slate-600"
+                            className="mt-3 text-text-muted"
                           >
                             Add Bullet Point
                           </Button>
@@ -199,7 +200,7 @@ export function Step3Experience() {
 
       <Button 
         variant="outline" 
-        className="w-full py-6 border-dashed border-2 text-slate-600 hover:text-indigo-600 hover:border-indigo-600 hover:bg-indigo-50 transition-colors"
+        className="w-full py-6 border-dashed border-2 text-text-muted hover:text-indigo-600 hover:border-indigo-600 hover:bg-indigo-50 transition-colors"
         onClick={handleAdd}
       >
         <Plus className="mr-2" size={18} />

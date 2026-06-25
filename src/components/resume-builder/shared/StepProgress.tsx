@@ -13,7 +13,7 @@ export function StepProgress() {
     <div className="w-full px-8 py-6 bg-[#121212] border-b border-white/10 shrink-0 shadow-sm">
       <div className="flex items-center justify-between relative max-w-4xl mx-auto">
         {/* Progress Line */}
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[2px] bg-white/5 -z-10" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[2px] bg-surface/5 -z-10" />
         <div 
           className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] bg-[#d4af37] -z-10 transition-all duration-300 shadow-[0_0_10px_rgba(212,175,55,0.5)]"
           style={{ width: `${((activeStep - 1) / (STEPS.length - 1)) * 100}%` }}

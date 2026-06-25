@@ -30,7 +30,7 @@ export default function Flashcard({ card, onNext }: FlashcardProps) {
       >
         {/* Front */}
         <div 
-          className="absolute inset-0 flex flex-col p-8 bg-white/90 backdrop-blur-xl border border-gray-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] dark:bg-gray-900/90 dark:border-gray-700/50 rounded-[2rem] overflow-y-auto custom-scrollbar"
+          className="absolute inset-0 flex flex-col p-8 bg-white/90 backdrop-blur-xl border border-gray-200/50 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] bg-surface/90 border-border/50 rounded-[2rem] overflow-y-auto custom-scrollbar"
           style={{ backfaceVisibility: 'hidden' }}
         >
           <span className="absolute px-3 py-1 text-sm font-medium text-blue-600 bg-blue-100 rounded-full top-6 left-6 dark:bg-blue-900/30 dark:text-blue-400 z-10">
@@ -44,7 +44,7 @@ export default function Flashcard({ card, onNext }: FlashcardProps) {
             Details <ExternalLink className="w-3 h-3" />
           </Link>
           <div className="m-auto w-full py-12">
-            <h2 className="text-2xl md:text-3xl font-bold text-center text-gray-900 dark:text-white">
+            <h2 className="text-2xl md:text-3xl font-bold text-center text-text-primary">
               {card.front}
             </h2>
           </div>

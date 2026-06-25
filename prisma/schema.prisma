@@ -22,6 +22,9 @@ model User {
   aiGenerationJobs   AIGenerationJob[]
   mockSessions       MockInterviewSession[]
   resumes            Resume[]
+  tasks              Task[]
+  projects           Project[]
+  tags               Tag[]
 }
 
 enum Role {
@@ -113,6 +116,9 @@ model Category {
   type       TransactionType   @default(EXPENSE)
   color      String            @default("#3b82f6")
   isArchived Boolean           @default(false)
+  parentId   String?           @db.ObjectId
+  parent     Category?         @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children   Category[]        @relation("CategoryHierarchy")
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
   transactions Transaction[]
@@ -145,7 +151,7 @@ model Transaction {
   @@index([userId, categoryId, transactionDate(sort: Desc)])
   @@index([userId, type, transactionDate(sort: Desc)])
   @@index([userId, deletedAt, transactionDate(sort: Desc)])
-  @@unique([sourceModel, sourceId, userId])
+  @@index([userId, sourceModel, sourceId])
 }
 
 enum Frequency {
@@ -353,3 +359,74 @@ model Resume {
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id          String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String     @db.ObjectId
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
+  frequency   Frequency?
+  startDate   DateTime?
+  dueDate     DateTime?
+  completedAt DateTime?
+  projectId   String?    @db.ObjectId
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project?   @relation(fields: [projectId], references: [id])
+  tagIds      String[]   @db.ObjectId
+  tags        Tag[]      @relation(fields: [tagIds], references: [id])
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([userId, priority])
+  @@index([userId, dueDate])
+  @@index([userId, createdAt])
+}
+
+model Project {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tasks     Task[]
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, name])
+}
+
+model Tag {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  taskIds   String[] @db.ObjectId
+  tasks     Task[]   @relation(fields: [taskIds], references: [id])
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, name])
+}

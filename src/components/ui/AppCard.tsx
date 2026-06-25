@@ -10,11 +10,12 @@ interface AppCardProps {
     description: string;
     image: string;
     onClick?: () => void;
+    priority?: boolean;
 }
 
 import Image from 'next/image';
 
-export default function AppCard({ name, description, image, onClick }: AppCardProps) {
+export default function AppCard({ name, description, image, onClick, priority = false }: AppCardProps) {
     return (
         <Card 
             className="group cursor-pointer overflow-hidden bg-secondary border border-border hover:border-accent/40 hover:-translate-y-1 transition-all duration-base ease-stitch h-full flex flex-col w-full"
@@ -27,6 +28,7 @@ export default function AppCard({ name, description, image, onClick }: AppCardPr
                         alt={name}
                         fill
                         sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
+                        priority={priority}
                         className="object-cover transition-transform duration-700 group-hover:scale-110"
                     />
                 ) : (

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth-server'
 import { revalidatePath } from 'next/cache'
 import { Frequency, TransactionType } from '@prisma/client'
+import { z } from 'zod'
 
 export async function processRecurringTransactions() {
   const { isAuthenticated, user } = await verifyAuth()
@@ -67,20 +68,23 @@ export async function processRecurringTransactions() {
     if (transactionsToCreate.length > 0) {
       for (const t of transactionsToCreate) {
         const uniqueSourceId = `${rt.id}_${t.transactionDate.toISOString().split('T')[0]}`
-        await prisma.transaction.upsert({
+        const existing = await prisma.transaction.findFirst({
           where: {
-            sourceModel_sourceId_userId: {
-              sourceModel: 'RECURRING',
-              sourceId: uniqueSourceId,
-              userId: userId,
-            }
-          },
-          update: {}, // Don't override if user edited it
-          create: {
-            ...t,
-            sourceId: uniqueSourceId
+            sourceModel: 'RECURRING',
+            sourceId: uniqueSourceId,
+            userId: userId,
           }
         })
+
+        if (!existing) {
+          await prisma.transaction.create({
+            data: {
+              ...t,
+              sourceId: uniqueSourceId,
+              deletedAt: null
+            }
+          })
+        }
       }
 
       // Update last processed
@@ -111,42 +115,39 @@ export async function getRecurringTransactions() {
   })
 }
 
-export async function upsertRecurringTransaction(data: {
-  id?: string
-  type: TransactionType
-  amountPaise: number
-  categoryId: string
-  description?: string
-  paymentMethod?: string
-  frequency: Frequency
-  startDate: Date
-  endDate?: Date | null
-  isActive?: boolean
-}) {
+const RecurringSchema = z.object({
+  type: z.nativeEnum(TransactionType),
+  amountPaise: z.number(),
+  categoryId: z.string(),
+  description: z.string().optional(),
+  paymentMethod: z.string(),
+  frequency: z.nativeEnum(Frequency),
+  startDate: z.date(),
+  endDate: z.date().nullable().optional(),
+  isActive: z.boolean().default(true)
+})
+
+type RecurringInput = z.infer<typeof RecurringSchema>
+
+export async function upsertRecurringTransaction(data: RecurringInput & { id?: string }) {
   const { isAuthenticated, user } = await verifyAuth()
   const userId = user?.id
   if (!isAuthenticated || !userId) throw new Error('Unauthorized')
+
+  const validatedData = RecurringSchema.parse(data)
 
   if (data.id) {
     await prisma.recurringTransaction.update({
       where: { id: data.id, userId },
       data: {
-        type: data.type,
-        amountPaise: data.amountPaise,
-        categoryId: data.categoryId,
-        description: data.description,
-        paymentMethod: data.paymentMethod,
-        frequency: data.frequency,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        isActive: data.isActive,
+        ...validatedData
       }
     })
   } else {
     await prisma.recurringTransaction.create({
       data: {
         userId,
-        ...data,
+        ...validatedData,
       }
     })
   }

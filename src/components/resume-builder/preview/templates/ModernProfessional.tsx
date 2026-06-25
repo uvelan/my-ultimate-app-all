@@ -14,7 +14,7 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
   const accentColor = customization?.accentColor || '#4F46E5';
 
   return (
-    <div className="flex h-full w-full text-[11px] leading-[1.6] text-gray-800" style={{ fontFamily: 'var(--font-body)' }}>
+    <div className="flex h-full w-full text-[11px] leading-[1.6] text-text-primary" style={{ fontFamily: 'var(--font-body)' }}>
       {/* Left Sidebar (1/3 width) */}
       <div 
         className="w-[32%] h-full p-8 border-r"
@@ -25,14 +25,14 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
             <img src={personalInfo.photoUrl} alt="Profile" className="w-24 h-24 rounded-full mx-auto mb-4 object-cover border-2" style={{ borderColor: accentColor }} />
           )}
           
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1" style={{ fontFamily: 'var(--font-display)' }}>
+          <h1 className="text-2xl font-bold tracking-tight text-text-primary mb-1" style={{ fontFamily: 'var(--font-display)' }}>
             {personalInfo?.fullName || 'Jane Doe'}
           </h1>
           <h2 className="text-[13px] font-semibold tracking-wide uppercase mb-6" style={{ color: accentColor }}>
             {personalInfo?.professionalTitle || 'Software Engineer'}
           </h2>
 
-          <div className="flex flex-col gap-3 text-gray-600">
+          <div className="flex flex-col gap-3 text-text-muted">
             {personalInfo?.email && (
               <div className="flex items-center gap-2">
                 <Mail size={14} style={{ color: accentColor }} />
@@ -79,60 +79,60 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
             <div className="flex flex-col gap-3">
               {skills?.languages?.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Programming Languages</div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase mb-1">Programming Languages</div>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.languages.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-700">{skill}</span>
+                      <span key={skill} className="px-2 py-0.5 bg-surface border border-gray-200 rounded text-text-secondary">{skill}</span>
                     ))}
                   </div>
                 </div>
               )}
               {skills?.technical?.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Technical</div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase mb-1">Technical</div>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.technical.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-700">{skill}</span>
+                      <span key={skill} className="px-2 py-0.5 bg-surface border border-gray-200 rounded text-text-secondary">{skill}</span>
                     ))}
                   </div>
                 </div>
               )}
               {skills?.frameworks?.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Frameworks</div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase mb-1">Frameworks</div>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.frameworks.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-700">{skill}</span>
+                      <span key={skill} className="px-2 py-0.5 bg-surface border border-gray-200 rounded text-text-secondary">{skill}</span>
                     ))}
                   </div>
                 </div>
               )}
               {skills?.tools?.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Tools</div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase mb-1">Tools</div>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.tools.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-700">{skill}</span>
+                      <span key={skill} className="px-2 py-0.5 bg-surface border border-gray-200 rounded text-text-secondary">{skill}</span>
                     ))}
                   </div>
                 </div>
               )}
               {skills?.platforms?.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Platforms</div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase mb-1">Platforms</div>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.platforms.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-700">{skill}</span>
+                      <span key={skill} className="px-2 py-0.5 bg-surface border border-gray-200 rounded text-text-secondary">{skill}</span>
                     ))}
                   </div>
                 </div>
               )}
               {skills?.soft?.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Soft Skills</div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase mb-1">Soft Skills</div>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.soft.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-gray-700">{skill}</span>
+                      <span key={skill} className="px-2 py-0.5 bg-surface border border-gray-200 rounded text-text-secondary">{skill}</span>
                     ))}
                   </div>
                 </div>
@@ -148,9 +148,9 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
             <div className="flex flex-col gap-4">
               {education.map(edu => (
                 <div key={edu.id}>
-                  <div className="font-bold text-gray-900">{edu.degree}</div>
-                  <div className="text-gray-600">{edu.institution}</div>
-                  <div className="text-gray-500 text-[10px]">{formatMonthYear(edu.graduationDate)}</div>
+                  <div className="font-bold text-text-primary">{edu.degree}</div>
+                  <div className="text-text-muted">{edu.institution}</div>
+                  <div className="text-text-muted text-[10px]">{formatMonthYear(edu.graduationDate)}</div>
                 </div>
               ))}
             </div>
@@ -163,7 +163,7 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
         {summary && (
           <section>
             <h3 className="text-[13px] font-bold uppercase tracking-wider mb-2 border-b pb-1" style={{ color: accentColor, borderColor: `${accentColor}40` }}>Professional Summary</h3>
-            <div className="text-gray-700" dangerouslySetInnerHTML={{ __html: summary }} />
+            <div className="text-text-secondary" dangerouslySetInnerHTML={{ __html: summary }} />
           </section>
         )}
 
@@ -174,15 +174,15 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
               {experience.map(exp => (
                 <div key={exp.id}>
                   <div className="flex justify-between items-baseline mb-1">
-                    <h4 className="font-bold text-[12px] text-gray-900">{exp.position}</h4>
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase">
+                    <h4 className="font-bold text-[12px] text-text-primary">{exp.position}</h4>
+                    <span className="text-[10px] font-semibold text-text-muted uppercase">
                       {formatMonthYear(exp.startDate)} - {exp.isCurrent ? 'Present' : formatMonthYear(exp.endDate)}
                     </span>
                   </div>
                   <div className="text-[11px] font-semibold mb-2" style={{ color: accentColor }}>
                     {exp.company}
                   </div>
-                  <ul className="list-disc list-inside flex flex-col gap-1 text-gray-700 pl-1">
+                  <ul className="list-disc list-inside flex flex-col gap-1 text-text-secondary pl-1">
                     {exp.achievements?.map((bullet, i) => (
                       bullet ? <li key={i} className="pl-1"><span className="relative -left-1">{bullet}</span></li> : null
                     ))}
@@ -200,10 +200,10 @@ export function ModernProfessional({ data, customization }: TemplateProps) {
               {projects.map(proj => (
                 <div key={proj.id}>
                   <div className="flex justify-between items-baseline mb-1">
-                    <h4 className="font-bold text-[12px] text-gray-900">{proj.name}</h4>
+                    <h4 className="font-bold text-[12px] text-text-primary">{proj.name}</h4>
                   </div>
-                  <p className="text-gray-700 mb-1">{proj.description}</p>
-                  <div className="text-[10px] text-gray-500 font-mono">
+                  <p className="text-text-secondary mb-1">{proj.description}</p>
+                  <div className="text-[10px] text-text-muted font-mono">
                     {proj.technologies?.join(' • ')}
                   </div>
                 </div>

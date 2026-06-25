@@ -37,11 +37,11 @@ export default function InterviewTimer({ durationMinutes, onTimeUp }: { duration
 
   return (
     <div className="flex flex-col items-center">
-      <div className={`flex items-center gap-2 font-mono text-2xl font-bold ${isWarning ? 'text-red-500 animate-pulse' : 'text-gray-800 dark:text-gray-200'}`}>
+      <div className={`flex items-center gap-2 font-mono text-2xl font-bold ${isWarning ? 'text-red-500 animate-pulse' : 'text-text-primary'}`}>
         {isWarning ? <AlertCircle className="w-6 h-6" /> : <Timer className="w-6 h-6" />}
         {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
       </div>
-      <div className="w-48 h-2 mt-2 overflow-hidden bg-gray-200 rounded-full dark:bg-gray-800">
+      <div className="w-48 h-2 mt-2 overflow-hidden bg-gray-200 rounded-full bg-surface-2">
         <motion.div 
           className={`h-full ${isWarning ? 'bg-red-500' : 'bg-blue-500'}`}
           initial={{ width: '100%' }}

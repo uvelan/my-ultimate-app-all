@@ -32,8 +32,8 @@ export function TagInput({ tags = [], onChange, placeholder = "Add a tag...", la
 
   return (
     <div className="flex flex-col gap-1.5 w-full">
-      {label && <label className="text-sm font-medium text-slate-700">{label}</label>}
-      <div className="flex flex-wrap gap-2 p-2 border border-slate-200 rounded-md bg-white focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-shadow">
+      {label && <label className="text-sm font-medium text-text-secondary">{label}</label>}
+      <div className="flex flex-wrap gap-2 p-2 border border-border rounded-md bg-surface focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-shadow">
         {tags.map((tag, index) => (
           <span 
             key={index} 
@@ -54,7 +54,7 @@ export function TagInput({ tags = [], onChange, placeholder = "Add a tag...", la
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={tags.length === 0 ? placeholder : ""}
-          className="flex-1 min-w-[120px] outline-none text-sm text-slate-900 placeholder:text-slate-400 bg-transparent"
+          className="flex-1 min-w-[120px] outline-none text-sm text-text-primary placeholder:text-text-muted bg-transparent"
         />
       </div>
     </div>

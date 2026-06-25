@@ -88,11 +88,11 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="w-full max-w-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl rounded-2xl overflow-hidden"
+          className="w-full max-w-lg bg-surface border border-border shadow-2xl rounded-2xl overflow-hidden"
         >
-          <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-900/10 dark:to-indigo-900/10">
+          <div className="flex items-center justify-between p-6 border-b border-border bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-900/10 dark:to-indigo-900/10">
             <div>
-              <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-text-primary">
                 <Sparkles className="w-5 h-5 text-blue-600 dark:text-blue-400" /> Ask AI to Generate Questions
               </h2>
               <p className="text-sm text-gray-500 mt-1">
@@ -105,7 +105,7 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
           </div>
 
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
-            <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
+            <div className="flex bg-surface-2 p-1 rounded-lg w-fit">
               <button
                 type="button"
                 onClick={() => setIsBatchMode(false)}
@@ -127,7 +127,7 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder={isBatchMode ? "Enter multiple questions or topics here.\nPut each question on a NEW LINE.\nThey will be queued as separate AI generation jobs..." : "e.g., Generate 3 hard system design questions for a Senior Backend role at Uber..."}
-                className="w-full p-4 text-sm font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none custom-scrollbar text-gray-900 dark:text-gray-200"
+                className="w-full p-4 text-sm font-medium bg-surface-2 border border-border rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none custom-scrollbar text-gray-900 dark:text-gray-200"
                 rows={isBatchMode ? 6 : 4}
                 autoFocus
               />
@@ -135,11 +135,11 @@ export default function AskAIModal({ isOpen, onClose }: AskAIModalProps) {
 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Model:</label>
+                <label className="text-sm font-medium text-text-muted">Model:</label>
                 <select 
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 border border-transparent rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 bg-surface-2 border border-transparent rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Default Selection</option>
                   {models.map(m => (

@@ -118,8 +118,8 @@ export function Step2Summary() {
         {/* Rich Text Editor */}
         <div className="flex-1 border border-white/5 rounded-xl overflow-hidden flex flex-col focus-within:ring-1 focus-within:ring-[#6366F1] focus-within:border-[#6366F1] transition-all bg-[#050505] shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
           <div className="border-b border-white/10 bg-[#121212] p-2 flex gap-2">
-            <button onClick={() => editor?.chain().focus().toggleBold().run()} className={`p-1.5 rounded text-[#d0c5af] hover:bg-white/5 ${editor?.isActive('bold') ? 'bg-white/10 font-bold text-[#e5e2e1]' : 'font-bold'}`}>B</button>
-            <button onClick={() => editor?.chain().focus().toggleItalic().run()} className={`p-1.5 rounded text-[#d0c5af] hover:bg-white/5 ${editor?.isActive('italic') ? 'bg-white/10 italic text-[#e5e2e1]' : 'italic'}`}>I</button>
+            <button onClick={() => editor?.chain().focus().toggleBold().run()} className={`p-1.5 rounded text-[#d0c5af] hover:bg-surface/5 ${editor?.isActive('bold') ? 'bg-surface/10 font-bold text-[#e5e2e1]' : 'font-bold'}`}>B</button>
+            <button onClick={() => editor?.chain().focus().toggleItalic().run()} className={`p-1.5 rounded text-[#d0c5af] hover:bg-surface/5 ${editor?.isActive('italic') ? 'bg-surface/10 italic text-[#e5e2e1]' : 'italic'}`}>I</button>
           </div>
           <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
         </div>

@@ -60,7 +60,7 @@ export default function CompleteButton({ questionId, showText = false }: { quest
       className={`p-2 transition-all rounded-full ${
         isCompleted
           ? 'text-green-500 bg-green-50 dark:bg-green-500/10 hover:bg-green-100 dark:hover:bg-green-500/20'
-          : 'text-gray-400 bg-gray-50 dark:bg-gray-800 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+          : 'text-gray-400 bg-surface-2 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700'
       }`}
       title={isCompleted ? "Mark as incomplete" : "Mark as complete"}
     >

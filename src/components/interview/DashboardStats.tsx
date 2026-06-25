@@ -29,14 +29,14 @@ export default function DashboardStats() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className="flex items-center p-6 bg-white border shadow-sm dark:bg-gray-900 border-gray-100/50 dark:border-gray-800 rounded-2xl"
+            className="flex items-center p-6 bg-white border shadow-sm bg-surface border-gray-100/50 border-border rounded-2xl"
           >
             <div className={`p-4 rounded-xl ${item.bg} ${item.color} mr-4`}>
               <Icon className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{item.label}</p>
-              <h4 className="text-2xl font-bold text-gray-900 dark:text-white">{item.value}</h4>
+              <p className="text-sm text-text-muted">{item.label}</p>
+              <h4 className="text-2xl font-bold text-text-primary">{item.value}</h4>
             </div>
           </motion.div>
         );

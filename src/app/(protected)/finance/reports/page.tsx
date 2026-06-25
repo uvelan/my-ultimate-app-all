@@ -34,9 +34,9 @@ export default async function ReportsPage(props: { searchParams: Promise<SearchP
         getCategories(true)
     ])
 
-    const categoryMap: Record<string, { name: string, color: string }> = {}
+    const categoryMap: Record<string, { name: string, color: string, parentId?: string | null }> = {}
     categories.forEach(c => {
-        categoryMap[c.id] = { name: c.name, color: c.color }
+        categoryMap[c.id] = { name: c.name, color: c.color, parentId: c.parentId }
     })
 
     return (

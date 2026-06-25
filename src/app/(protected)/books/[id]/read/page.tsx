@@ -10,13 +10,13 @@ const crimsonText = Crimson_Text({
     display: 'swap',
 });
 
-
 import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { useTheme } from 'next-themes';
 import { saveBookToCache, getBookFromCache, deleteBookFromCache, Book as DBBook } from '@/lib/book-db';
 
 interface Chapter {
@@ -37,43 +37,27 @@ export default function ReadBookPage() {
     const router = useRouter();
     const [book, setBook] = useState<Book | null>(null);
     const [loading, setLoading] = useState(true);
-    const [sidebarOpen, setSidebarOpen] = useState(false); // Default closed for cleaner view
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [selectedVoice, setSelectedVoice] = useState('Microsoft Neerja Online (Natural) - English (India)');
-    const [fontSize, setFontSize] = useState(20); // Default font size in px
+    const [fontSize, setFontSize] = useState(20);
     const [replacementRules, setReplacementRules] = useState<any[]>([]);
     const [showReplacementModal, setShowReplacementModal] = useState(false);
-    const [isLightMode, setIsLightMode] = useState(false);
 
-    useEffect(() => {
-        const storedTheme = localStorage.getItem('reader-theme');
-        if (storedTheme === 'light') {
-            setIsLightMode(true);
-            document.documentElement.classList.add('theme-light');
-        }
-    }, []);
+    const { theme, setTheme, resolvedTheme } = useTheme();
+    const isLightMode = resolvedTheme === 'light';
+    const currentTheme = theme === 'system' ? resolvedTheme : theme;
 
     const toggleTheme = () => {
-        setIsLightMode(prev => {
-            const next = !prev;
-            if (next) {
-                document.documentElement.classList.add('theme-light');
-                localStorage.setItem('reader-theme', 'light');
-            } else {
-                document.documentElement.classList.remove('theme-light');
-                localStorage.setItem('reader-theme', 'dark');
-            }
-            return next;
-        });
+        setTheme(currentTheme === 'dark' ? 'light' : 'dark');
     };
 
     const [isCorrectingGrammar, setIsCorrectingGrammar] = useState(false);
     const [showDiffModal, setShowDiffModal] = useState(false);
     const [correctedContent, setCorrectedContent] = useState<string[] | null>(null);
-    const [aiModel, setAiModel] = useState('OFF'); // OFF by default so it doesn't auto-correct without user asking
+    const [aiModel, setAiModel] = useState('OFF');
     const correctedChaptersRef = useRef<Set<string>>(new Set());
-
     const [processedContent, setProcessedContent] = useState<string[]>([]);
 
     const currentChapter = book?.chapters[currentChapterIndex];

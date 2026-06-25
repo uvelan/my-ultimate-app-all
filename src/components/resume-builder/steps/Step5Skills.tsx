@@ -64,11 +64,11 @@ export function Step5Skills() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+      <div className="bg-surface rounded-xl shadow-sm border border-border p-8">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h2 className="text-xl font-bold text-[#e5e2e1] mb-1">Skills</h2>
-            <p className="text-sm text-slate-500">Highlight your top technical, soft, and tool-based skills.</p>
+            <p className="text-sm text-text-muted">Highlight your top technical, soft, and tool-based skills.</p>
           </div>
           <Button 
             onClick={handleValidateSkills} 
@@ -121,13 +121,13 @@ export function Step5Skills() {
       </div>
 
       {/* AI Missing Skills Panel */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col relative overflow-hidden">
+      <div className="bg-surface rounded-xl shadow-sm border border-border p-6 flex flex-col relative overflow-hidden">
         <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 to-purple-500" />
         <div className="flex items-center gap-2 mb-4 text-indigo-600">
           <Sparkles size={18} />
           <h3 className="font-bold">AI Skill Gap Analysis</h3>
         </div>
-        <p className="text-sm text-slate-500 mb-4">Let AI compare your current profile against a target role or job description to find missing skills.</p>
+        <p className="text-sm text-text-muted mb-4">Let AI compare your current profile against a target role or job description to find missing skills.</p>
         
         <div className="flex flex-col gap-3 mb-5">
           <input 
@@ -135,13 +135,13 @@ export function Step5Skills() {
             placeholder="Target Job Role (e.g. Senior Frontend Engineer)" 
             value={targetRole}
             onChange={(e) => setTargetRole(e.target.value)}
-            className="w-full text-sm border border-slate-200 rounded-md p-2 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+            className="w-full text-sm border border-border rounded-md p-2 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
           />
           <textarea 
             placeholder="Optional: Paste Job Description here..." 
             value={jobDescription}
             onChange={(e) => setJobDescription(e.target.value)}
-            className="w-full text-sm border border-slate-200 rounded-md p-2 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none min-h-[60px] resize-y"
+            className="w-full text-sm border border-border rounded-md p-2 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none min-h-[60px] resize-y"
           />
           <Button 
             onClick={handleSuggest} 
@@ -159,7 +159,7 @@ export function Step5Skills() {
               <button 
                 key={skill}
                 onClick={() => addMissingSkill(skill)}
-                className="flex items-center gap-1 text-sm bg-white border border-slate-200 shadow-sm px-3 py-1.5 rounded-full hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-slate-700"
+                className="flex items-center gap-1 text-sm bg-surface border border-border shadow-sm px-3 py-1.5 rounded-full hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-text-secondary"
               >
                 <Plus size={14} />
                 {skill}

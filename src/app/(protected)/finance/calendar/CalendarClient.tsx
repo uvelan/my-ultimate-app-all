@@ -2,33 +2,26 @@
 
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-
-interface Txn {
-  id: string
-  description: string | null
-  amountPaise: number
-  type: 'INCOME' | 'EXPENSE'
-  transactionDate: string
-  categoryId: string
-  categoryName: string
-  categoryColor: string
-}
+import { TransactionModal, type Cat, type Txn } from '../transactions/TransactionsClient'
 
 interface Props {
   initialYear: number
   initialMonth: number
   transactions: Txn[]
+  categories: Cat[]
 }
 
 function fmt(paise: number) {
   return '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export default function CalendarClient({ initialYear, initialMonth, transactions }: Props) {
+export default function CalendarClient({ initialYear, initialMonth, transactions, categories }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingTxn, setEditingTxn] = useState<Txn | null>(null)
 
   const daysInMonth = new Date(initialYear, initialMonth + 1, 0).getDate()
   const firstDayOfMonth = new Date(initialYear, initialMonth, 1).getDay()
@@ -89,6 +82,16 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
           </button>
         </div>
       </div>
+
+      {modalOpen && (
+        <TransactionModal
+          open={modalOpen}
+          onClose={() => { setModalOpen(false); setEditingTxn(null); }}
+          categories={categories}
+          editing={editingTxn}
+          defaultDate={selectedDate || undefined}
+        />
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 20 }} className="lg-grid-2">
         {/* Calendar Grid */}
@@ -162,9 +165,20 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
 
         {/* Day Details */}
         <div className="ft-glass" style={{ borderRadius: 24, padding: 24, display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--ft-primary)', letterSpacing: '-0.02em', marginBottom: 20 }}>
-            {selectedDate ? new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Select a date'}
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--ft-primary)', letterSpacing: '-0.02em' }}>
+              {selectedDate ? new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Select a date'}
+            </h3>
+            {selectedDate && (
+              <button
+                onClick={() => { setEditingTxn(null); setModalOpen(true); }}
+                style={{ background: 'var(--ft-primary)', color: '#fff', border: 'none', borderRadius: 999, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,22,66,0.15)' }}
+                title="Add Transaction"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+              </button>
+            )}
+          </div>
 
           {!selectedDate ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--ft-on-surface-variant)', fontSize: 13, opacity: 0.6 }}>
@@ -186,9 +200,18 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
                       <p style={{ fontSize: 11, color: 'var(--ft-on-surface-variant)' }}>{t.categoryName}</p>
                     </div>
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: t.type === 'INCOME' ? 'var(--ft-secondary)' : 'var(--ft-error)' }}>
-                    {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amountPaise)}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: t.type === 'INCOME' ? 'var(--ft-secondary)' : 'var(--ft-error)' }}>
+                      {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amountPaise)}
+                    </span>
+                    <button
+                      onClick={() => { setEditingTxn(t); setModalOpen(true); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ft-outline)', display: 'flex' }}
+                      title="Edit"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

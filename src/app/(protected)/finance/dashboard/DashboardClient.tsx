@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, Tooltip as RechartsTooltip, CartesianGrid } from 'recharts'
 
-interface CategoryRow { name: string; color: string; amountPaise: number }
+interface CategoryRow { name: string; color: string; amountPaise: number; children?: CategoryRow[] }
 interface TxnRow {
   id: string
   description: string | null
@@ -53,6 +53,9 @@ export default function DashboardClient({
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
+  
+  const [isMounted, setIsMounted] = useState(false)
+  useEffect(() => setIsMounted(true), [])
 
   const maxBar = Math.max(...monthIncome, ...monthExpense, 1)
   const [breakdownView, setBreakdownView] = useState<'CATEGORY' | 'METHOD'>('CATEGORY')
@@ -189,21 +192,23 @@ export default function DashboardClient({
 
             {/* Recharts Composed Chart */}
             <div style={{ height: 200, width: '100%', marginTop: 16, minWidth: 0, minHeight: 0 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={monthLabels.map((label, i) => ({
-                  name: label,
-                  Income: monthIncome[i] / 100,
-                  Expense: monthExpense[i] / 100
-                }))} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--ft-on-surface-variant)', fontWeight: 700 }} dy={10} />
-                  <RechartsTooltip 
-                    formatter={(val: any) => ['₹' + Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 'Amount']} 
-                    contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }} 
-                  />
-                  <Bar dataKey="Expense" fill="var(--ft-error)" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                  <Line type="monotone" dataKey="Income" stroke="var(--ft-secondary)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              {isMounted && (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={monthLabels.map((label, i) => ({
+                    name: label,
+                    Income: monthIncome[i] / 100,
+                    Expense: monthExpense[i] / 100
+                  }))} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--ft-on-surface-variant)', fontWeight: 700 }} dy={10} />
+                    <RechartsTooltip 
+                      formatter={(val: any) => ['₹' + Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 'Amount']} 
+                      contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }} 
+                    />
+                    <Bar dataKey="Expense" fill="var(--ft-error)" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    <Line type="monotone" dataKey="Income" stroke="var(--ft-secondary)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -259,6 +264,24 @@ export default function DashboardClient({
                       <div style={{ height: 4, borderRadius: 999, background: 'var(--ft-surface-container)', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: item.color || 'var(--ft-primary)', transition: 'width 0.6s ease' }} />
                       </div>
+                      {item.children && item.children.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8, paddingLeft: 12, borderLeft: '2px solid var(--ft-surface-container)' }}>
+                          {item.children.map(child => {
+                            const childPct = item.amountPaise > 0 ? Math.round((child.amountPaise / item.amountPaise) * 100) : 0
+                            return (
+                              <div key={child.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: child.color || 'var(--ft-primary)', flexShrink: 0, display: 'inline-block' }} />
+                                  <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ft-on-surface-variant)' }}>{child.name}</span>
+                                </div>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ft-on-surface-variant)' }}>
+                                  {fmt(child.amountPaise)} <span style={{ opacity: 0.5, margin: '0 4px' }}>•</span> {childPct}%
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

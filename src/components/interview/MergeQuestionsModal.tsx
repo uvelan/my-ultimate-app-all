@@ -93,30 +93,30 @@ export default function MergeQuestionsModal({ isOpen, onClose, onSuccess, questi
 
     return (
       <div className="mb-6">
-        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{label}</h4>
+        <h4 className="text-sm font-semibold text-text-secondary mb-2">{label}</h4>
         <div className="grid grid-cols-2 gap-4">
           <div 
             onClick={() => setSelections({...selections, [fieldName]: 'A'})}
-            className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelectedA ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-blue-300'}`}
+            className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelectedA ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-border bg-surface hover:border-blue-300'}`}
           >
             <div className="flex justify-between items-start mb-1">
               <span className="text-xs font-medium text-gray-500">Question A</span>
               {isSelectedA && <Check className="w-4 h-4 text-blue-500" />}
             </div>
-            <div className="text-sm text-gray-800 dark:text-gray-200 break-words whitespace-pre-wrap max-h-32 overflow-y-auto custom-scrollbar">
+            <div className="text-sm text-text-primary break-words whitespace-pre-wrap max-h-32 overflow-y-auto custom-scrollbar">
               {renderVal(valA)}
             </div>
           </div>
           
           <div 
             onClick={() => setSelections({...selections, [fieldName]: 'B'})}
-            className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelectedB ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-purple-300'}`}
+            className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelectedB ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'border-border bg-surface hover:border-purple-300'}`}
           >
             <div className="flex justify-between items-start mb-1">
               <span className="text-xs font-medium text-gray-500">Question B</span>
               {isSelectedB && <Check className="w-4 h-4 text-purple-500" />}
             </div>
-            <div className="text-sm text-gray-800 dark:text-gray-200 break-words whitespace-pre-wrap max-h-32 overflow-y-auto custom-scrollbar">
+            <div className="text-sm text-text-primary break-words whitespace-pre-wrap max-h-32 overflow-y-auto custom-scrollbar">
               {renderVal(valB)}
             </div>
           </div>
@@ -132,12 +132,12 @@ export default function MergeQuestionsModal({ isOpen, onClose, onSuccess, questi
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="w-full max-w-5xl max-h-[90vh] flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl rounded-2xl overflow-hidden"
+          className="w-full max-w-5xl max-h-[90vh] flex flex-col bg-surface border border-border shadow-2xl rounded-2xl overflow-hidden"
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+          <div className="flex items-center justify-between p-6 border-b border-border bg-surface-2">
             <div>
-              <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-text-primary">
                 <GitMerge className="w-5 h-5 text-blue-500" /> Merge Duplicate Questions
               </h2>
               <p className="text-sm text-gray-500 mt-1">
@@ -150,7 +150,7 @@ export default function MergeQuestionsModal({ isOpen, onClose, onSuccess, questi
           </div>
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-2 gap-4 p-4 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <div className="grid grid-cols-2 gap-4 p-4 border-b border-border bg-surface">
              <button 
                 onClick={() => handleSelectAll('A')}
                 className="py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 rounded-lg transition-colors"
@@ -183,11 +183,11 @@ export default function MergeQuestionsModal({ isOpen, onClose, onSuccess, questi
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-border bg-surface">
             <button 
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 bg-surface-2 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
               Cancel
             </button>

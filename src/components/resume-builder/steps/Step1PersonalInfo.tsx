@@ -13,7 +13,7 @@ export function Step1PersonalInfo() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-slate-900">
+    <div className="bg-surface rounded-xl shadow-sm border border-border p-8 text-text-primary">
       <h2 className="text-xl font-bold mb-6">Personal Information</h2>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

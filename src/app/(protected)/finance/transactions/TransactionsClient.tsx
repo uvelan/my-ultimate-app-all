@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useTransition, useMemo, useCallback } from 'react'
-import { addTransaction, updateTransaction, deleteTransaction } from '@/actions/transaction'
+import { addTransaction, updateTransaction, deleteTransaction, addBulkTransactions } from '@/actions/transaction'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { PAYMENT_METHODS } from '@/lib/constants'
 import toast from 'react-hot-toast'
 
-interface Txn {
+export interface Txn {
   id: string
   description: string | null
   amountPaise: number
@@ -18,11 +18,12 @@ interface Txn {
   paymentMethod: string | null
 }
 
-interface Cat {
+export interface Cat {
   id: string
   name: string
   color: string
   type: string
+  parentId?: string | null
 }
 
 interface Props {
@@ -40,33 +41,53 @@ function fmt(paise: number) {
   return '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function TransactionModal({
-  open, onClose, categories, editing,
+export function TransactionModal({
+  open, onClose, categories, editing, defaultDate
 }: {
   open: boolean
   onClose: () => void
   categories: Cat[]
   editing: Txn | null
+  defaultDate?: string
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
+  const [entryMode, setEntryMode] = useState<'single' | 'bulk'>('single')
+  
   const [type, setType] = useState<'INCOME' | 'EXPENSE'>(editing?.type ?? 'EXPENSE')
-  const [amountStr, setAmountStr] = useState(editing ? (editing.amountPaise / 100).toFixed(2) : '')
   const [categoryId, setCategoryId] = useState(editing?.categoryId ?? '')
-  const [description, setDescription] = useState(editing?.description ?? '')
-  const [date, setDate] = useState(editing ? editing.transactionDate.slice(0, 10) : new Date().toISOString().slice(0, 10))
   const [paymentMethod, setPaymentMethod] = useState(editing?.paymentMethod ?? 'Cash')
+
+  const [amountStr, setAmountStr] = useState(editing ? (editing.amountPaise / 100).toFixed(2) : '')
+  const [description, setDescription] = useState(editing?.description ?? '')
+  const [date, setDate] = useState(editing ? editing.transactionDate.slice(0, 10) : (defaultDate ?? new Date().toISOString().slice(0, 10)))
+
+  const [bulkRows, setBulkRows] = useState<{ id: number, amountStr: string, date: string, description: string }[]>([
+    { id: Date.now(), amountStr: '', date: defaultDate ?? new Date().toISOString().slice(0, 10), description: '' }
+  ])
+
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const filteredCats = categories.filter(c => c.type === type || c.type === 'BOTH' || !c.type)
 
   function validate() {
     const errs: Record<string, string> = {}
-    const amtVal = parseFloat(amountStr)
-    if (!amountStr || isNaN(amtVal) || amtVal <= 0) errs.amount = 'Enter a valid positive amount'
     if (!categoryId) errs.category = 'Select a category'
-    if (!date) errs.date = 'Pick a date'
+
+    if (entryMode === 'single') {
+      const amtVal = parseFloat(amountStr)
+      if (!amountStr || isNaN(amtVal) || amtVal <= 0) errs.amount = 'Enter a valid positive amount'
+      if (!date) errs.date = 'Pick a date'
+    } else {
+      bulkRows.forEach((row, i) => {
+        const amtVal = parseFloat(row.amountStr)
+        if (!row.amountStr || isNaN(amtVal) || amtVal <= 0) errs[`amount_${i}`] = 'Invalid amount'
+        if (!row.date) errs[`date_${i}`] = 'Pick a date'
+      })
+      if (bulkRows.length === 0) errs.bulk = 'Add at least one transaction'
+    }
+
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -75,24 +96,35 @@ function TransactionModal({
     e.preventDefault()
     if (!validate()) return
 
-    const amountPaise = Math.round(parseFloat(amountStr) * 100)
-    const payload = {
-      type,
-      amountPaise,
-      categoryId,
-      transactionDate: new Date(date),
-      description: description.trim() || undefined,
-      paymentMethod: paymentMethod || undefined,
-    }
-
     startTransition(async () => {
       try {
-        if (editing) {
-          await updateTransaction(editing.id, payload)
-          toast.success('Transaction updated')
+        if (entryMode === 'single') {
+          const payload = {
+            type,
+            amountPaise: Math.round(parseFloat(amountStr) * 100),
+            categoryId,
+            transactionDate: new Date(date),
+            description: description.trim() || undefined,
+            paymentMethod,
+          }
+          if (editing) {
+            await updateTransaction(editing.id, payload)
+            toast.success('Transaction updated')
+          } else {
+            await addTransaction(payload)
+            toast.success('Transaction added')
+          }
         } else {
-          await addTransaction(payload)
-          toast.success('Transaction added')
+          const payloads = bulkRows.map(row => ({
+            type,
+            amountPaise: Math.round(parseFloat(row.amountStr) * 100),
+            categoryId,
+            transactionDate: new Date(row.date),
+            description: row.description.trim() || undefined,
+            paymentMethod,
+          }))
+          await addBulkTransactions(payloads)
+          toast.success(`${payloads.length} transactions added`)
         }
         router.refresh()
         onClose()
@@ -113,8 +145,9 @@ function TransactionModal({
       >
         {/* Modal */}
         <div
+          className="no-scrollbar"
           onClick={e => e.stopPropagation()}
-          style={{ background: 'var(--ft-surface)', borderRadius: 24, width: '100%', maxWidth: 480, boxShadow: '0 24px 80px rgba(4,27,60,0.2)', overflow: 'hidden', animation: 'slideUp 0.25s ease' }}
+          style={{ background: 'var(--ft-surface)', borderRadius: 24, width: '100%', maxWidth: entryMode === 'bulk' ? 560 : 480, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(4,27,60,0.2)', animation: 'slideUp 0.25s ease', transition: 'max-width 0.3s' }}
         >
           <style>{`@keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }`}</style>
 
@@ -129,6 +162,19 @@ function TransactionModal({
           </div>
 
           <form onSubmit={handleSubmit} style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 18 }}>
+            
+            {!editing && (
+              <div style={{ display: 'flex', gap: 16, marginBottom: 4 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ft-on-surface)', cursor: 'pointer' }}>
+                  <input type="radio" checked={entryMode === 'single'} onChange={() => setEntryMode('single')} />
+                  Single Entry
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ft-on-surface)', cursor: 'pointer' }}>
+                  <input type="radio" checked={entryMode === 'bulk'} onChange={() => setEntryMode('bulk')} />
+                  Bulk Entry (Multiple Rows)
+                </label>
+              </div>
+            )}
 
             {/* Type Toggle */}
             <div style={{ display: 'flex', background: 'var(--ft-surface-container)', borderRadius: 14, padding: 4, gap: 4 }}>
@@ -148,54 +194,127 @@ function TransactionModal({
               ))}
             </div>
 
-            {/* Amount */}
-            <div>
-              <label style={labelStyle}>Amount (₹)</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, fontWeight: 700, color: 'var(--ft-on-surface-variant)' }}>₹</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={amountStr}
-                  onChange={e => setAmountStr(e.target.value)}
-                  placeholder="0.00"
-                  style={{ ...inputStyle, paddingLeft: 32, fontFamily: 'Geist, Inter, sans-serif', fontSize: 18, fontWeight: 700, color: 'var(--ft-primary)' }}
-                />
+            {/* Shared Fields: Category & Payment Method */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <label style={labelStyle}>Category</label>
+                <select value={categoryId} onChange={e => setCategoryId(e.target.value)} style={inputStyle}>
+                  <option value="">Select category…</option>
+                  {(() => {
+                    const topLevel = filteredCats.filter(c => !c.parentId);
+                    return topLevel.map(parent => {
+                      const children = filteredCats.filter(c => c.parentId === parent.id);
+                      if (children.length === 0) {
+                        return <option key={parent.id} value={parent.id}>{parent.name}</option>;
+                      }
+                      return (
+                        <optgroup key={parent.id} label={parent.name}>
+                          <option value={parent.id}>{parent.name} (General)</option>
+                          {children.map(child => (
+                            <option key={child.id} value={child.id}>{child.name}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    });
+                  })()}
+                </select>
+                {errors.category && <p style={errStyle}>{errors.category}</p>}
               </div>
-              {errors.amount && <p style={errStyle}>{errors.amount}</p>}
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <label style={labelStyle}>Payment Method</label>
+                <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={inputStyle}>
+                  {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
             </div>
 
-            {/* Category */}
-            <div>
-              <label style={labelStyle}>Category</label>
-              <select value={categoryId} onChange={e => setCategoryId(e.target.value)} style={inputStyle}>
-                <option value="">Select category…</option>
-                {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              {errors.category && <p style={errStyle}>{errors.category}</p>}
-            </div>
-
-            {/* Date */}
-            <div>
-              <label style={labelStyle}>Date</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
-              {errors.date && <p style={errStyle}>{errors.date}</p>}
-            </div>
-
-            {/* Description */}
-            <div>
-              <label style={labelStyle}>Description <span style={{ color: 'var(--ft-outline)', fontWeight: 400 }}>(optional)</span></label>
-              <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Grocery shopping, Salary…" style={inputStyle} maxLength={500} />
-            </div>
-
-            {/* Payment Method */}
-            <div>
-              <label style={labelStyle}>Payment Method</label>
-              <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={inputStyle}>
-                {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
+            {entryMode === 'single' ? (
+              <>
+                {/* Single Entry Fields */}
+                <div>
+                  <label style={labelStyle}>Amount (₹)</label>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, fontWeight: 700, color: 'var(--ft-on-surface-variant)' }}>₹</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={amountStr}
+                      onChange={e => setAmountStr(e.target.value)}
+                      placeholder="0.00"
+                      style={{ ...inputStyle, paddingLeft: 32, fontFamily: 'Geist, Inter, sans-serif', fontSize: 18, fontWeight: 700, color: 'var(--ft-primary)' }}
+                    />
+                  </div>
+                  {errors.amount && <p style={errStyle}>{errors.amount}</p>}
+                </div>
+                <div>
+                  <label style={labelStyle}>Date</label>
+                  <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
+                  {errors.date && <p style={errStyle}>{errors.date}</p>}
+                </div>
+                <div>
+                  <label style={labelStyle}>Description <span style={{ color: 'var(--ft-outline)', fontWeight: 400 }}>(optional)</span></label>
+                  <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Grocery shopping, Salary…" style={inputStyle} maxLength={500} />
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Bulk Entry Fields */}
+                <div style={{ borderTop: '1px solid var(--ft-surface-container)', paddingTop: 16 }}>
+                  <label style={{ ...labelStyle, marginBottom: 12 }}>Transaction Rows</label>
+                  {errors.bulk && <p style={errStyle}>{errors.bulk}</p>}
+                  
+                  {bulkRows.map((row, i) => (
+                    <div key={row.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12, background: 'var(--ft-surface-low)', padding: 12, borderRadius: 12 }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <input type="number" step="0.01" min="0.01" value={row.amountStr} placeholder="Amount"
+                              onChange={e => {
+                                const newRows = [...bulkRows]
+                                newRows[i].amountStr = e.target.value
+                                setBulkRows(newRows)
+                              }}
+                              style={{ ...inputStyle, padding: '8px 12px', fontSize: 13 }} />
+                            {errors[`amount_${i}`] && <span style={{ fontSize: 10, color: 'var(--ft-error)' }}>{errors[`amount_${i}`]}</span>}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <input type="date" value={row.date}
+                              onChange={e => {
+                                const newRows = [...bulkRows]
+                                newRows[i].date = e.target.value
+                                setBulkRows(newRows)
+                              }}
+                              style={{ ...inputStyle, padding: '8px 12px', fontSize: 13 }} />
+                            {errors[`date_${i}`] && <span style={{ fontSize: 10, color: 'var(--ft-error)' }}>{errors[`date_${i}`]}</span>}
+                          </div>
+                        </div>
+                        <div>
+                          <input type="text" value={row.description} placeholder="Description (optional)"
+                            onChange={e => {
+                              const newRows = [...bulkRows]
+                              newRows[i].description = e.target.value
+                              setBulkRows(newRows)
+                            }}
+                            style={{ ...inputStyle, padding: '8px 12px', fontSize: 13 }} />
+                        </div>
+                      </div>
+                      {bulkRows.length > 1 && (
+                        <button type="button" onClick={() => setBulkRows(bulkRows.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ft-error)', padding: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  <button type="button" onClick={() => setBulkRows([...bulkRows, { id: Date.now(), amountStr: '', date: defaultDate ?? new Date().toISOString().slice(0, 10), description: '' }])}
+                    style={{ background: 'var(--ft-surface-container)', color: 'var(--ft-on-surface)', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                    Add another row
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Actions */}
             <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
@@ -211,7 +330,7 @@ function TransactionModal({
                 disabled={isPending}
                 style={{ flex: 2, padding: '12px 0', borderRadius: 12, border: 'none', background: 'var(--ft-primary)', cursor: isPending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, color: '#fff', opacity: isPending ? 0.7 : 1, transition: 'all 0.2s' }}
               >
-                {isPending ? 'Saving…' : editing ? 'Save Changes' : 'Add Transaction'}
+                {isPending ? 'Saving…' : entryMode === 'bulk' ? `Save ${bulkRows.length} Transactions` : editing ? 'Save Changes' : 'Add Transaction'}
               </button>
             </div>
           </form>
@@ -326,7 +445,7 @@ export default function TransactionsClient({ initialTransactions, categories, to
 
   return (
     <>
-      <TransactionModal open={modalOpen} onClose={closeModal} categories={categories} editing={editingTxn} />
+      {modalOpen && <TransactionModal open={modalOpen} onClose={closeModal} categories={categories} editing={editingTxn} />}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 

@@ -56,7 +56,7 @@
 }
 
 /* Light Mode Overrides (Stitch Light) */
-.theme-light {
+.light {
   --color-bg:        #ffffff;
   --color-surface:   #f4f4f5;
   --color-surface-2: #e4e4e7;

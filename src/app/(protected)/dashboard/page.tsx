@@ -64,12 +64,13 @@ export default function DashboardPage() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-space-6 pb-space-8 w-full">
-                            {apps.map((app) => (
+                            {apps.map((app, index) => (
                                 <AppCard
                                     key={app.id}
                                     name={app.name}
                                     description={app.description}
                                     image={app.imageLink}
+                                    priority={index < 8}
                                     onClick={() => handleAppClick(app)}
                                 />
                             ))}

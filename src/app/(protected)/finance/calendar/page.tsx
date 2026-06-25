@@ -32,6 +32,7 @@ export default async function CalendarPage(props: { searchParams: Promise<{ mont
     <CalendarClient
       initialYear={targetYear}
       initialMonth={targetMonth}
+      categories={categories.map(c => ({ id: c.id, name: c.name, color: c.color, type: c.type }))}
       transactions={transactions.map(t => ({
         id: t.id,
         description: t.description,
@@ -40,7 +41,8 @@ export default async function CalendarPage(props: { searchParams: Promise<{ mont
         transactionDate: t.transactionDate.toISOString(),
         categoryId: t.categoryId,
         categoryName: t.category.name,
-        categoryColor: (t.category as any).color || '#888'
+        categoryColor: (t.category as any).color || '#888',
+        paymentMethod: t.paymentMethod || 'Cash'
       }))}
     />
   )

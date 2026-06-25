@@ -63,7 +63,7 @@ export function LeftPanel() {
                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-[13px] font-medium transition-all text-left group",
                 isActive 
                   ? "bg-[#d4af37]/10 text-[#d4af37]" 
-                  : "text-[#d0c5af] hover:bg-white/5 hover:text-[#e5e2e1]"
+                  : "text-[#d0c5af] hover:bg-surface/5 hover:text-[#e5e2e1]"
               )}
             >
               <Icon size={16} className={isActive ? "text-[#d4af37]" : "text-[#99907c] group-hover:text-[#d0c5af] transition-colors"} />
@@ -132,7 +132,7 @@ export function LeftPanel() {
         <div className="flex items-center gap-4">
           <div className="flex items-center justify-center relative w-12 h-12">
             <svg className="w-12 h-12 transform -rotate-90">
-              <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-slate-800" />
+              <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-text-primary" />
               {hasAtsScore && (
                 <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="3" fill="transparent" 
                   strokeDasharray="125.6" strokeDashoffset={125.6 * (1 - (atsScore / 100))} className="text-emerald-500 transition-all duration-1000" />
@@ -143,7 +143,7 @@ export function LeftPanel() {
             </div>
           </div>
           <div className="flex-1">
-            <div className="text-[10px] text-slate-400 tracking-wide">Optimization</div>
+            <div className="text-[10px] text-text-muted tracking-wide">Optimization</div>
             <div className={cn(
               "text-xs font-semibold",
               !hasAtsScore ? "text-[#99907c]" :

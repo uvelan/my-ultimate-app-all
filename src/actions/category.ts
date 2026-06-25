@@ -10,7 +10,8 @@ const CategorySchema = z.object({
   name: z.string().min(1, 'Name is required'),
   color: z.string(),
   type: z.nativeEnum(TransactionType),
-  isArchived: z.boolean().default(false)
+  isArchived: z.boolean().default(false),
+  parentId: z.string().optional().nullable()
 })
 
 export async function getCategories(includeArchived = false) {

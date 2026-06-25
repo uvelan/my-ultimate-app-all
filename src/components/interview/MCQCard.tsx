@@ -20,7 +20,7 @@ export default function MCQCard({ mcq }: { mcq: MCQType }) {
       if (selected === idx) {
         return 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500/40 shadow-md';
       }
-      return 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 hover:border-blue-400 hover:bg-blue-50/40 dark:hover:border-blue-500 dark:hover:bg-blue-900/20';
+      return 'border-border bg-surface hover:border-blue-400 hover:bg-blue-50/40 dark:hover:border-blue-500 dark:hover:bg-blue-900/20';
     }
     if (idx === mcq.correctAnswerIndex) {
       return 'border-green-500 bg-green-50 dark:bg-green-900/30 shadow-sm';
@@ -28,13 +28,13 @@ export default function MCQCard({ mcq }: { mcq: MCQType }) {
     if (selected === idx && !isCorrect) {
       return 'border-red-400 bg-red-50 dark:bg-red-900/30 shadow-sm';
     }
-    return 'border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/30 opacity-50';
+    return 'border-border bg-white/50 bg-surface-2/30 opacity-50';
   };
 
   const getOptionTextStyle = (idx: number) => {
     if (!submitted) {
       if (selected === idx) return 'text-blue-700 dark:text-blue-300 font-medium';
-      return 'text-gray-800 dark:text-gray-200';
+      return 'text-text-primary';
     }
     if (idx === mcq.correctAnswerIndex) return 'text-green-800 dark:text-green-200 font-semibold';
     if (selected === idx && !isCorrect) return 'text-red-800 dark:text-red-200';
@@ -43,7 +43,7 @@ export default function MCQCard({ mcq }: { mcq: MCQType }) {
 
   const getLetterBadge = (idx: number) => {
     const letters = ['A', 'B', 'C', 'D'];
-    let badgeStyle = 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300';
+    let badgeStyle = 'bg-gray-100 dark:bg-gray-700 text-text-muted';
     if (!submitted && selected === idx) badgeStyle = 'bg-blue-500 text-white';
     if (submitted && idx === mcq.correctAnswerIndex) badgeStyle = 'bg-green-500 text-white';
     if (submitted && selected === idx && !isCorrect) badgeStyle = 'bg-red-500 text-white';
@@ -55,10 +55,10 @@ export default function MCQCard({ mcq }: { mcq: MCQType }) {
   };
 
   return (
-    <div className="p-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm rounded-[1.5rem]">
+    <div className="p-6 bg-surface border border-border shadow-sm rounded-[1.5rem]">
       <div className="flex items-start gap-3 mb-5">
         <span className="shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center bg-blue-600 text-white text-xs font-bold rounded-full">Q</span>
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white leading-snug">
+        <h3 className="text-base font-semibold text-text-primary leading-snug">
           {mcq.question}
         </h3>
       </div>
@@ -109,7 +109,7 @@ export default function MCQCard({ mcq }: { mcq: MCQType }) {
                   {isCorrect ? '✓ Correct!' : '✗ Incorrect'}
                 </h4>
               </div>
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              <p className="text-sm text-text-secondary leading-relaxed">
                 {mcq.explanation}
               </p>
             </div>

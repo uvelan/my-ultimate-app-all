@@ -20,7 +20,7 @@ export default function CodePlayground({ initialCode, language }: CodePlayground
   };
 
   return (
-    <div className="overflow-hidden border border-gray-200 dark:border-gray-800 rounded-xl bg-[#1e1e1e]">
+    <div className="overflow-hidden border border-border rounded-xl bg-[#1e1e1e]">
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-[#2d2d2d]">
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5">

@@ -31,7 +31,7 @@ export function Step6Projects() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#e5e2e1] mb-1">Projects</h2>
-          <p className="text-sm text-slate-500">Showcase your key projects, side-hustles, or open-source contributions.</p>
+          <p className="text-sm text-text-muted">Showcase your key projects, side-hustles, or open-source contributions.</p>
         </div>
       </div>
 
@@ -45,16 +45,17 @@ export function Step6Projects() {
                     <div 
                       ref={provided.innerRef} 
                       {...provided.draggableProps}
-                      className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
+                        style={provided.draggableProps.style as React.CSSProperties}
+                      className="bg-surface rounded-xl shadow-sm border border-border overflow-hidden"
                     >
-                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-3">
-                        <div {...provided.dragHandleProps} className="text-slate-400 hover:text-slate-600 cursor-grab">
+                      <div className="bg-surface-2 px-4 py-3 border-b border-border flex items-center gap-3">
+                        <div {...provided.dragHandleProps} className="text-text-muted hover:text-text-muted cursor-grab">
                           <GripVertical size={18} />
                         </div>
-                        <span className="font-semibold text-slate-700 flex-1">
+                        <span className="font-semibold text-text-secondary flex-1">
                           {proj.name || 'New Project'}
                         </span>
-                        <button onClick={() => removeProject(proj.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <button onClick={() => removeProject(proj.id)} className="text-text-muted hover:text-red-500 transition-colors">
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -106,7 +107,7 @@ export function Step6Projects() {
 
       <Button 
         variant="outline" 
-        className="w-full py-6 border-dashed border-2 text-slate-600 hover:text-indigo-600 hover:border-indigo-600 hover:bg-indigo-50 transition-colors"
+        className="w-full py-6 border-dashed border-2 text-text-muted hover:text-indigo-600 hover:border-indigo-600 hover:bg-indigo-50 transition-colors"
         onClick={handleAdd}
       >
         <Plus className="mr-2" size={18} />

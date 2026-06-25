@@ -48,8 +48,18 @@ export async function POST(req: Request) {
             const modelName = model.name;
             const delegateName = modelName.charAt(0).toLowerCase() + modelName.slice(1);
             
-            const records = dump[modelName];
+            let records = dump[modelName];
             if (!records || !Array.isArray(records) || records.length === 0) continue;
+
+            // Sort self-referencing records so parents are inserted before children
+            // to avoid Prisma foreign key constraint errors
+            if (modelName === 'Category') {
+                records.sort((a, b) => {
+                    if (a.parentId && !b.parentId) return 1;
+                    if (!a.parentId && b.parentId) return -1;
+                    return 0;
+                });
+            }
 
             if (mode === 'REPLACE') {
                 // Bulk insert

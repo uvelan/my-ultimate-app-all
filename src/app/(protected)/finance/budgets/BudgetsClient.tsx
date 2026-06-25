@@ -17,7 +17,7 @@ interface Budget {
   spentPaise: number
 }
 
-interface Cat { id: string; name: string; color: string }
+interface Cat { id: string; name: string; color: string; parentId?: string | null }
 
 interface Props {
   month: string
@@ -91,7 +91,23 @@ function BudgetModal({ open, onClose, categories, month, editing }: {
               <label style={lbl}>Category</label>
               <select value={categoryId} onChange={e => setCategoryId(e.target.value)} style={inp} disabled={!!editing}>
                 <option value="">Select expense category…</option>
-                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {(() => {
+                  const topLevel = categories.filter(c => !c.parentId);
+                  return topLevel.map(parent => {
+                    const children = categories.filter(c => c.parentId === parent.id);
+                    if (children.length === 0) {
+                      return <option key={parent.id} value={parent.id}>{parent.name}</option>;
+                    }
+                    return (
+                      <optgroup key={parent.id} label={parent.name}>
+                        <option value={parent.id}>{parent.name} (General)</option>
+                        {children.map(child => (
+                          <option key={child.id} value={child.id}>{child.name}</option>
+                        ))}
+                      </optgroup>
+                    );
+                  });
+                })()}
               </select>
             </div>
           ) : (
@@ -158,7 +174,7 @@ export default function BudgetsClient({ month, budgets, categories, currentMonth
 
   return (
     <>
-      <BudgetModal open={modalOpen} onClose={() => setModalOpen(false)} categories={categories} month={month} editing={editing} />
+      {modalOpen && <BudgetModal open={modalOpen} onClose={() => setModalOpen(false)} categories={categories} month={month} editing={editing} />}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 

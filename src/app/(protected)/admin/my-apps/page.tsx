@@ -147,6 +147,27 @@ export default function AdminAppsPage() {
         setShowModal(false);
     };
 
+    const handlePaste = (e: React.ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                if (file) {
+                    setImageFile(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setFormData(prev => ({ ...prev, imageLink: reader.result as string }));
+                    };
+                    reader.readAsDataURL(file);
+                    e.preventDefault(); // Prevent pasting the image representation as text if inside an input
+                    return; // Stop after first image
+                }
+            }
+        }
+    };
+
     return (
         <ProtectedRoute adminOnly>
             <DashboardLayout>
@@ -265,7 +286,7 @@ export default function AdminAppsPage() {
                         title={editingId ? 'Edit Application' : 'Add New Application'}
                         description="Configure the metadata and links for an application in the system."
                     >
-                        <form onSubmit={handleSubmit} className="space-y-space-4 pt-space-4">
+                        <form onSubmit={handleSubmit} onPaste={handlePaste} className="space-y-space-4 pt-space-4">
                             <Grid cols={{ sm: 1, md: 2 }} gap="space-4">
                                 <Input
                                     label="App Name"
@@ -296,12 +317,15 @@ export default function AdminAppsPage() {
                                                 <Globe size={18} />
                                             </div>
                                         )}
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={handleImageUpload}
-                                            className="text-sm text-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
-                                        />
+                                        <div className="flex flex-col gap-1">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleImageUpload}
+                                                className="text-sm text-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                            />
+                                            <span className="text-[10px] text-text-muted">Or just press <strong>Ctrl+V</strong> anywhere to paste an image.</span>
+                                        </div>
                                     </div>
                                 </div>
                             </Grid>

@@ -59,7 +59,7 @@ export function ResumePreview() {
   }
 
   return (
-    <div className="w-full h-full bg-white relative">
+    <div className="w-full h-full bg-surface relative">
       <TemplateComponent data={previewData} customization={previewData.meta.customization} />
     </div>
   );

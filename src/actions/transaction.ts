@@ -12,7 +12,7 @@ const TransactionSchema = z.object({
   categoryId: z.string().min(1, 'Category is required'),
   transactionDate: z.date(),
   description: z.string().max(500, 'Description too long').optional(),
-  paymentMethod: z.string().optional()
+  paymentMethod: z.string()
 })
 
 type TransactionInput = z.infer<typeof TransactionSchema>
@@ -75,12 +75,33 @@ export async function addTransaction(data: TransactionInput) {
     const newTxn = await prisma.transaction.create({
         data: {
             ...validatedData,
-            userId: user.id
+            userId: user.id,
+            deletedAt: null
         },
         include: { category: true }
     })
     revalidatePath('/finance', 'layout')
     return newTxn
+}
+
+export async function addBulkTransactions(data: TransactionInput[]) {
+    const { isAuthenticated, user } = await verifyAuth()
+    if (!isAuthenticated || !user) throw new Error('Unauthorized')
+
+    const validatedData = z.array(TransactionSchema).parse(data)
+
+    const newTxns = await prisma.$transaction(
+        validatedData.map(txn => prisma.transaction.create({
+            data: {
+                ...txn,
+                userId: user.id,
+                deletedAt: null
+            },
+            include: { category: true }
+        }))
+    )
+    revalidatePath('/finance', 'layout')
+    return newTxns
 }
 
 export async function updateTransaction(id: string, data: Partial<TransactionInput>) {
@@ -150,6 +171,18 @@ export async function getDashboardAggregates(startDate: Date, endDate: Date) {
         if (!dailyCashFlow[dateStr]) dailyCashFlow[dateStr] = { income: 0, expense: 0 }
         if (t.type === 'INCOME') dailyCashFlow[dateStr].income += t.amountPaise
         else dailyCashFlow[dateStr].expense += t.amountPaise
+    }
+
+    // Rollup child category spending into parents
+    const categories = await prisma.category.findMany({ where: { userId: user.id } })
+    const parentMap = new Map(categories.map(c => [c.id, c.parentId]))
+    for (const catId of Object.keys(categorySpending)) {
+        const parentId = parentMap.get(catId)
+        if (parentId) {
+            categorySpending[parentId] = (categorySpending[parentId] || 0) + categorySpending[catId]
+            // We also need to roll up methodCategorySpending for accuracy if a parent budget is set by method?
+            // Actually, methodCategorySpending is not used for budgets right now (budgets are either by category OR by method).
+        }
     }
 
     return {

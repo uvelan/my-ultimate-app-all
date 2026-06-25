@@ -111,7 +111,7 @@ export function StickyActionBar() {
         <button 
           onClick={handleSave}
           disabled={isSaving}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-[#d0c5af] hover:bg-white/5 transition-all disabled:opacity-50"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-[#d0c5af] hover:bg-surface/5 transition-all disabled:opacity-50"
         >
           {isSaving ? (
             <Loader2 size={16} className="animate-spin" />
@@ -126,7 +126,7 @@ export function StickyActionBar() {
         <button 
           onClick={() => fetchAtsScore(data)}
           disabled={isScoring}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-[#d0c5af] hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-[#d0c5af] hover:bg-surface/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isScoring ? <Loader2 size={16} className="text-[#6366F1] animate-spin" /> : <CheckCircle2 size={16} className="text-[#6366F1]" />}
           {isScoring ? 'Scanning...' : 'ATS Analysis'}
@@ -137,7 +137,7 @@ export function StickyActionBar() {
           )}
         </button>
 
-        <div className="w-[1px] h-6 bg-white/10 mx-2" />
+        <div className="w-[1px] h-6 bg-surface/10 mx-2" />
 
         <button 
           onClick={handleAIImprove}
@@ -160,7 +160,7 @@ export function StickyActionBar() {
           <div className="absolute bottom-full right-0 mb-2 w-48 bg-[#1c1b1b] border border-white/10 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
             <button 
               onClick={() => window.print()}
-              className="w-full text-left px-4 py-2.5 text-[13px] text-white hover:bg-white/5 rounded-t-lg transition-colors"
+              className="w-full text-left px-4 py-2.5 text-[13px] text-white hover:bg-surface/5 rounded-t-lg transition-colors"
             >
               Standard Export
             </button>
@@ -172,7 +172,7 @@ export function StickyActionBar() {
                   setMaskingEnabled(false);
                 }, 100);
               }}
-              className="w-full text-left px-4 py-2.5 text-[13px] text-[#f2ca50] hover:bg-white/5 rounded-b-lg transition-colors"
+              className="w-full text-left px-4 py-2.5 text-[13px] text-[#f2ca50] hover:bg-surface/5 rounded-b-lg transition-colors"
             >
               Masked Export (Hide Info)
             </button>
@@ -182,7 +182,7 @@ export function StickyActionBar() {
       
       <button 
         onClick={() => setActionBarMinimized(true)}
-        className="text-[#99907c] hover:text-white p-2 rounded-md hover:bg-white/5 transition-colors"
+        className="text-[#99907c] hover:text-white p-2 rounded-md hover:bg-surface/5 transition-colors"
         title="Minimize Action Bar"
       >
         <PanelBottomClose size={18} />

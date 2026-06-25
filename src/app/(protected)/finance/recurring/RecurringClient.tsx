@@ -74,7 +74,7 @@ export default function RecurringClient({ recurring, categories }: Props) {
         amountPaise: Math.round(amt * 100),
         categoryId,
         description,
-        paymentMethod: paymentMethod || undefined,
+        paymentMethod: paymentMethod,
         frequency,
         startDate: new Date(startDate),
         isActive
@@ -148,8 +148,8 @@ export default function RecurringClient({ recurring, categories }: Props) {
               {r.description && <div style={{ fontSize: 13, color: 'var(--ft-on-surface-variant)', marginBottom: 12 }}>{r.description}</div>}
               
               <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--ft-outline-variant)', fontSize: 12, color: 'var(--ft-on-surface-variant)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Started: {new Date(r.startDate).toLocaleDateString()}</span>
-                {r.lastProcessed && <span>Last: {new Date(r.lastProcessed).toLocaleDateString()}</span>}
+                <span>Started: {new Date(r.startDate).toLocaleDateString('en-IN')}</span>
+                {r.lastProcessed && <span>Last: {new Date(r.lastProcessed).toLocaleDateString('en-IN')}</span>}
               </div>
             </div>
           )
@@ -158,7 +158,7 @@ export default function RecurringClient({ recurring, categories }: Props) {
 
       {modalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div className="ft-glass" style={{ width: '100%', maxWidth: 400, borderRadius: 24, padding: 32, background: 'var(--ft-surface)' }}>
+          <div className="ft-glass no-scrollbar" style={{ width: '100%', maxWidth: 400, borderRadius: 24, padding: 32, background: 'var(--ft-surface)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 24, color: 'var(--ft-on-surface)' }}>
               {editingId ? 'Edit Recurring' : 'New Recurring'}
             </h2>
@@ -194,7 +194,23 @@ export default function RecurringClient({ recurring, categories }: Props) {
                   style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid var(--ft-outline)', background: 'var(--ft-surface-container)', color: 'var(--ft-on-surface)', fontSize: 14, fontWeight: 600, outline: 'none' }}
                 >
                   <option value="">Select category...</option>
-                  {typeCategories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {(() => {
+                    const topLevel = typeCategories.filter((c: any) => !c.parentId);
+                    return topLevel.map((parent: any) => {
+                      const children = typeCategories.filter((c: any) => c.parentId === parent.id);
+                      if (children.length === 0) {
+                        return <option key={parent.id} value={parent.id}>{parent.name}</option>;
+                      }
+                      return (
+                        <optgroup key={parent.id} label={parent.name}>
+                          <option value={parent.id}>{parent.name} (General)</option>
+                          {children.map((child: any) => (
+                            <option key={child.id} value={child.id}>{child.name}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    });
+                  })()}
                 </select>
               </div>
 
@@ -235,7 +251,7 @@ export default function RecurringClient({ recurring, categories }: Props) {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--ft-on-surface-variant)', marginBottom: 6 }}>Payment Method (Optional)</label>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--ft-on-surface-variant)', marginBottom: 6 }}>Payment Method</label>
                 <select 
                   value={paymentMethod} 
                   onChange={e => setPaymentMethod(e.target.value)} 
@@ -266,8 +282,8 @@ export default function RecurringClient({ recurring, categories }: Props) {
               >Cancel</button>
               <button 
                 onClick={handleSave} 
-                disabled={loading || !amountInput || !categoryId || !startDate}
-                style={{ flex: 2, padding: '14px', borderRadius: 12, border: 'none', background: 'var(--ft-primary)', color: '#fff', fontWeight: 700, cursor: (!amountInput || !categoryId || !startDate) ? 'not-allowed' : 'pointer', opacity: (!amountInput || !categoryId || !startDate) ? 0.5 : 1 }}
+                disabled={loading || !amountInput || !categoryId || !startDate || !paymentMethod}
+                style={{ flex: 2, padding: '14px', borderRadius: 12, border: 'none', background: 'var(--ft-primary)', color: '#fff', fontWeight: 700, cursor: (!amountInput || !categoryId || !startDate || !paymentMethod) ? 'not-allowed' : 'pointer', opacity: (!amountInput || !categoryId || !startDate || !paymentMethod) ? 0.5 : 1 }}
               >
                 {loading ? 'Saving...' : 'Save'}
               </button>

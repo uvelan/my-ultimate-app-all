@@ -57,11 +57,11 @@ export default function RegenerateAIModal({ isOpen, onClose, questionId, questio
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="w-full max-w-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl rounded-2xl overflow-hidden"
+          className="w-full max-w-lg bg-surface border border-border shadow-2xl rounded-2xl overflow-hidden"
         >
-          <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-purple-50/50 to-fuchsia-50/50 dark:from-purple-900/10 dark:to-fuchsia-900/10">
+          <div className="flex items-center justify-between p-6 border-b border-border bg-gradient-to-r from-purple-50/50 to-fuchsia-50/50 dark:from-purple-900/10 dark:to-fuchsia-900/10">
             <div>
-              <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-text-primary">
                 <RefreshCw className="w-5 h-5 text-purple-600 dark:text-purple-400" /> Regenerate Question
               </h2>
               <p className="text-sm text-gray-500 mt-1">
@@ -75,19 +75,19 @@ export default function RegenerateAIModal({ isOpen, onClose, questionId, questio
 
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Question</label>
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 font-medium">
+              <label className="block text-sm font-medium text-text-secondary mb-1">Target Question</label>
+              <div className="p-3 bg-surface-2 rounded-lg text-sm text-text-secondary border border-border font-medium">
                 {questionTitle}
               </div>
             </div>
 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 flex-1 mr-4">
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Model:</label>
+                <label className="text-sm font-medium text-text-muted">Model:</label>
                 <select 
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  className="px-3 py-1.5 w-full bg-gray-100 dark:bg-gray-800 border border-transparent rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-1.5 w-full bg-surface-2 border border-transparent rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="">Default Selection</option>
                   {models.map(m => (

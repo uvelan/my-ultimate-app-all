@@ -92,7 +92,7 @@ export function StitchPremium({ data, customization }: TemplateProps) {
                     <div className="pl-4">
                       <div className="flex justify-between items-baseline mb-1">
                         <h4 className="font-bold text-[13px]" style={{ color: primaryText }}>{exp.position}</h4>
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">
+                        <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1">
                           {formatMonthYear(exp.startDate)} — {exp.isCurrent ? 'Present' : formatMonthYear(exp.endDate)}
                         </span>
                       </div>
@@ -128,10 +128,10 @@ export function StitchPremium({ data, customization }: TemplateProps) {
             <div className="flex flex-col gap-4">
               {skills?.languages?.length > 0 && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Programming Languages</h4>
+                  <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1">Programming Languages</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.languages.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-gray-700 font-medium">
+                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-text-secondary font-medium">
                         {skill}
                       </span>
                     ))}
@@ -140,10 +140,10 @@ export function StitchPremium({ data, customization }: TemplateProps) {
               )}
               {skills?.technical?.length > 0 && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Technical Skills</h4>
+                  <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1">Technical Skills</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.technical.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-gray-700 font-medium">
+                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-text-secondary font-medium">
                         {skill}
                       </span>
                     ))}
@@ -152,10 +152,10 @@ export function StitchPremium({ data, customization }: TemplateProps) {
               )}
               {skills?.frameworks?.length > 0 && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Frameworks & Libraries</h4>
+                  <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1">Frameworks & Libraries</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.frameworks.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-gray-700 font-medium">
+                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-text-secondary font-medium">
                         {skill}
                       </span>
                     ))}
@@ -164,10 +164,10 @@ export function StitchPremium({ data, customization }: TemplateProps) {
               )}
               {skills?.tools?.length > 0 && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Tools & Platforms</h4>
+                  <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1">Tools & Platforms</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.tools.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-gray-700 font-medium">
+                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-text-secondary font-medium">
                         {skill}
                       </span>
                     ))}
@@ -176,10 +176,10 @@ export function StitchPremium({ data, customization }: TemplateProps) {
               )}
               {skills?.platforms?.length > 0 && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Cloud & Infrastructure</h4>
+                  <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1">Cloud & Infrastructure</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.platforms.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-gray-700 font-medium">
+                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-text-secondary font-medium">
                         {skill}
                       </span>
                     ))}
@@ -188,10 +188,10 @@ export function StitchPremium({ data, customization }: TemplateProps) {
               )}
               {skills?.soft?.length > 0 && (
                 <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Soft Skills</h4>
+                  <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-1">Soft Skills</h4>
                   <div className="flex flex-wrap gap-1.5">
                     {skills.soft.map(skill => (
-                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-gray-700 font-medium">
+                      <span key={skill} className="px-2 py-0.5 bg-gray-50 border border-gray-200 rounded-sm text-text-secondary font-medium">
                         {skill}
                       </span>
                     ))}
@@ -230,7 +230,7 @@ export function StitchPremium({ data, customization }: TemplateProps) {
                   <div key={edu.id}>
                     <div className="font-bold text-[11px] mb-0.5" style={{ color: primaryText }}>{edu.degree}</div>
                     <div className="text-[10px]" style={{ color: secondaryText }}>{edu.institution}</div>
-                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">
+                    <div className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1">
                       {formatMonthYear(edu.graduationDate)}
                     </div>
                   </div>

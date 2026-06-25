@@ -5,7 +5,7 @@ import { LeftPanel } from './LeftPanel';
 import { RightPanel } from './RightPanel';
 import { StickyActionBar } from '../shared/StickyActionBar';
 import { StepProgress } from '../shared/StepProgress';
-import { ArrowLeft, Edit2, Zap, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Edit2, Zap, ChevronDown, Eye, X } from 'lucide-react';
 import Link from 'next/link';
 import { useResumeStore } from '@/store/resume-builder/resumeStore';
 import { useUiStore } from '@/store/resume-builder/uiStore';
@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 export function BuilderShell({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  const [showMobilePreview, setShowMobilePreview] = useState(false);
   const { data, activeAiModel, setActiveAiModel } = useResumeStore();
   const { isActionBarMinimized } = useUiStore();
   const [aiModels, setAiModels] = useState<any[]>([]);
@@ -42,7 +43,7 @@ export function BuilderShell({ children }: { children: ReactNode }) {
   const formattedDate = new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#050505] font-sans text-[#e5e2e1] print:bg-white">
+    <div className="flex flex-col h-full w-full bg-[#050505] font-sans text-[#e5e2e1] print:bg-surface">
       {/* Top Nav (56px) */}
       <header className="print:hidden h-[56px] shrink-0 w-full bg-[#121212] border-b border-white/10 flex items-center justify-between px-8 z-20 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
         <div className="flex items-center w-[200px]">
@@ -56,7 +57,7 @@ export function BuilderShell({ children }: { children: ReactNode }) {
           <span className="text-[15px] font-bold text-[#e5e2e1] tracking-wide" style={{ fontFamily: 'var(--font-display), serif' }}>
             {fullName ? `${fullName}'s Resume` : 'Untitled Resume'}
           </span>
-          <button className="text-[#99907c] hover:text-[#d4af37] transition-colors p-1 rounded-md hover:bg-white/5">
+          <button className="text-[#99907c] hover:text-[#d4af37] transition-colors p-1 rounded-md hover:bg-surface/5">
             <Edit2 size={14} />
           </button>
         </div>
@@ -83,7 +84,7 @@ export function BuilderShell({ children }: { children: ReactNode }) {
               </div>
             </div>
           )}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-md border border-white/10 ml-2 sm:ml-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-surface/5 rounded-md border border-white/10 ml-2 sm:ml-4">
             <span className="text-[10px] sm:text-xs text-[#99907c] font-medium whitespace-nowrap">
               <span className="hidden sm:inline">Last auto-saved at </span>{mounted ? formattedDate : ''}
             </span>
@@ -102,10 +103,33 @@ export function BuilderShell({ children }: { children: ReactNode }) {
             {children}
           </div>
         </main>
-        <div className="hidden xl:flex w-[32vw] max-w-[450px] min-w-[320px] shrink-0 border-l border-white/10 bg-[#121212] z-10 flex-col shadow-[-4px_0_20px_rgba(0,0,0,0.5)] print:flex print:absolute print:left-0 print:top-0 print:w-full print:max-w-none print:min-w-full print:border-none print:shadow-none print:bg-white print:h-screen">
+        <div className="hidden xl:flex w-[32vw] max-w-[450px] min-w-[320px] shrink-0 border-l border-white/10 bg-[#121212] z-10 flex-col shadow-[-4px_0_20px_rgba(0,0,0,0.5)] print:flex print:absolute print:left-0 print:top-0 print:w-full print:max-w-none print:min-w-full print:border-none print:shadow-none print:bg-surface print:h-screen">
           <RightPanel />
         </div>
       </div>
+
+      {/* Mobile Preview FAB */}
+      <button 
+        className="xl:hidden fixed bottom-20 right-6 z-40 bg-[#d4af37] text-[#121212] p-3 rounded-full shadow-lg hover:scale-105 transition-transform print:hidden flex items-center justify-center"
+        onClick={() => setShowMobilePreview(true)}
+      >
+        <Eye size={24} />
+      </button>
+
+      {/* Mobile Preview Overlay */}
+      {showMobilePreview && (
+        <div className="xl:hidden fixed inset-0 z-[60] bg-[#121212] flex flex-col print:hidden">
+          <div className="flex justify-between items-center p-4 border-b border-white/10 bg-[#121212]">
+            <span className="text-[#d4af37] font-bold">Resume Preview</span>
+            <button onClick={() => setShowMobilePreview(false)} className="text-[#99907c] hover:text-white p-2 bg-surface/5 rounded-full">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden relative flex flex-col">
+            <RightPanel />
+          </div>
+        </div>
+      )}
 
       {/* Sticky Action Bar */}
       {!isActionBarMinimized ? (

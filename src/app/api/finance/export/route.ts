@@ -19,18 +19,20 @@ export async function GET(request: Request) {
 
         const transactions = await prisma.transaction.findMany({
             where,
-            include: { category: true },
+            include: { category: { include: { parent: true } } },
             orderBy: { transactionDate: 'desc' }
         })
 
         const csvRows = [
-            ['Date', 'Type', 'Category', 'Description', 'Method', 'Amount (INR)'].join(',')
+            ['Date', 'Type', 'Parent Category', 'Category', 'Description', 'Method', 'Amount (INR)'].join(',')
         ]
 
         for (const t of transactions) {
+            const parentName = t.category?.parent?.name || ''
             const row = [
                 t.transactionDate.toISOString().split('T')[0],
                 t.type,
+                `"${parentName}"`,
                 `"${t.category?.name || 'Uncategorized'}"`,
                 `"${(t.description || '').replace(/"/g, '""')}"`,
                 `"${t.paymentMethod || 'Cash'}"`,

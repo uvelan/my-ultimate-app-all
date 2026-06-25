@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -16,7 +16,7 @@ interface Aggregates {
 }
 
 interface CategoryMap {
-  [id: string]: { name: string, color: string }
+  [id: string]: { name: string, color: string, parentId?: string | null }
 }
 
 interface Props {
@@ -32,6 +32,8 @@ function fmt(paise: number) {
 export default function ReportsClient({ aggregates, categoryMap, currentMonth }: Props) {
   const [month, setMonth] = useState(currentMonth)
   const [viewBy, setViewBy] = useState<'CATEGORY' | 'METHOD'>('CATEGORY')
+  const [isMounted, setIsMounted] = useState(false)
+  useEffect(() => setIsMounted(true), [])
 
   const handleMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMonth(e.target.value)
@@ -55,11 +57,24 @@ export default function ReportsClient({ aggregates, categoryMap, currentMonth }:
 
   const breakdownData = viewBy === 'CATEGORY' 
     ? Object.entries(aggregates.categorySpending)
-        .map(([catId, amountPaise]) => ({
-          name: categoryMap[catId]?.name || 'Unknown',
-          value: amountPaise / 100,
-          color: categoryMap[catId]?.color || '#888'
-        }))
+        .filter(([catId]) => !categoryMap[catId]?.parentId)
+        .map(([catId, amountPaise]) => {
+          const children = Object.entries(aggregates.categorySpending)
+            .filter(([childId]) => categoryMap[childId]?.parentId === catId)
+            .map(([childId, childAmount]) => ({
+              name: categoryMap[childId]?.name || 'Unknown',
+              value: childAmount / 100,
+              color: categoryMap[childId]?.color || '#888'
+            }))
+            .sort((a, b) => b.value - a.value)
+          
+          return {
+            name: categoryMap[catId]?.name || 'Unknown',
+            value: amountPaise / 100,
+            color: categoryMap[catId]?.color || '#888',
+            children: children.length > 0 ? children : undefined
+          }
+        })
         .sort((a, b) => b.value - a.value)
     : Object.entries(aggregates.methodSpending || {})
         .map(([method, amountPaise], i) => ({
@@ -156,19 +171,40 @@ export default function ReportsClient({ aggregates, categoryMap, currentMonth }:
                   </tr>
                 </thead>
                 <tbody>
-                  {breakdownData.map((row, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--ft-surface-container)' }}>
-                      <td style={{ padding: '12px 8px', fontSize: 13, color: 'var(--ft-on-surface)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: row.color, display: 'inline-block' }} />
-                          {row.name}
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ft-error)' }}>
-                        {fmt(row.value * 100)}
-                      </td>
-                    </tr>
-                  ))}
+                  {breakdownData.flatMap((row: any, i: number) => {
+                    const rows = []
+                    rows.push(
+                      <tr key={row.name} style={{ borderBottom: row.children ? 'none' : '1px solid var(--ft-surface-container)' }}>
+                        <td style={{ padding: '12px 8px', fontSize: 13, color: 'var(--ft-on-surface)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: row.color, display: 'inline-block' }} />
+                            {row.name}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ft-error)' }}>
+                          {fmt(row.value * 100)}
+                        </td>
+                      </tr>
+                    )
+                    if (row.children) {
+                      row.children.forEach((child: any, j: number) => {
+                        rows.push(
+                          <tr key={`${row.name}-${child.name}`} style={{ borderBottom: j === row.children.length - 1 ? '1px solid var(--ft-surface-container)' : 'none' }}>
+                            <td style={{ padding: '6px 8px 6px 32px', fontSize: 12, color: 'var(--ft-on-surface-variant)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 500 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: child.color, display: 'inline-block' }} />
+                                {child.name}
+                              </div>
+                            </td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: 'var(--ft-on-surface-variant)' }}>
+                              {fmt(child.value * 100)}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    }
+                    return rows
+                  })}
                   <tr style={{ background: 'var(--ft-surface-low)' }}>
                     <td style={{ padding: '16px 8px', textAlign: 'right', fontSize: 13, fontWeight: 800, color: 'var(--ft-on-surface-variant)' }}>
                       Total Expenses
@@ -190,26 +226,28 @@ export default function ReportsClient({ aggregates, categoryMap, currentMonth }:
             <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ft-on-surface-variant)' }}>No expenses recorded</div>
           ) : (
             <div style={{ width: '100%', height: 300 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart margin={{ top: 0, bottom: 0, left: 0, right: 0 }}>
-                  <Pie
-                    data={breakdownData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius="60%"
-                    outerRadius="80%"
-                    paddingAngle={3}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {breakdownData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip formatter={(val: any) => ['₹' + Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 'Amount']} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }} />
-                  <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 16 }} />
-                </PieChart>
-              </ResponsiveContainer>
+              {isMounted && (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart margin={{ top: 0, bottom: 0, left: 0, right: 0 }}>
+                    <Pie
+                      data={breakdownData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius="60%"
+                      outerRadius="80%"
+                      paddingAngle={3}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      {breakdownData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip formatter={(val: any) => ['₹' + Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 'Amount']} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }} />
+                    <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 16 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           )}
         </div>
