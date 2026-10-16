@@ -5,14 +5,31 @@ import * as googleTTS from 'google-tts-api';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import { generateMimoAudio, MIMO_VOICES, TtsProviderError } from '@/lib/mimo-tts';
+import { generateGeminiAudio, GEMINI_VOICES } from '@/lib/gemini-tts';
 
 export const maxDuration = 300;
 
 // Leave room for BSON metadata under MongoDB's per-document limit.
 const MAX_DATABASE_AUDIO_BYTES = 15 * 1024 * 1024;
 
-// Rate limiting map: { "userId_chapterId": count, expiresAt }
-const rateLimitMap = new Map<string, { count: number; expiresAt: number }>();
+function audioResponse(audio: Buffer, contentType: string, provider: string, voice: string, fallback: string[], cache = 'generated') {
+    let offset = 0;
+    return new NextResponse(new ReadableStream<Uint8Array>({
+        pull(controller) {
+            if (offset >= audio.length) { controller.close(); return; }
+            const end = Math.min(offset + 64 * 1024, audio.length);
+            controller.enqueue(new Uint8Array(audio.subarray(offset, end)));
+            offset = end;
+        },
+    }), { headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'private, no-store',
+        'X-TTS-Provider': provider,
+        'X-TTS-Voice': voice,
+        'X-TTS-Cache': cache,
+        ...(fallback.length ? { 'X-TTS-Fallback': fallback.join(',') } : {}),
+    } });
+}
 
 export async function GET(request: Request) {
     const auth = await verifyAuth();
@@ -20,29 +37,36 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    let generatingAudio = false;
     try {
         const { searchParams } = new URL(request.url);
         const chapterId = searchParams.get('chapterId');
         const questionId = searchParams.get('questionId');
         const questionField = searchParams.get('questionField');
         const grammarModel = searchParams.get('grammarModel') || "OFF";
-        const provider = searchParams.get('provider') || 'google';
-        if (provider !== 'google' && provider !== 'xiaomi') {
+        let provider = searchParams.get('provider') || 'google';
+        let voice = searchParams.get('voice') || (provider === 'xiaomi' ? 'Mia' : provider === 'gemini' ? 'Kore' : 'en');
+        // Older clients stored Gemini as a Google voice; route them through the same chain.
+        if (provider === 'google' && (voice === 'gemini-3.1-kore' || voice === 'gemini-2.5-kore')) {
+            provider = 'gemini';
+            voice = 'Kore';
+        }
+        if (!['google', 'xiaomi', 'gemini'].includes(provider)) {
             return NextResponse.json({ error: 'Unsupported TTS provider.' }, { status: 400 });
         }
-        const voice = searchParams.get('voice') || (provider === 'xiaomi' ? 'Mia' : 'en');
         if (provider === 'xiaomi' && !(MIMO_VOICES as readonly string[]).includes(voice)) {
             return NextResponse.json({ error: 'Unsupported Xiaomi MiMo voice.' }, { status: 400 });
         }
-        if (provider === 'xiaomi' && !process.env.MIMO_API_KEY) {
-            return NextResponse.json({ error: 'Xiaomi MiMo is not configured. Set MIMO_API_KEY on the server.' }, { status: 503 });
+        if (provider === 'gemini' && !(GEMINI_VOICES as readonly string[]).includes(voice)) {
+            return NextResponse.json({ error: 'Unsupported Gemini voice.' }, { status: 400 });
+        }
+        if (provider === 'google' && !/^en(?:-(?:US|GB|AU|IN|NG))?$/.test(voice)) {
+            return NextResponse.json({ error: 'Unsupported Google voice.' }, { status: 400 });
         }
 
         if (!chapterId && !questionId) {
             return NextResponse.json({ error: 'Chapter ID or Question ID is required' }, { status: 400 });
         }
-
-        const userId = auth.user?.id || auth.user?.email || 'anonymous';
 
         let contentArray: string[] = [];
         let chapter = null;
@@ -195,111 +219,31 @@ ${JSON.stringify(contentArray)}`;
             return NextResponse.json({ error: 'No text is available to read.' }, { status: 400 });
         }
 
-        if (provider === 'xiaomi') {
-            const audio = await generateMimoAudio(fullText, voice, request.signal);
-            // Stream the binary response so long WAV narrations can exceed the
-            // hosting platform's buffered response limit. Google DB caches stay separate.
-            let offset = 0;
-            return new NextResponse(new ReadableStream<Uint8Array>({
-                pull(controller) {
-                    if (offset >= audio.length) { controller.close(); return; }
-                    const end = Math.min(offset + 64 * 1024, audio.length);
-                    controller.enqueue(new Uint8Array(audio.subarray(offset, end)));
-                    offset = end;
-                },
-            }), {
-                headers: {
-                    'Content-Type': 'audio/wav',
-                    'Cache-Control': 'private, no-store',
-                    'X-TTS-Provider': 'xiaomi',
-                    'X-TTS-Cache': 'generated',
-                },
-            });
-        }
-
-        if (voice === 'gemini-3.1-kore' || voice === 'gemini-2.5-kore') {
+        generatingAudio = true;
+        const fallback: string[] = [];
+        if (provider === 'gemini') {
             try {
-                if (chapterId) {
-                    const rateLimitKey = `${userId}_${chapterId}`;
-                    const now = Date.now();
-                    const currentLimit = rateLimitMap.get(rateLimitKey);
-                    
-                    if (currentLimit && currentLimit.expiresAt > now) {
-                        if (currentLimit.count >= 3) {
-                            throw new Error('Rate limit exceeded: Max 3 Gemini TTS API calls per chapter allowed.');
-                        }
-                        currentLimit.count += 1;
-                        rateLimitMap.set(rateLimitKey, currentLimit);
-                    } else {
-                        rateLimitMap.set(rateLimitKey, { count: 1, expiresAt: now + 24 * 60 * 60 * 1000 }); // 24 hours
-                    }
-                }
-
-                const apiKey = process.env.GEMINI_API_KEY;
-                if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
-
-                // Determine which model to use
-                const modelName = voice === 'gemini-3.1-kore' ? 'gemini-3.1-flash-tts-preview' : 'gemini-2.5-flash-preview-tts';
-
-                // Call Gemini TTS REST API
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{ text: fullText }]
-                        }],
-                        generationConfig: {
-                            responseModalities: ['AUDIO'],
-                            speechConfig: {
-                                voiceConfig: {
-                                    prebuiltVoiceConfig: {
-                                        voiceName: "Kore"
-                                    }
-                                }
-                            }
-                        }
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Gemini TTS API failed: ${response.status} ${response.statusText} - ${errorText}`);
-                }
-
-                const data = await response.json();
-                
-                // Extract base64 audio from response
-                let base64Audio = null;
-                if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
-                    const parts = data.candidates[0].content.parts;
-                    for (const part of parts) {
-                        if (part.inlineData && part.inlineData.mimeType.startsWith('audio/')) {
-                            base64Audio = part.inlineData.data;
-                            break;
-                        }
-                    }
-                }
-
-                if (!base64Audio) {
-                    throw new Error("No audio data returned from Gemini TTS API.");
-                }
-
-                const audioBuffer = Buffer.from(base64Audio, 'base64');
-                
-                return new NextResponse(audioBuffer, {
-                    headers: {
-                        'Content-Type': 'audio/mpeg',
-                        'Content-Length': audioBuffer.length.toString(),
-                        'Accept-Ranges': 'bytes',
-                        'Cache-Control': 'private, no-store',
-                    }
-                });
-            } catch (error) {
-                console.error("Gemini TTS failed, falling back to Google TTS:", error);
-                // Fallthrough to the Google TTS logic below
+                const audio = await generateGeminiAudio(fullText, voice, request.signal);
+                return audioResponse(audio, 'audio/wav', 'gemini', voice, fallback);
+            } catch {
+                // User cancellation must never start another paid provider request.
+                request.signal.throwIfAborted();
+                fallback.push('gemini');
+                provider = 'xiaomi';
+                voice = 'Mia';
+            }
+        }
+        if (provider === 'xiaomi') {
+            try {
+                // Leave time in the route budget for the final Google fallback.
+                const signal = AbortSignal.any([request.signal, AbortSignal.timeout(150_000)]);
+                const audio = await generateMimoAudio(fullText, voice, signal);
+                return audioResponse(audio, 'audio/wav', 'xiaomi', voice, fallback);
+            } catch {
+                request.signal.throwIfAborted();
+                fallback.push('xiaomi');
+                provider = 'google';
+                voice = 'en';
             }
         }
 
@@ -308,7 +252,7 @@ ${JSON.stringify(contentArray)}`;
         // ---------------------------------------------------------
         let combinedBuffer: Buffer | null = null;
         let isFromCache = false;
-        const googleLang = voice.startsWith('gemini') ? 'en' : voice;
+        const googleLang = voice;
 
         if (voice === 'en' && grammarModel === 'OFF' && chapterId) {
             const cachedAudio = await db.chapterAudio.findUnique({
@@ -372,23 +316,17 @@ ${JSON.stringify(contentArray)}`;
             }
         }
 
-        // Keep authenticated audio private; the browser owns the bounded playback cache.
-        return new NextResponse(combinedBuffer ? new Uint8Array(combinedBuffer) : null, {
-            headers: {
-                'Content-Type': 'audio/mpeg',
-                'Content-Length': combinedBuffer ? combinedBuffer.length.toString() : '0',
-                'X-TTS-Cache': isFromCache ? 'database' : 'generated',
-                'Accept-Ranges': 'bytes',
-                'Cache-Control': 'private, no-store',
-            }
-        });
+        if (!combinedBuffer?.length) throw new Error('Google TTS returned no audio.');
+        return audioResponse(combinedBuffer, 'audio/mpeg', 'google', googleLang, fallback, isFromCache ? 'database' : 'generated');
 
     } catch (error: any) {
         if (error instanceof TtsProviderError) {
             return NextResponse.json({ error: error.message }, { status: error.status });
         }
         console.error("TTS GENERATION ERROR:", error);
-        return NextResponse.json({ error: 'Internal server error while generating audio.' }, { status: 500 });
+        return NextResponse.json({ error: generatingAudio
+            ? 'Audio generation failed. All selected speech providers are unavailable. Please try again.'
+            : 'Unable to load content for audio generation.' }, { status: generatingAudio ? 502 : 500 });
     }
 }
 

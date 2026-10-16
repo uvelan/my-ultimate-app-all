@@ -67,11 +67,14 @@ A production-ready Authentication System built with Next.js 16 (App Router), Rea
 
 ## Audiobook speech providers
 
-The book listen page supports Google (default) and Xiaomi MiMo. Choose the provider and voice in the player toolbar; preferences are saved in your browser. Existing Google accents and Gemini voice options remain available under Google.
+The book listen page supports Google free TTS (default), Gemini TTS, and Xiaomi MiMo. Choose the provider and voice in the player toolbar; preferences are saved in your browser. Older Gemini voice preferences migrate automatically to the Gemini provider.
 
-To enable Xiaomi MiMo, add a server-only API key to `.env` locally and to your hosting environment in production, then restart/redeploy:
+To enable Gemini and/or Xiaomi MiMo, add server-only API keys to `.env` locally and to your hosting environment in production, then restart/redeploy:
 
 ```env
+GEMINI_API_KEY=your_gemini_api_key
+# Optional: Gemini model used for the built-in voices
+GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
 MIMO_API_KEY=your_xiaomi_mimo_api_key
 # Optional: override for your Xiaomi API region/account endpoint (include /v1)
 MIMO_BASE_URL=https://api.xiaomimimo.com/v1
@@ -79,11 +82,11 @@ MIMO_BASE_URL=https://api.xiaomimimo.com/v1
 MIMO_TTS_MODEL=mimo-v2.5-tts
 ```
 
-MiMo uses the official [speech synthesis API](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/audio/speech-synthesis-v2.5). Available voices are Default, Mia, Chloe, Milo, and Dean. Long chapters are split at sentence/word boundaries and combined into one WAV narration. Requests are canceled when you change chapters or providers. Missing credentials or provider errors appear in the player; MiMo does not silently fall back to Google.
+MiMo uses the official [speech synthesis API](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/audio/speech-synthesis-v2.5). Available voices are Default, Mia, Chloe, Milo, and Dean. Long chapters are split at sentence/word boundaries and combined into one WAV narration. Requests are canceled when you change chapters or providers. If Gemini fails (including quota/resource exhaustion, missing credentials, or invalid audio), the server tries MiMo, then Google free TTS. Selecting MiMo starts at MiMo and falls back to Google; selecting Google uses Google only. Cancellation never starts a fallback request. Successful responses report the actual provider and voice. The player updates its settings and local preferences when that audio becomes current, with a fallback notice; future-chapter prefetch does not switch the active provider mid-chapter.
 
-Both providers use a persistent browser audio cache containing only the active chapter and its next chapter (maximum two audio entries, up to 100 MB total, seven-day expiry). Advancing, jumping chapters, or changing narration settings removes entries outside that active pair. Entries are isolated by user, chapter content, provider, voice, and grammar settings. Cached audio survives closing the tab/browser on the same device unless browser data is cleared or evicted; private browsing and storage quota may disable persistence. The player shows whether audio came from the device cache, server cache, or was newly generated.
+All providers use a persistent browser audio cache containing only the active chapter and its next chapter (maximum two audio entries, up to 100 MB total, seven-day expiry). Advancing, jumping chapters, or changing narration settings removes entries outside that active pair. Entries are isolated by user, chapter content, provider, voice, and grammar settings. Cached audio survives closing the tab/browser on the same device unless browser data is cleared or evicted; private browsing and storage quota may disable persistence. The player shows whether audio came from the device cache, server cache, or was newly generated.
 
-Google also retains its database cache for default English with grammar off, keeping only the current/next chapter window per book. Audio above 15 MB skips the database cache to avoid MongoDB document limits. MiMo bypasses the Google database cache. After the active chapter is ready, the browser prepares only the next chapter using the selected provider, voice, and grammar settings. In-flight prefetch is reused when that chapter becomes current, even if persistent browser storage is unavailable. The player reuses the fetched audio locally so playback does not generate it a second time. Authenticated audio responses are private and are not shared through a public CDN cache. The TTS route allows up to 300 seconds; the hosting plan must support that duration for long chapters.
+Google also retains its database cache for default English with grammar off, keeping only the current/next chapter window per book. Audio above 15 MB skips the database cache to avoid MongoDB document limits. Gemini and MiMo bypass the Google database cache. After the active chapter is ready, the browser prepares only the next chapter using the selected provider, voice, and grammar settings. In-flight prefetch is reused when that chapter becomes current, even if persistent browser storage is unavailable. The player reuses the fetched audio locally so playback does not generate it a second time. Authenticated audio responses are private and are not shared through a public CDN cache. The TTS route allows up to 300 seconds; the hosting plan must support that duration for long chapters.
 
 Provider regression checks (mocked API and database, no credentials required):
 
@@ -94,3 +97,5 @@ node --test tests/*.test.cjs
 Automatic playback keeps the audio element mounted across chapters and preserves explicit play/pause intent. Prepared next-chapter audio is started directly inside the ended event, before React updates or cache operations, to reduce background playback gaps. The same request is reused if synthesis is still running. Returning to the page can resume intended playback or retry failed loading; manual pauses, sleep timers, and end-of-book remain respected. Browser/OS autoplay restrictions, tab suspension, network failures, or unfinished synthesis can still require a delay or a user tap.
 
 The listen page silently renews expired access-token cookies using the refresh endpoint, then retries the original API request once. Concurrent requests share a renewal request. Refresh tokens use the same user identifier as login, and renewed access tokens include the identity fields required by the authenticated APIs.
+
+Gemini TTS defaults to Gemini 3.1 Flash TTS Preview with Kore, Puck, Charon, Fenrir, or Zephyr. Its raw PCM responses are joined into a valid WAV file for browser playback. See the official [Gemini speech generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation). Fallback audio is associated with its actual provider and voice rather than the provider that failed.

@@ -84,6 +84,12 @@ function audioResponse(bytes = wav()) {
   return Response.json({ choices: [{ message: { audio: { data: bytes.toString('base64') } } }] });
 }
 
+function geminiAudioResponse() {
+  return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ inlineData: {
+    mimeType: 'audio/L16;codec=pcm;rate=24000', data: Buffer.from([1, 0, 2, 0]).toString('base64'),
+  } }] } }] });
+}
+
 function helper(options = {}) {
   return loadTs('src/lib/mimo-tts.ts', { ...options, env: { MIMO_API_KEY: 'test-key', ...options.env } });
 }
@@ -110,6 +116,7 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
     static json(body, init) { return new NextResponse(JSON.stringify(body), { ...init, headers: { 'Content-Type': 'application/json' } }); }
   }
   const mimo = loadTs('src/lib/mimo-tts.ts', { env, fetch });
+  const gemini = loadTs('src/lib/gemini-tts.ts', { env, fetch });
   const route = loadTs('src/app/api/tts/route.ts', {
     env, fetch,
     mocks: {
@@ -117,12 +124,13 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
       'next/server': { NextResponse },
       '@/lib/prisma': { prisma: db },
       '@/lib/mimo-tts': mimo,
+      '@/lib/gemini-tts': gemini,
       'google-tts-api': { getAllAudioUrls(text, options) { calls.google.push({ text, options }); return [{ url: 'https://google.test/audio' }]; } },
       '@google/generative-ai': { GoogleGenerativeAI: class { constructor() { throw new Error('Unexpected Gemini call'); } } },
       openai: class { constructor() { throw new Error('Unexpected OpenAI call'); } },
     },
   });
-  return { calls, get: (query = '') => route.GET(new Request(`https://app.test/api/tts?${query}`)) };
+  return { calls, get: (query = '', init) => route.GET(new Request(`https://app.test/api/tts?${query}`, init)) };
 }
 
 test('MiMo exposes the supported voice choices', () => {
@@ -152,7 +160,7 @@ test('MiMo sends narration as an assistant message with WAV output and the chose
 });
 
 test('MiMo splits long Unicode narration without losing text and joins every WAV data chunk in order', async () => {
-  const sentence = 'A reader says café, नमस्ते, and hello 😀. ';
+  const sentence = 'A reader says caf\u00e9, \u0928\u092e\u0938\u094d\u0924\u0947, and hello \u{1f600}. ';
   const text = sentence.repeat(120).trim();
   const spoken = [];
   const expectedAudio = [];
@@ -243,8 +251,8 @@ test('unauthenticated TTS requests do not access content or providers', async ()
   assert.equal(app.calls.google.length, 0);
 });
 
-test('provider and Xiaomi voice validation happen before content lookup', async t => {
-  for (const query of ['provider=unknown', 'provider=xiaomi&voice=en', 'provider=xiaomi&voice=gemini-3.1-kore']) {
+test('provider and premium voice validation happen before content lookup or fallback', async t => {
+  for (const query of ['provider=unknown', 'provider=xiaomi&voice=en', 'provider=xiaomi&voice=gemini-3.1-kore', 'provider=gemini&voice=Mia', 'provider=gemini&voice=unknown', 'provider=google&voice=Kore']) {
     await t.test(query, async () => {
       const app = routeHarness();
       assert.equal((await app.get(`chapterId=chapter-1&${query}`)).status, 400);
@@ -255,12 +263,17 @@ test('provider and Xiaomi voice validation happen before content lookup', async 
   }
 });
 
-test('missing MiMo credentials fail before content lookup or grammar correction', async () => {
-  const app = routeHarness({ env: {} });
-  const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Mia&grammarModel=gpt-4o-mini');
-  assert.equal(response.status, 503);
-  assert.equal(app.calls.chapter.length, 0);
-  assert.equal(app.calls.cacheRead.length, 0);
+test('missing MiMo credentials fall back to cached English Google audio', async () => {
+  const cached = Buffer.from('cached-google-mp3');
+  const app = routeHarness({ env: {}, cached });
+  const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Mia');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('X-TTS-Provider'), 'google');
+  assert.equal(response.headers.get('X-TTS-Voice'), 'en');
+  assert.equal(response.headers.get('X-TTS-Fallback'), 'xiaomi');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), cached);
+  assert.equal(app.calls.chapter.length, 1);
+  assert.equal(app.calls.cacheRead.length, 1);
   assert.equal(app.calls.google.length, 0);
 });
 
@@ -274,6 +287,9 @@ test('Xiaomi cleans narration and returns private WAV without consulting or writ
   const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Chloe');
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-type'), 'audio/wav');
+  assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
+  assert.equal(response.headers.get('X-TTS-Voice'), 'Chloe');
+  assert.equal(response.headers.get('X-TTS-Fallback'), null);
   assert.match(response.headers.get('cache-control'), /private/);
   assert.match(response.headers.get('cache-control'), /no-store/);
   assert.ok(response.body, 'audio is returned as a readable response body');
@@ -296,30 +312,142 @@ test('Xiaomi supports question narration and its default voice', async () => {
   assert.equal(app.calls.chapter.length, 0);
 });
 
-test('Xiaomi upstream and malformed audio errors never fall back to Google', async t => {
-  for (const [name, fetch] of [
-    ['upstream failure', async () => new Response('private upstream failure', { status: 500 })],
-    ['malformed audio', async () => Response.json({ choices: [] })],
-  ]) {
-    await t.test(name, async () => {
-      const app = routeHarness({ fetch });
-      const response = await app.get('chapterId=chapter-1&provider=xiaomi');
-      assert.equal(response.status, 502);
-      assert.equal(app.calls.google.length, 0);
-      assert.equal(app.calls.cacheRead.length, 0);
-      assert.equal(app.calls.cacheWrite.length, 0);
-      assert.ok(!(await response.text()).includes('private upstream failure'));
+test('Gemini uses its selected voice and returns WAV without consulting Google audio', async () => {
+  const requests = [];
+  const app = routeHarness({ env: { GEMINI_API_KEY: 'gemini-key' }, cached: Buffer.from('unrelated-google-mp3'), fetch: async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return geminiAudioResponse();
+  } });
+  const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Charon');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'audio/wav');
+  assert.equal(response.headers.get('X-TTS-Provider'), 'gemini');
+  assert.equal(response.headers.get('X-TTS-Voice'), 'Charon');
+  assert.equal(response.headers.get('X-TTS-Fallback'), null);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, 'Charon');
+  assert.deepEqual(readWav(Buffer.from(await response.arrayBuffer())).data, Buffer.from([1, 0, 2, 0]));
+  assert.equal(app.calls.cacheRead.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 0);
+  assert.equal(app.calls.google.length, 0);
+});
+
+test('Gemini quota failure falls back to MiMo with its own default voice', async () => {
+  const requests = [];
+  const app = routeHarness({ env: { GEMINI_API_KEY: 'gemini-key', MIMO_API_KEY: 'mimo-key' }, fetch: async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return url.includes('generativelanguage') ? new Response('private quota', { status: 429 }) : audioResponse();
+  } });
+  const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Fenrir');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'audio/wav');
+  assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
+  assert.equal(response.headers.get('X-TTS-Voice'), 'Mia');
+  assert.equal(response.headers.get('X-TTS-Fallback'), 'gemini');
+  assert.equal(requests.length, 2);
+  assert.ok(requests[0].url.includes('generativelanguage'));
+  assert.ok(requests[1].url.includes('xiaomimimo'));
+  assert.equal(requests[1].body.audio.voice, 'Mia');
+  assert.equal(app.calls.google.length, 0);
+  assert.equal(app.calls.cacheRead.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 0);
+});
+
+test('Gemini and MiMo failures reach free English Google audio in order', async t => {
+  for (const failure of ['missing credentials', 'quota', 'malformed audio']) {
+    await t.test(failure, async () => {
+      const urls = [];
+      const app = routeHarness({
+        env: failure === 'missing credentials' ? {} : { GEMINI_API_KEY: 'gemini-key', MIMO_API_KEY: 'mimo-key' },
+        fetch: async url => {
+          urls.push(url);
+          if (url === 'https://google.test/audio') return new Response('free-google-mp3');
+          return failure === 'quota' ? new Response(null, { status: 429 }) : Response.json({});
+        },
+      });
+      const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Puck');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+      assert.equal(response.headers.get('X-TTS-Provider'), 'google');
+      assert.equal(response.headers.get('X-TTS-Voice'), 'en');
+      assert.equal(response.headers.get('X-TTS-Fallback'), 'gemini,xiaomi');
+      assert.equal(await response.text(), 'free-google-mp3');
+      assert.equal(app.calls.google.length, 1);
+      assert.equal(app.calls.google[0].options.lang, 'en');
+      assert.equal(app.calls.cacheWrite.length, 1);
+      if (failure === 'missing credentials') assert.deepEqual(urls, ['https://google.test/audio']);
+      else {
+        assert.equal(urls.length, 3);
+        assert.ok(urls[0].includes('generativelanguage'));
+        assert.ok(urls[1].includes('xiaomimimo'));
+        assert.equal(urls[2], 'https://google.test/audio');
+      }
     });
   }
 });
 
-test('Xiaomi preserves provider rate limiting without Google fallback', async () => {
-  const app = routeHarness({ fetch: async () => new Response('private quota details', { status: 429 }) });
-  const response = await app.get('chapterId=chapter-1&provider=xiaomi');
-  assert.equal(response.status, 429);
-  assert.match((await response.json()).error, /rate limit/i);
-  assert.equal(app.calls.google.length, 0);
-  assert.equal(app.calls.cacheRead.length, 0);
+test('legacy Gemini Google voices use the Gemini chain and report normalized metadata', async t => {
+  for (const voice of ['gemini-3.1-kore', 'gemini-2.5-kore']) {
+    await t.test(voice, async () => {
+      let body;
+      const app = routeHarness({ env: { GEMINI_API_KEY: 'gemini-key' }, fetch: async (_url, options) => { body = JSON.parse(options.body); return geminiAudioResponse(); } });
+      const response = await app.get(`chapterId=chapter-1&provider=google&voice=${voice}`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('X-TTS-Provider'), 'gemini');
+      assert.equal(response.headers.get('X-TTS-Voice'), 'Kore');
+      assert.equal(body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, 'Kore');
+      assert.equal(app.calls.google.length, 0);
+    });
+  }
+});
+
+test('cancelling premium generation never starts a fallback provider', async t => {
+  for (const provider of ['gemini', 'xiaomi']) {
+    await t.test(provider, async () => {
+      const controller = new AbortController();
+      const urls = [];
+      const app = routeHarness({ env: { GEMINI_API_KEY: 'gemini-key', MIMO_API_KEY: 'mimo-key' }, fetch: async url => {
+        urls.push(url);
+        controller.abort();
+        throw controller.signal.reason;
+      } });
+      const response = await app.get(`chapterId=chapter-1&provider=${provider}`, { signal: controller.signal });
+      assert.notEqual(response.status, 200);
+      assert.equal(urls.length, 1);
+      assert.ok(urls[0].includes(provider === 'gemini' ? 'generativelanguage' : 'xiaomimimo'));
+      assert.equal(app.calls.google.length, 0);
+      assert.equal(app.calls.cacheRead.length, 0);
+      assert.equal(app.calls.cacheWrite.length, 0);
+    });
+  }
+});
+
+test('Xiaomi operational failures fall back to English Google audio and report the actual provider', async t => {
+  for (const [name, failedResponse] of [
+    ['upstream failure', async () => new Response('private upstream failure', { status: 500 })],
+    ['malformed audio', async () => Response.json({ choices: [] })],
+    ['provider rate limit', async () => new Response('private quota details', { status: 429 })],
+  ]) {
+    await t.test(name, async () => {
+      const urls = [];
+      const app = routeHarness({ fetch: async url => {
+        urls.push(url);
+        return url === 'https://google.test/audio' ? new Response('google-mp3') : failedResponse();
+      } });
+      const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Dean');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+      assert.equal(response.headers.get('X-TTS-Provider'), 'google');
+      assert.equal(response.headers.get('X-TTS-Voice'), 'en');
+      assert.equal(response.headers.get('X-TTS-Fallback'), 'xiaomi');
+      assert.equal(await response.text(), 'google-mp3');
+      assert.equal(app.calls.google.length, 1);
+      assert.equal(app.calls.google[0].options.lang, 'en');
+      assert.equal(app.calls.cacheRead.length, 1);
+      assert.equal(app.calls.cacheWrite.length, 1);
+      assert.equal(urls.length, 2);
+    });
+  }
 });
 
 test('default and explicit Google requests retain the existing English MP3 chapter cache', async t => {
@@ -330,6 +458,9 @@ test('default and explicit Google requests retain the existing English MP3 chapt
       const response = await app.get(`chapterId=chapter-1${provider}`);
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+      assert.equal(response.headers.get('X-TTS-Provider'), 'google');
+      assert.equal(response.headers.get('X-TTS-Voice'), 'en');
+      assert.equal(response.headers.get('X-TTS-Fallback'), null);
       assert.match(response.headers.get('cache-control'), /private/);
       assert.match(response.headers.get('cache-control'), /no-store/);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), cached);

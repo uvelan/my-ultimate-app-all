@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { cacheChapterAudio, getCachedChapterAudio, retainChapterAudioWindow, type AudioCacheIdentity } from '@/lib/listen-audio-cache';
 import { handoffPreparedAudio, isAudioAtEnd } from '@/lib/listen-playback';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
+import { geminiVoices, mimoVoices, migrateLegacyTtsSelection, readTtsAudioMetadata,
+    ttsProviderLabels, type TtsProvider, type TtsAudioMetadata } from '@/lib/tts-provider';
 
 interface Chapter {
     id: string;
@@ -22,15 +24,16 @@ interface Book {
     chapters: Chapter[];
 }
 
-const mimoVoices = ['mimo_default', 'Mia', 'Chloe', 'Milo', 'Dean'] as const;
 type MimoVoice = typeof mimoVoices[number];
+type GeminiVoice = typeof geminiVoices[number];
 type AudioSource = 'device' | 'database' | 'generated';
-interface LoadedAudio { audio: Blob; source: AudioSource }
+interface LoadedAudio extends TtsAudioMetadata { audio: Blob; source: AudioSource }
 interface AudioTask {
     controller: AbortController;
     promise: Promise<LoadedAudio>;
     loaded?: LoadedAudio;
     objectUrl?: string;
+    fallbackApplied?: boolean;
 }
 
 function audioIdentityKey(identity: AudioCacheIdentity): string {
@@ -59,8 +62,9 @@ export default function ListenPage() {
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [grammarModel, setGrammarModel] = useState("OFF");
     const [ttsVoice, setTtsVoice] = useState("en");
-    const [ttsProvider, setTtsProvider] = useState<'google' | 'xiaomi'>('google');
+    const [ttsProvider, setTtsProvider] = useState<TtsProvider>('google');
     const [mimoVoice, setMimoVoice] = useState<MimoVoice>('Mia');
+    const [geminiVoice, setGeminiVoice] = useState<GeminiVoice>('Kore');
     const [preferencesReady, setPreferencesReady] = useState(false);
     const [cacheUserId, setCacheUserId] = useState('');
     const [audioSource, setAudioSource] = useState<AudioSource | null>(null);
@@ -90,7 +94,7 @@ export default function ListenPage() {
     const currentChapter = book?.chapters[currentChapterIndex];
     const bookId = book?.id;
     const chapterId = currentChapter?.id;
-    const selectedVoice = ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
+    const selectedVoice = ttsProvider === 'gemini' ? geminiVoice : ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
     const chapterContent = currentChapter?.content;
     const nextChapter = book?.chapters[currentChapterIndex + 1];
     const nextChapterId = nextChapter?.id;
@@ -185,6 +189,55 @@ export default function ListenPage() {
         }
     };
 
+    // Apply fallback only when this audio becomes current, retaining its prepared URL.
+    const applyTaskSelection = (task: AudioTask, requestedIdentity: AudioCacheIdentity, index: number) => {
+        const loaded = task.loaded!;
+        const actualIdentity = { ...requestedIdentity, provider: loaded.provider, voice: loaded.voice };
+        const requestedKey = audioIdentityKey(requestedIdentity);
+        const actualKey = audioIdentityKey(actualIdentity);
+        const changed = loaded.provider !== ttsProvider || loaded.voice !== selectedVoice;
+        if (requestedKey !== actualKey) {
+            audioTasksRef.current.delete(requestedKey);
+            audioTasksRef.current.set(actualKey, task);
+        }
+        activeAudioKeyRef.current = actualKey;
+        if (changed) {
+            promotedAudioKeyRef.current = actualKey;
+            const followingChapter = book?.chapters[index + 1];
+            const window = followingChapter ? [actualIdentity, { ...actualIdentity,
+                chapterId: followingChapter.id, content: followingChapter.content }] : [actualIdentity];
+            const allowed = new Set(window.map(audioIdentityKey));
+            for (const [key, other] of Array.from(audioTasksRef.current.entries())) {
+                if (!allowed.has(key)) {
+                    other.controller.abort();
+                    if (other.objectUrl) URL.revokeObjectURL(other.objectUrl);
+                    audioTasksRef.current.delete(key);
+                }
+            }
+            // Cache the actual voice only once its new current+next window is retained.
+            void retainChapterAudioWindow(window).then(() => {
+                if (!task.controller.signal.aborted && audioTasksRef.current.get(actualKey) === task) {
+                    void cacheChapterAudio(actualIdentity, loaded.audio);
+                }
+            });
+            setTtsProvider(loaded.provider);
+            if (loaded.provider === 'gemini') setGeminiVoice(loaded.voice as GeminiVoice);
+            else if (loaded.provider === 'xiaomi') setMimoVoice(loaded.voice as MimoVoice);
+            else setTtsVoice(loaded.voice);
+            try {
+                localStorage.setItem('listen-tts-provider', loaded.provider);
+                localStorage.setItem(loaded.provider === 'gemini' ? 'listen-gemini-voice'
+                    : loaded.provider === 'xiaomi' ? 'listen-mimo-voice' : 'listen-tts-voice', loaded.voice);
+            } catch { /* Playback still continues if browser storage is unavailable. */ }
+        }
+        if (!task.fallbackApplied && (loaded.fallback.length || requestedKey !== actualKey)) {
+            task.fallbackApplied = true;
+            toast(`Using ${ttsProviderLabels[loaded.provider]} (${loaded.voice}). Playback settings updated.`,
+                { id: 'listen-provider-fallback' });
+        }
+        return { actualKey, changed };
+    };
+
     // Request ownership survives next-chapter promotion, including unfinished prefetches.
     useEffect(() => () => {
         for (const task of Array.from(audioTasksRef.current.values())) {
@@ -254,7 +307,8 @@ export default function ListenPage() {
                     new Promise<null>(resolve => { cacheTimeout = setTimeout(() => resolve(null), 2000); }),
                 ]).finally(() => clearTimeout(cacheTimeout));
                 controller.signal.throwIfAborted();
-                if (cachedAudio) return { audio: cachedAudio, source: 'device' };
+                if (cachedAudio) return { audio: cachedAudio, source: 'device',
+                    provider: identity.provider as TtsProvider, voice: identity.voice, fallback: [] };
                 const query = new URLSearchParams({
                     chapterId: identity.chapterId,
                     grammarModel: identity.grammarModel,
@@ -275,8 +329,13 @@ export default function ListenPage() {
                 }
                 const audio = await response.blob();
                 controller.signal.throwIfAborted();
-                void cacheChapterAudio(identity, audio);
-                return { audio, source: response.headers.get('X-TTS-Cache') === 'database' ? 'database' : 'generated' };
+                const metadata = readTtsAudioMetadata(response.headers,
+                    { provider: identity.provider as TtsProvider, voice: identity.voice });
+                if (metadata.provider === identity.provider && metadata.voice === identity.voice) {
+                    void cacheChapterAudio(identity, audio);
+                }
+                // A prefetched fallback stays in memory until it becomes current.
+                return { audio, source: response.headers.get('X-TTS-Cache') === 'database' ? 'database' : 'generated', ...metadata };
             })().then(loaded => {
                 controller.signal.throwIfAborted();
                 if (audioTasksRef.current.get(key) !== task) throw new DOMException('Obsolete audio request', 'AbortError');
@@ -302,7 +361,7 @@ export default function ListenPage() {
                     if (!active) return;
                     const task = audioTasksRef.current.get(currentKey);
                     if (!task?.objectUrl) return;
-                    activeAudioKeyRef.current = currentKey;
+                    const { changed } = applyTaskSelection(task, currentIdentity, currentChapterIndex);
                     const audio = audioRef.current;
                     if (audio) {
                         audio.src = task.objectUrl;
@@ -312,6 +371,8 @@ export default function ListenPage() {
                     }
                     setAudioUrl(task.objectUrl);
                     setAudioSource(loaded.source);
+                    // The synchronized settings effect will prefetch with the actual provider.
+                    if (changed) return;
                 }
                 // Start only after current audio is ready. Its task is reused on advance.
                 if (nextIdentity) void loadAudio(nextIdentity, true).catch(() => {});
@@ -381,6 +442,8 @@ export default function ListenPage() {
                 activeAudioKeyRef.current = nextKey;
                 handoffPreparedAudio(audio, task.objectUrl, playbackSpeed,
                     error => handlePlaybackError(error, task.objectUrl!));
+                const { actualKey } = applyTaskSelection(task, nextIdentity, endedIndex + 1);
+                promotedAudioKeyRef.current = actualKey;
                 setAudioUrl(task.objectUrl);
                 setAudioSource(task.loaded.source);
                 setAudioError(null);
@@ -523,13 +586,22 @@ export default function ListenPage() {
         }
 
         const storedVoice = localStorage.getItem('listen-tts-voice');
-        if (storedVoice) {
-            setTtsVoice(storedVoice);
-        }
-
         const storedProvider = localStorage.getItem('listen-tts-provider');
-        if (storedProvider === 'google' || storedProvider === 'xiaomi') {
-            setTtsProvider(storedProvider);
+        const restored = migrateLegacyTtsSelection(storedProvider, storedVoice);
+        setTtsVoice(restored.googleVoice);
+        setTtsProvider(restored.provider);
+        if (restored.provider !== storedProvider || restored.googleVoice !== storedVoice) {
+            localStorage.setItem('listen-tts-provider', restored.provider);
+            localStorage.setItem('listen-tts-voice', restored.googleVoice);
+        }
+        const storedGeminiVoice = localStorage.getItem('listen-gemini-voice');
+        const migratedGemini = (!storedProvider || storedProvider === 'google')
+            && (storedVoice === 'gemini-3.1-kore' || storedVoice === 'gemini-2.5-kore');
+        if (migratedGemini) {
+            setGeminiVoice('Kore');
+            localStorage.setItem('listen-gemini-voice', 'Kore');
+        } else if (geminiVoices.includes(storedGeminiVoice as GeminiVoice)) {
+            setGeminiVoice(storedGeminiVoice as GeminiVoice);
         }
 
         const storedMimoVoice = localStorage.getItem('listen-mimo-voice');
@@ -659,21 +731,25 @@ export default function ListenPage() {
                         <select
                             value={ttsProvider}
                             onChange={(e) => {
-                                const provider = e.target.value as 'google' | 'xiaomi';
+                                const provider = e.target.value as TtsProvider;
                                 setTtsProvider(provider);
                                 localStorage.setItem('listen-tts-provider', provider);
                             }}
                             className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
-                            title="TTS Provider"
+                            title="Automatic fallback: Gemini → Xiaomi MiMo → Google (free)"
                             aria-label="TTS provider"
                         >
-                            <option value="google">Google</option>
+                            <option value="gemini">Gemini</option>
                             <option value="xiaomi">Xiaomi MiMo</option>
+                            <option value="google">Google (free)</option>
                         </select>
                         <select
                             value={selectedVoice}
                             onChange={(e) => {
-                                if (ttsProvider === 'xiaomi') {
+                                if (ttsProvider === 'gemini') {
+                                    setGeminiVoice(e.target.value as GeminiVoice);
+                                    localStorage.setItem('listen-gemini-voice', e.target.value);
+                                } else if (ttsProvider === 'xiaomi') {
                                     setMimoVoice(e.target.value as MimoVoice);
                                     localStorage.setItem('listen-mimo-voice', e.target.value);
                                 } else {
@@ -683,14 +759,14 @@ export default function ListenPage() {
                             }}
                             className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
                             title="TTS Voice Accent"
-                            aria-label={ttsProvider === 'xiaomi' ? 'Xiaomi MiMo voice' : 'Google voice'}
+                            aria-label={`${ttsProviderLabels[ttsProvider]} voice`}
                         >
-                            {ttsProvider === 'xiaomi' ? mimoVoices.map((voice) => (
+                            {ttsProvider === 'gemini' ? geminiVoices.map(voice => (
+                                <option key={voice} value={voice}>Voice: {voice}</option>
+                            )) : ttsProvider === 'xiaomi' ? mimoVoices.map((voice) => (
                                 <option key={voice} value={voice}>Voice: {voice === 'mimo_default' ? 'Default' : voice}</option>
                             )) : <>
                             <option value="en">Voice: Default</option>
-                            <option value="gemini-3.1-kore">Voice: Gemini 3.1 (Kore)</option>
-                            <option value="gemini-2.5-kore">Voice: Gemini 2.5 (Kore)</option>
                             <option value="en-US">Voice: US English</option>
                             <option value="en-GB">Voice: British</option>
                             <option value="en-AU">Voice: Australian</option>
