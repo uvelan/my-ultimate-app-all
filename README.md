@@ -91,4 +91,6 @@ Provider regression checks (mocked API and database, no credentials required):
 node --test tests/*.test.cjs
 ```
 
-Automatic playback keeps the audio element mounted across chapters and preserves explicit play/pause intent. The next chapter is prepared while listening; the same request is reused if it is still generating at chapter end. Sleep timers and end-of-book stop playback intentionally. Browser/OS autoplay restrictions, tab suspension, network failures, or unfinished synthesis can still require a delay or a user tap.
+Automatic playback keeps the audio element mounted across chapters and preserves explicit play/pause intent. Prepared next-chapter audio is started directly inside the ended event, before React updates or cache operations, to reduce background playback gaps. The same request is reused if synthesis is still running. Returning to the page can resume intended playback or retry failed loading; manual pauses, sleep timers, and end-of-book remain respected. Browser/OS autoplay restrictions, tab suspension, network failures, or unfinished synthesis can still require a delay or a user tap.
+
+The listen page silently renews expired access-token cookies using the refresh endpoint, then retries the original API request once. Concurrent requests share a renewal request. Refresh tokens use the same user identifier as login, and renewed access tokens include the identity fields required by the authenticated APIs.

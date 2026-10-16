@@ -6,6 +6,8 @@ import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { cacheChapterAudio, getCachedChapterAudio, retainChapterAudioWindow, type AudioCacheIdentity } from '@/lib/listen-audio-cache';
+import { handoffPreparedAudio, isAudioAtEnd } from '@/lib/listen-playback';
+import { authenticatedFetch } from '@/lib/authenticated-fetch';
 
 interface Chapter {
     id: string;
@@ -24,7 +26,12 @@ const mimoVoices = ['mimo_default', 'Mia', 'Chloe', 'Milo', 'Dean'] as const;
 type MimoVoice = typeof mimoVoices[number];
 type AudioSource = 'device' | 'database' | 'generated';
 interface LoadedAudio { audio: Blob; source: AudioSource }
-interface AudioTask { controller: AbortController; promise: Promise<LoadedAudio> }
+interface AudioTask {
+    controller: AbortController;
+    promise: Promise<LoadedAudio>;
+    loaded?: LoadedAudio;
+    objectUrl?: string;
+}
 
 function audioIdentityKey(identity: AudioCacheIdentity): string {
     return JSON.stringify([identity.userId, identity.chapterId, identity.content,
@@ -45,6 +52,8 @@ export default function ListenPage() {
     const chapterRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+    const currentChapterIndexRef = useRef(currentChapterIndex);
+    currentChapterIndexRef.current = currentChapterIndex;
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
@@ -55,6 +64,8 @@ export default function ListenPage() {
     const [preferencesReady, setPreferencesReady] = useState(false);
     const [cacheUserId, setCacheUserId] = useState('');
     const [audioSource, setAudioSource] = useState<AudioSource | null>(null);
+    const [audioError, setAudioError] = useState<string | null>(null);
+    const [retryCount, setRetryCount] = useState(0);
 
     // Player State
     const [isPlaying, setIsPlaying] = useState(false);
@@ -70,6 +81,11 @@ export default function ListenPage() {
     const audioTasksRef = useRef(new Map<string, AudioTask>());
     const playIntentRef = useRef(false);
     const switchingAudioRef = useRef(false);
+    const promotedAudioKeyRef = useRef<string | null>(null);
+    const activeAudioKeyRef = useRef<string | null>(null);
+    const bypassCacheKeysRef = useRef(new Set<string>());
+    const lastResumeAttemptRef = useRef(0);
+    const mediaStalledRef = useRef(false);
 
     const currentChapter = book?.chapters[currentChapterIndex];
     const bookId = book?.id;
@@ -94,7 +110,7 @@ export default function ListenPage() {
 
     const fetchBook = async (id: string, signal: AbortSignal) => {
         try {
-            const res = await fetch(`/api/books/${id}`, { signal });
+            const res = await authenticatedFetch(`/api/books/${id}`, { signal });
             if (signal.aborted) return;
             if (res.status === 401 || res.status === 403) {
                 router.push('/login');
@@ -135,7 +151,7 @@ export default function ListenPage() {
                 setCurrentChapterIndex(finalChapterIndex);
 
                 if (needsDbUpdate) {
-                    fetch(`/api/books/${id}`, {
+                    authenticatedFetch(`/api/books/${id}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: 0 })
@@ -154,7 +170,7 @@ export default function ListenPage() {
     const saveProgressToDb = async (index: number) => {
         if (!book?.id) return;
         try {
-            const res = await fetch(`/api/books/${book.id}`, {
+            const res = await authenticatedFetch(`/api/books/${book.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chapterId: index, sentenceId: 0 })
@@ -171,7 +187,10 @@ export default function ListenPage() {
 
     // Request ownership survives next-chapter promotion, including unfinished prefetches.
     useEffect(() => () => {
-        for (const task of Array.from(audioTasksRef.current.values())) task.controller.abort();
+        for (const task of Array.from(audioTasksRef.current.values())) {
+            task.controller.abort();
+            if (task.objectUrl) URL.revokeObjectURL(task.objectUrl);
+        }
         audioTasksRef.current.clear();
     }, []);
 
@@ -179,31 +198,40 @@ export default function ListenPage() {
     useEffect(() => {
         if (!bookId || !chapterId || !preferencesReady) return;
 
-        let objectUrl: string | null = null;
         let active = true;
         const identityFor = (id: string, content: unknown): AudioCacheIdentity => ({
             userId: cacheUserId, chapterId: id, content,
             provider: ttsProvider, voice: selectedVoice, grammarModel,
         });
         const currentIdentity = identityFor(chapterId, chapterContent);
+        const currentKey = audioIdentityKey(currentIdentity);
         const nextIdentity = nextChapterId ? identityFor(nextChapterId, nextChapterContent) : null;
         const identities = nextIdentity ? [currentIdentity, nextIdentity] : [currentIdentity];
         const allowedKeys = new Set(identities.map(audioIdentityKey));
+        const preparedCurrent = audioTasksRef.current.get(currentKey);
+        const promoted = promotedAudioKeyRef.current === currentKey
+            && preparedCurrent?.objectUrl === audioRef.current?.src;
+        promotedAudioKeyRef.current = null;
+        if (!promoted) switchingAudioRef.current = true;
         for (const [key, task] of Array.from(audioTasksRef.current.entries())) {
             if (!allowedKeys.has(key)) {
                 task.controller.abort();
+                if (task.objectUrl) URL.revokeObjectURL(task.objectUrl);
                 audioTasksRef.current.delete(key);
             }
         }
 
-        switchingAudioRef.current = true;
-        audioRef.current?.pause();
-        setIsPlaying(false);
-        setCurrentTime(0);
-        setDuration(0);
-        setAudioUrl(null);
-        setAudioSource(null);
-        setIsGenerating(true);
+        setAudioError(null);
+        if (!promoted) {
+            activeAudioKeyRef.current = null;
+            audioRef.current?.pause();
+            setIsPlaying(false);
+            setCurrentTime(0);
+            setDuration(0);
+            setAudioUrl(null);
+            setAudioSource(null);
+            setIsGenerating(true);
+        }
 
         // Save progress to localStorage
         localStorage.setItem(`listen-progress-${bookId}`, JSON.stringify({
@@ -218,7 +246,13 @@ export default function ListenPage() {
             if (existing) return existing.promise;
             const controller = new AbortController();
             const promise = (async (): Promise<LoadedAudio> => {
-                const cachedAudio = await getCachedChapterAudio(identity);
+                // A slow CacheStorage/Web Lock must not hold network loading hostage.
+                let cacheTimeout: ReturnType<typeof setTimeout> | undefined;
+                const bypassCache = bypassCacheKeysRef.current.delete(key);
+                const cachedAudio = bypassCache ? null : await Promise.race([
+                    getCachedChapterAudio(identity),
+                    new Promise<null>(resolve => { cacheTimeout = setTimeout(() => resolve(null), 2000); }),
+                ]).finally(() => clearTimeout(cacheTimeout));
                 controller.signal.throwIfAborted();
                 if (cachedAudio) return { audio: cachedAudio, source: 'device' };
                 const query = new URLSearchParams({
@@ -228,7 +262,7 @@ export default function ListenPage() {
                     voice: identity.voice,
                 });
                 if (prefetch) query.set('prefetch', '1');
-                const response = await fetch(`/api/tts?${query}`, { signal: controller.signal });
+                const response = await authenticatedFetch(`/api/tts?${query}`, { signal: controller.signal });
                 controller.signal.throwIfAborted();
                 if (response.status === 401 || response.status === 403) {
                     router.push('/login');
@@ -243,8 +277,14 @@ export default function ListenPage() {
                 controller.signal.throwIfAborted();
                 void cacheChapterAudio(identity, audio);
                 return { audio, source: response.headers.get('X-TTS-Cache') === 'database' ? 'database' : 'generated' };
-            })();
-            const task = { controller, promise };
+            })().then(loaded => {
+                controller.signal.throwIfAborted();
+                if (audioTasksRef.current.get(key) !== task) throw new DOMException('Obsolete audio request', 'AbortError');
+                task.loaded = loaded;
+                task.objectUrl = URL.createObjectURL(loaded.audio);
+                return loaded;
+            });
+            const task: AudioTask = { controller, promise };
             audioTasksRef.current.set(key, task);
             // Failed prefetches may be retried when that chapter becomes current.
             void promise.catch(() => {
@@ -255,19 +295,32 @@ export default function ListenPage() {
 
         const prepareAudio = async () => {
             try {
-                await retainChapterAudioWindow(identities);
-                if (!active) return;
-                const loaded = await loadAudio(currentIdentity);
-                if (!active) return;
-                objectUrl = URL.createObjectURL(loaded.audio);
-                setAudioUrl(objectUrl);
-                setAudioSource(loaded.source);
+                // Pruning is best effort, independent of prepared playback/prefetch.
+                void retainChapterAudioWindow(identities);
+                if (!promoted) {
+                    const loaded = await loadAudio(currentIdentity);
+                    if (!active) return;
+                    const task = audioTasksRef.current.get(currentKey);
+                    if (!task?.objectUrl) return;
+                    activeAudioKeyRef.current = currentKey;
+                    const audio = audioRef.current;
+                    if (audio) {
+                        audio.src = task.objectUrl;
+                        audio.load();
+                        audio.playbackRate = playbackSpeed;
+                        if (playIntentRef.current) attemptPlayback();
+                    }
+                    setAudioUrl(task.objectUrl);
+                    setAudioSource(loaded.source);
+                }
                 // Start only after current audio is ready. Its task is reused on advance.
                 if (nextIdentity) void loadAudio(nextIdentity, true).catch(() => {});
             } catch (error) {
                 if (!active) return;
                 console.error(error);
-                toast.error(error instanceof Error ? error.message : 'Failed to generate audio for this chapter.');
+                const message = error instanceof Error ? error.message : 'Failed to generate audio for this chapter.';
+                setAudioError(message);
+                toast.error(message);
             } finally {
                 if (active) setIsGenerating(false);
             }
@@ -277,15 +330,12 @@ export default function ListenPage() {
 
         return () => {
             active = false;
-            if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
-    }, [currentChapterIndex, chapterId, bookId, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, nextChapterId, nextChapterContent]);
+    }, [currentChapterIndex, chapterId, bookId, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, nextChapterId, nextChapterContent, retryCount]);
 
-    const attemptPlayback = () => {
+    const handlePlaybackError = (error: unknown, requestedSource: string) => {
         const audio = audioRef.current;
-        if (!audio || !playIntentRef.current || !audio.getAttribute('src')) return;
-        const requestedSource = audio.src;
-        void audio.play().catch((error: unknown) => {
+        if (audio) {
             if (!playIntentRef.current || audio.src !== requestedSource) return;
             if (error instanceof Error && error.name === 'NotAllowedError') {
                 playIntentRef.current = false;
@@ -293,22 +343,110 @@ export default function ListenPage() {
             } else if (!(error instanceof Error) || error.name !== 'AbortError') {
                 console.error('Audio playback failed', error);
             }
-        });
+        }
+    };
+
+    const attemptPlayback = () => {
+        const audio = audioRef.current;
+        if (!audio || !playIntentRef.current || !audio.getAttribute('src')) return;
+        const task = activeAudioKeyRef.current ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
+        if (task?.objectUrl !== audio.src) return;
+        const requestedSource = audio.src;
+        void audio.play().catch(error => handlePlaybackError(error, requestedSource));
     };
 
     // --- Audio Event Handlers ---
     const handleAudioEnded = () => {
-        setIsPlaying(false);
+        const audio = audioRef.current;
+        if (!audio?.ended || !activeAudioKeyRef.current) return;
+        const endedIndex = currentChapterIndexRef.current;
         if (sleepTimer === 'EOC') {
+            setIsPlaying(false);
             playIntentRef.current = false;
             setSleepTimer(null);
             toast('End of chapter reached. Timer stopped.');
-        } else if (playIntentRef.current && book && currentChapterIndex < book.chapters.length - 1) {
-            setCurrentChapterIndex(index => index + 1);
+        } else if (playIntentRef.current && book && endedIndex < book.chapters.length - 1) {
+            const nextIdentity: AudioCacheIdentity = {
+                userId: cacheUserId,
+                chapterId: book.chapters[endedIndex + 1].id,
+                content: book.chapters[endedIndex + 1].content,
+                provider: ttsProvider, voice: selectedVoice, grammarModel,
+            };
+            const nextKey = audioIdentityKey(nextIdentity);
+            const task = audioTasksRef.current.get(nextKey);
+            if (task?.loaded && task.objectUrl) {
+                // Maintain an active media session before React/storage can be suspended.
+                switchingAudioRef.current = true;
+                promotedAudioKeyRef.current = nextKey;
+                activeAudioKeyRef.current = nextKey;
+                handoffPreparedAudio(audio, task.objectUrl, playbackSpeed,
+                    error => handlePlaybackError(error, task.objectUrl!));
+                setAudioUrl(task.objectUrl);
+                setAudioSource(task.loaded.source);
+                setAudioError(null);
+                setIsGenerating(false);
+                setCurrentTime(0);
+                setDuration(0);
+            } else {
+                switchingAudioRef.current = true;
+                activeAudioKeyRef.current = null;
+                setIsPlaying(false);
+            }
+            currentChapterIndexRef.current = endedIndex + 1;
+            setCurrentChapterIndex(endedIndex + 1);
         } else {
+            setIsPlaying(false);
             playIntentRef.current = false;
         }
     };
+
+    const retryCurrentAudio = () => {
+        const key = activeAudioKeyRef.current;
+        if (key) {
+            const task = audioTasksRef.current.get(key);
+            switchingAudioRef.current = true;
+            task?.controller.abort();
+            if (task?.objectUrl) URL.revokeObjectURL(task.objectUrl);
+            audioTasksRef.current.delete(key);
+            bypassCacheKeysRef.current.add(key);
+        }
+        setRetryCount(count => count + 1);
+    };
+
+    // Background suspension can delay a pending fetch; resume only existing play intent.
+    useEffect(() => {
+        const resume = () => {
+            if (document.visibilityState === 'hidden' || !playIntentRef.current) return;
+            const audio = audioRef.current;
+            if (Date.now() - lastResumeAttemptRef.current < 1000) return;
+            lastResumeAttemptRef.current = Date.now();
+            const currentKey = audioIdentityKey({ userId: cacheUserId, chapterId: chapterId || '',
+                content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel });
+            if (audio?.ended && activeAudioKeyRef.current === currentKey) {
+                handleAudioEnded();
+                return;
+            }
+            if (audioError) {
+                retryCurrentAudio();
+            } else if (audio?.paused && !audio.ended && audio.readyState >= 2) {
+                attemptPlayback();
+            } else if (audio && (audio.error || (mediaStalledRef.current && audio.readyState < 2)) && activeAudioKeyRef.current) {
+                switchingAudioRef.current = true;
+                audio.load();
+                attemptPlayback();
+            }
+        };
+        document.addEventListener('visibilitychange', resume);
+        document.addEventListener('resume', resume);
+        window.addEventListener('focus', resume);
+        window.addEventListener('pageshow', resume);
+        return () => {
+            document.removeEventListener('visibilitychange', resume);
+            document.removeEventListener('resume', resume);
+            window.removeEventListener('focus', resume);
+            window.removeEventListener('pageshow', resume);
+        };
+    }, [audioError, audioUrl, chapterId, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book]);
 
     // Timer logic
     useEffect(() => {
@@ -707,15 +845,18 @@ export default function ListenPage() {
 
                                 <audio
                                     ref={audioRef}
-                                    src={audioUrl || undefined}
                                     className="hidden"
                                     onEnded={handleAudioEnded}
                                     onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
                                     onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
                                     onCanPlay={() => {
                                         const audio = audioRef.current;
-                                        if (!audio?.getAttribute('src') || audio.currentSrc !== audio.src) return;
+                                        const task = activeAudioKeyRef.current
+                                            ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
+                                        if (!audio || task?.objectUrl !== audio.src || audio.currentSrc !== audio.src) return;
                                         switchingAudioRef.current = false;
+                                        mediaStalledRef.current = false;
+                                        setAudioError(null);
                                         attemptPlayback();
                                     }}
                                     onPlay={() => {
@@ -724,10 +865,21 @@ export default function ListenPage() {
                                         setIsPlaying(true);
                                     }}
                                     onPause={() => {
-                                        if (!switchingAudioRef.current && !audioRef.current?.ended) {
+                                        const audio = audioRef.current;
+                                        if (!audio?.paused) return;
+                                        if (!switchingAudioRef.current && audio && !isAudioAtEnd(audio)) {
                                             playIntentRef.current = false;
                                         }
                                         setIsPlaying(false);
+                                    }}
+                                    onStalled={() => { mediaStalledRef.current = true; }}
+                                    onError={() => {
+                                        const task = activeAudioKeyRef.current
+                                            ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
+                                        if (task?.objectUrl === audioRef.current?.src) {
+                                            setAudioError('Audio playback failed. Retry this chapter to continue.');
+                                            setIsPlaying(false);
+                                        }
                                     }}
                                 />
 
@@ -736,7 +888,12 @@ export default function ListenPage() {
                                         {audioSource === 'device' ? 'Playing from device cache' : audioSource === 'database' ? 'Playing from server cache' : 'Newly generated audio'}
                                     </p>
                                 )}
-                                {isGenerating ? (
+                                {audioError ? (
+                                    <div className="py-4 text-center text-sm text-[#a0aec0]">
+                                        <p role="alert" className="mb-3">{audioError}</p>
+                                        <button onClick={retryCurrentAudio} className={topBtnStyle}>Retry audio</button>
+                                    </div>
+                                ) : isGenerating ? (
                                     <div className="flex flex-col items-center justify-center py-4">
                                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4fd1c5] mb-3"></div>
                                         <p className="text-sm text-[#a0aec0]">Generating High-Quality Audio...</p>

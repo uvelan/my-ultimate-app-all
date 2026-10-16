@@ -16,25 +16,29 @@ export async function POST(request: Request) {
         }
     }
 
-    if (!refreshToken) {
+    if (typeof refreshToken !== 'string' || !refreshToken) {
         return NextResponse.json({ error: 'No refresh token found' }, { status: 401 });
     }
 
-    const payload = verifyRefreshToken(refreshToken) as { userId: string } | null;
+    const payload = verifyRefreshToken(refreshToken);
+    // Login issues `id`; accept older refresh tokens that used `userId` too.
+    const userId = payload && typeof payload === 'object'
+        ? payload.id ?? payload.userId
+        : undefined;
 
-    if (!payload) {
+    if (typeof userId !== 'string' || !/^[a-fA-F0-9]{24}$/.test(userId)) {
         return NextResponse.json({ error: 'Invalid refresh token' }, { status: 401 });
     }
 
     const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
+        where: { id: userId },
     });
 
-    if (!user) {
-        return NextResponse.json({ error: 'User not found' }, { status: 401 });
+    if (!user || !user.isActive) {
+        return NextResponse.json({ error: 'User unavailable' }, { status: 401 });
     }
 
-    const newAccessToken = generateAccessToken({ userId: user.id, role: user.role });
+    const newAccessToken = generateAccessToken({ id: user.id, email: user.email, role: user.role });
 
     const maxAge = user.role === 'SUPERUSER' ? 24 * 60 * 60 : 15 * 60;
 
