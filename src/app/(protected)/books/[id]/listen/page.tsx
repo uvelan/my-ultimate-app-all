@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { cacheChapterAudio, getCachedChapterAudio, retainChapterAudioWindow, type AudioCacheIdentity } from '@/lib/listen-audio-cache';
 
 interface Chapter {
     id: string;
@@ -19,6 +20,17 @@ interface Book {
     chapters: Chapter[];
 }
 
+const mimoVoices = ['mimo_default', 'Mia', 'Chloe', 'Milo', 'Dean'] as const;
+type MimoVoice = typeof mimoVoices[number];
+type AudioSource = 'device' | 'database' | 'generated';
+interface LoadedAudio { audio: Blob; source: AudioSource }
+interface AudioTask { controller: AbortController; promise: Promise<LoadedAudio> }
+
+function audioIdentityKey(identity: AudioCacheIdentity): string {
+    return JSON.stringify([identity.userId, identity.chapterId, identity.content,
+        identity.provider, identity.voice, identity.grammarModel]);
+}
+
 export default function ListenPage() {
     const params = useParams();
     const router = useRouter();
@@ -26,6 +38,7 @@ export default function ListenPage() {
     const [book, setBook] = useState<Book | null>(null);
     const [loading, setLoading] = useState(true);
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     // Sidebar Search & Scroll State
     const [searchQuery, setSearchQuery] = useState("");
@@ -37,6 +50,11 @@ export default function ListenPage() {
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [grammarModel, setGrammarModel] = useState("OFF");
     const [ttsVoice, setTtsVoice] = useState("en");
+    const [ttsProvider, setTtsProvider] = useState<'google' | 'xiaomi'>('google');
+    const [mimoVoice, setMimoVoice] = useState<MimoVoice>('Mia');
+    const [preferencesReady, setPreferencesReady] = useState(false);
+    const [cacheUserId, setCacheUserId] = useState('');
+    const [audioSource, setAudioSource] = useState<AudioSource | null>(null);
 
     // Player State
     const [isPlaying, setIsPlaying] = useState(false);
@@ -48,24 +66,43 @@ export default function ListenPage() {
     const [timeRemaining, setTimeRemaining] = useState<number | null>(null); // seconds
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const chapterTextRef = useRef<HTMLDivElement | null>(null);
+    const audioTasksRef = useRef(new Map<string, AudioTask>());
+    const playIntentRef = useRef(false);
+    const switchingAudioRef = useRef(false);
 
     const currentChapter = book?.chapters[currentChapterIndex];
+    const bookId = book?.id;
+    const chapterId = currentChapter?.id;
+    const selectedVoice = ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
+    const chapterContent = currentChapter?.content;
+    const nextChapter = book?.chapters[currentChapterIndex + 1];
+    const nextChapterId = nextChapter?.id;
+    const nextChapterContent = nextChapter?.content;
 
     useEffect(() => {
+        if (chapterTextRef.current) chapterTextRef.current.scrollTop = 0;
+    }, [chapterId]);
+
+    useEffect(() => {
+        const controller = new AbortController();
         if (params.id) {
-            fetchBook(params.id as string);
+            void fetchBook(params.id as string, controller.signal);
         }
+        return () => controller.abort();
     }, [params.id]);
 
-    const fetchBook = async (id: string) => {
+    const fetchBook = async (id: string, signal: AbortSignal) => {
         try {
-            const res = await fetch(`/api/books/${id}`);
+            const res = await fetch(`/api/books/${id}`, { signal });
+            if (signal.aborted) return;
             if (res.status === 401 || res.status === 403) {
                 router.push('/login');
                 return;
             }
             if (res.ok) {
                 const data = await res.json();
+                if (signal.aborted) return;
                 setBook({
                     ...data,
                     // Map chapters if needed depending on exactly how API returns them
@@ -108,9 +145,9 @@ export default function ListenPage() {
                 toast.error('Failed to load book');
             }
         } catch (error) {
-            toast.error('Error loading book');
+            if (!signal.aborted) toast.error('Error loading book');
         } finally {
-            setLoading(false);
+            if (!signal.aborted) setLoading(false);
         }
     };
 
@@ -132,70 +169,144 @@ export default function ListenPage() {
         }
     };
 
-    // Whenever chapter index, grammar model, or voice changes, fetch the new audio URL
+    // Request ownership survives next-chapter promotion, including unfinished prefetches.
+    useEffect(() => () => {
+        for (const task of Array.from(audioTasksRef.current.values())) task.controller.abort();
+        audioTasksRef.current.clear();
+    }, []);
+
+    // Keep only the current chapter and its immediate successor, on disk and in memory.
     useEffect(() => {
-        if (!book || !currentChapter) return;
+        if (!bookId || !chapterId || !preferencesReady) return;
+
+        let objectUrl: string | null = null;
+        let active = true;
+        const identityFor = (id: string, content: unknown): AudioCacheIdentity => ({
+            userId: cacheUserId, chapterId: id, content,
+            provider: ttsProvider, voice: selectedVoice, grammarModel,
+        });
+        const currentIdentity = identityFor(chapterId, chapterContent);
+        const nextIdentity = nextChapterId ? identityFor(nextChapterId, nextChapterContent) : null;
+        const identities = nextIdentity ? [currentIdentity, nextIdentity] : [currentIdentity];
+        const allowedKeys = new Set(identities.map(audioIdentityKey));
+        for (const [key, task] of Array.from(audioTasksRef.current.entries())) {
+            if (!allowedKeys.has(key)) {
+                task.controller.abort();
+                audioTasksRef.current.delete(key);
+            }
+        }
+
+        switchingAudioRef.current = true;
+        audioRef.current?.pause();
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setDuration(0);
+        setAudioUrl(null);
+        setAudioSource(null);
+        setIsGenerating(true);
 
         // Save progress to localStorage
-        localStorage.setItem(`listen-progress-${book.id}`, JSON.stringify({
+        localStorage.setItem(`listen-progress-${bookId}`, JSON.stringify({
             chapterIndex: currentChapterIndex
         }));
 
         saveProgressToDb(currentChapterIndex);
 
-        fetchAudioForChapter(currentChapter.id);
-    }, [currentChapterIndex, book, grammarModel, ttsVoice]);
-
-    // Client-side prefetch logic has been removed as the server now handles smart caching in MongoDB
-
-    const fetchAudioForChapter = async (chapterId: string) => {
-        setIsGenerating(true);
-        setAudioUrl(null); // Clear previous audio
-
-        try {
-            // Using our new API route. Because building this audio file might take a second, 
-            // returning the direct URL to the <audio> src is sometimes better, but here we preload to show spinning until ready.
-            const url = `/api/tts?chapterId=${chapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}&t=${Date.now()}`;
-
-            // To test if it exists and handles generation, we can fetch it once
-            const response = await fetch(url);
-
-            if (response.status === 401 || response.status === 403) {
-                router.push('/login');
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error("Audio generation failed");
-            }
-
-            // It succeeded, set the URL to let the <audio> element stream it
-            setAudioUrl(url);
-
-            // Auto-play if not on first boot (browsers block initial autoplay)
-            setTimeout(() => {
-                if (audioRef.current && currentChapterIndex > 0) {
-                    audioRef.current.play().catch(e => console.log('Autoplay blocked', e));
+        const loadAudio = (identity: AudioCacheIdentity, prefetch = false): Promise<LoadedAudio> => {
+            const key = audioIdentityKey(identity);
+            const existing = audioTasksRef.current.get(key);
+            if (existing) return existing.promise;
+            const controller = new AbortController();
+            const promise = (async (): Promise<LoadedAudio> => {
+                const cachedAudio = await getCachedChapterAudio(identity);
+                controller.signal.throwIfAborted();
+                if (cachedAudio) return { audio: cachedAudio, source: 'device' };
+                const query = new URLSearchParams({
+                    chapterId: identity.chapterId,
+                    grammarModel: identity.grammarModel,
+                    provider: identity.provider,
+                    voice: identity.voice,
+                });
+                if (prefetch) query.set('prefetch', '1');
+                const response = await fetch(`/api/tts?${query}`, { signal: controller.signal });
+                controller.signal.throwIfAborted();
+                if (response.status === 401 || response.status === 403) {
+                    router.push('/login');
+                    throw new Error('Please sign in to continue listening.');
                 }
-            }, 500);
+                if (!response.ok) {
+                    const details = await response.json().catch(() => null);
+                    throw new Error(typeof details?.error === 'string'
+                        ? details.error : 'Failed to generate audio for this chapter.');
+                }
+                const audio = await response.blob();
+                controller.signal.throwIfAborted();
+                void cacheChapterAudio(identity, audio);
+                return { audio, source: response.headers.get('X-TTS-Cache') === 'database' ? 'database' : 'generated' };
+            })();
+            const task = { controller, promise };
+            audioTasksRef.current.set(key, task);
+            // Failed prefetches may be retried when that chapter becomes current.
+            void promise.catch(() => {
+                if (audioTasksRef.current.get(key) === task) audioTasksRef.current.delete(key);
+            });
+            return promise;
+        };
 
-        } catch (error) {
-            console.error(error);
-            toast.error("Failed to generate audio for this chapter.");
-        } finally {
-            setIsGenerating(false);
-        }
+        const prepareAudio = async () => {
+            try {
+                await retainChapterAudioWindow(identities);
+                if (!active) return;
+                const loaded = await loadAudio(currentIdentity);
+                if (!active) return;
+                objectUrl = URL.createObjectURL(loaded.audio);
+                setAudioUrl(objectUrl);
+                setAudioSource(loaded.source);
+                // Start only after current audio is ready. Its task is reused on advance.
+                if (nextIdentity) void loadAudio(nextIdentity, true).catch(() => {});
+            } catch (error) {
+                if (!active) return;
+                console.error(error);
+                toast.error(error instanceof Error ? error.message : 'Failed to generate audio for this chapter.');
+            } finally {
+                if (active) setIsGenerating(false);
+            }
+        };
+
+        void prepareAudio();
+
+        return () => {
+            active = false;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [currentChapterIndex, chapterId, bookId, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, nextChapterId, nextChapterContent]);
+
+    const attemptPlayback = () => {
+        const audio = audioRef.current;
+        if (!audio || !playIntentRef.current || !audio.getAttribute('src')) return;
+        const requestedSource = audio.src;
+        void audio.play().catch((error: unknown) => {
+            if (!playIntentRef.current || audio.src !== requestedSource) return;
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+                playIntentRef.current = false;
+                toast('Press Play to continue listening.', { id: 'listen-autoplay-blocked' });
+            } else if (!(error instanceof Error) || error.name !== 'AbortError') {
+                console.error('Audio playback failed', error);
+            }
+        });
     };
 
     // --- Audio Event Handlers ---
     const handleAudioEnded = () => {
         setIsPlaying(false);
         if (sleepTimer === 'EOC') {
+            playIntentRef.current = false;
             setSleepTimer(null);
             toast('End of chapter reached. Timer stopped.');
+        } else if (playIntentRef.current && book && currentChapterIndex < book.chapters.length - 1) {
+            setCurrentChapterIndex(index => index + 1);
         } else {
-            // Auto-advance
-            handleNextChapter();
+            playIntentRef.current = false;
         }
     };
 
@@ -207,6 +318,7 @@ export default function ListenPage() {
                 if (prev > 0) return prev - 1;
 
                 // Timer reached 0
+                playIntentRef.current = false;
                 if (audioRef.current) {
                     audioRef.current.pause();
                     setIsPlaying(false);
@@ -253,8 +365,15 @@ export default function ListenPage() {
         localStorage.setItem('listen-playback-speed', newSpeed.toString());
     };
 
-    // Restore preference settings
+    // Restore preference settings before generating or looking up audio.
     useEffect(() => {
+        try {
+            const storedUser = JSON.parse(localStorage.getItem('user') || 'null');
+            const userId = storedUser?.id || storedUser?.email;
+            if (typeof userId === 'string') setCacheUserId(userId);
+        } catch {
+            // Missing identity disables persistent caching, without blocking playback.
+        }
         const storedSpeed = localStorage.getItem('listen-playback-speed');
         if (storedSpeed) {
             setPlaybackSpeed(parseFloat(storedSpeed));
@@ -269,6 +388,17 @@ export default function ListenPage() {
         if (storedVoice) {
             setTtsVoice(storedVoice);
         }
+
+        const storedProvider = localStorage.getItem('listen-tts-provider');
+        if (storedProvider === 'google' || storedProvider === 'xiaomi') {
+            setTtsProvider(storedProvider);
+        }
+
+        const storedMimoVoice = localStorage.getItem('listen-mimo-voice');
+        if (mimoVoices.includes(storedMimoVoice as MimoVoice)) {
+            setMimoVoice(storedMimoVoice as MimoVoice);
+        }
+        setPreferencesReady(true);
     }, []);
 
     // Also update audio ref immediately when it mounts or speed state changes
@@ -295,7 +425,15 @@ export default function ListenPage() {
                 handleNextChapter();
             });
 
-            // Play and pause are handled natively by the HTML5 audio element's integration
+            navigator.mediaSession.setActionHandler('play', () => {
+                playIntentRef.current = true;
+                attemptPlayback();
+            });
+            navigator.mediaSession.setActionHandler('pause', () => {
+                playIntentRef.current = false;
+                audioRef.current?.pause();
+                setIsPlaying(false);
+            });
         }
     }, [book, currentChapter]);
 
@@ -350,34 +488,68 @@ export default function ListenPage() {
 
     return (
         <ProtectedRoute>
-            <div className="flex flex-col h-screen bg-[#1a202c] text-white font-sans overflow-hidden">
+            <div className="flex flex-col h-dvh min-h-0 bg-[#1a202c] text-white font-sans overflow-hidden [--color-bg:#1a202c] [--color-border:#718096] [--color-muted:#a0aec0]" style={{ colorScheme: 'dark' }}>
 
                 {/* Header Navbar */}
-                <header className="bg-[#2d3748] border-b border-[#4a5568] px-2 md:px-4 py-2 md:py-3 shadow-md shrink-0 z-20 flex items-center justify-between">
-                    <div className="flex items-center gap-2 md:gap-3">
+                <header className="bg-[#2d3748] border-b border-[#4a5568] px-4 sm:px-6 py-3 shadow-md shrink-0 z-20 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex w-full min-w-0 items-center gap-2 md:gap-3 xl:w-auto">
                         <Link href="/books" className={iconBtnStyle} title="Back to Library">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                         </Link>
-                        <button onClick={toggleSidebar} className={topBtnStyle} title="Table of Contents">
+                        <button onClick={toggleSidebar} className={topBtnStyle} title="Table of Contents" aria-label="Open chapters" aria-expanded={sidebarOpen}>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                             <span className="hidden sm:inline">Chapters</span>
                         </button>
                         <div className="h-6 w-px bg-[#4a5568] mx-2 hidden sm:block"></div>
-                        <span className="text-sm font-bold text-[#e2e8f0] hidden md:block truncate max-w-[200px] lg:max-w-[300px]">
+                        <span className="text-sm font-bold text-[#e2e8f0] min-w-0 truncate max-w-[45vw] xl:max-w-[240px]">
                             {book.title}
                         </span>
+                        <button
+                            type="button"
+                            onClick={() => setSettingsOpen(open => !open)}
+                            className="ml-auto shrink-0 rounded-lg border border-[#718096] bg-[#4a5568] p-2 text-[#e2e8f0] transition-colors hover:bg-[#2d3748] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4fd1c5] lg:hidden"
+                            aria-label={settingsOpen ? 'Hide playback settings' : 'Show playback settings'}
+                            aria-expanded={settingsOpen}
+                            aria-controls="listen-playback-settings"
+                            title="Playback settings"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="#4a5568" /><circle cx="15" cy="17" r="3" fill="#4a5568" /></svg>
+                        </button>
                     </div>
 
-                    <div className="flex items-center gap-1 xl:gap-2 flex-wrap justify-end max-w-full">
+                    <div id="listen-playback-settings" className={`${settingsOpen ? 'grid' : 'hidden'} min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 lg:grid xl:flex xl:flex-wrap xl:justify-end [&>select]:min-w-0 [&>select]:w-full [&>select]:h-10 [&>select]:text-xs [&>select]:px-3 xl:[&>select]:w-auto`}>
                         <select
-                            value={ttsVoice}
+                            value={ttsProvider}
                             onChange={(e) => {
-                                setTtsVoice(e.target.value);
-                                localStorage.setItem('listen-tts-voice', e.target.value);
+                                const provider = e.target.value as 'google' | 'xiaomi';
+                                setTtsProvider(provider);
+                                localStorage.setItem('listen-tts-provider', provider);
+                            }}
+                            className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
+                            title="TTS Provider"
+                            aria-label="TTS provider"
+                        >
+                            <option value="google">Google</option>
+                            <option value="xiaomi">Xiaomi MiMo</option>
+                        </select>
+                        <select
+                            value={selectedVoice}
+                            onChange={(e) => {
+                                if (ttsProvider === 'xiaomi') {
+                                    setMimoVoice(e.target.value as MimoVoice);
+                                    localStorage.setItem('listen-mimo-voice', e.target.value);
+                                } else {
+                                    setTtsVoice(e.target.value);
+                                    localStorage.setItem('listen-tts-voice', e.target.value);
+                                }
                             }}
                             className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
                             title="TTS Voice Accent"
+                            aria-label={ttsProvider === 'xiaomi' ? 'Xiaomi MiMo voice' : 'Google voice'}
                         >
+                            {ttsProvider === 'xiaomi' ? mimoVoices.map((voice) => (
+                                <option key={voice} value={voice}>Voice: {voice === 'mimo_default' ? 'Default' : voice}</option>
+                            )) : <>
                             <option value="en">Voice: Default</option>
                             <option value="gemini-3.1-kore">Voice: Gemini 3.1 (Kore)</option>
                             <option value="gemini-2.5-kore">Voice: Gemini 2.5 (Kore)</option>
@@ -386,6 +558,7 @@ export default function ListenPage() {
                             <option value="en-AU">Voice: Australian</option>
                             <option value="en-IN">Voice: Indian</option>
                             <option value="en-NG">Voice: Nigerian</option>
+                            </>}
                         </select>
                         <select
                             value={grammarModel}
@@ -430,7 +603,7 @@ export default function ListenPage() {
                     </div>
                 </header>
 
-                <div className="flex flex-1 overflow-hidden relative">
+                <div className="flex min-h-0 flex-1 overflow-hidden relative">
                     {/* Collapsible Sidebar */}
                     <div
                         className={`absolute inset-y-0 left-0 z-20 w-3/4 sm:w-80 bg-[#2d3748] border-r border-[#4a5568] transform transition-transform duration-300 ease-in-out shadow-xl flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
@@ -438,7 +611,7 @@ export default function ListenPage() {
                         <div className="p-3 border-b border-[#4a5568] bg-[#1a202c] flex flex-col gap-3">
                             <div className="flex justify-between items-center">
                                 <h3 className="font-bold text-[#e2e8f0]">Listening Index</h3>
-                                <button onClick={toggleSidebar} className="p-1 hover:bg-[#4a5568] rounded">
+                                <button onClick={toggleSidebar} aria-label="Close chapters" className="p-1 hover:bg-[#4a5568] rounded">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                                 </button>
                             </div>
@@ -463,7 +636,7 @@ export default function ListenPage() {
                             </div>
                         </div>
 
-                        <div className="overflow-y-auto flex-1 p-2">
+                        <div className="min-h-0 overflow-y-auto flex-1 p-2">
                             {book.chapters.map((chapter, index) => {
                                 // Filter logic
                                 if (searchQuery && !chapter.title.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -505,27 +678,64 @@ export default function ListenPage() {
                     )}
 
                     {/* Main UI Area */}
-                    <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-8 relative bg-gradient-to-b from-[#1a202c] to-[#000000] overflow-y-auto">
+                    <main className="min-h-0 min-w-0 flex-1 overflow-y-auto lg:overflow-hidden overscroll-contain bg-gradient-to-b from-[#1a202c] to-[#000000] p-4 sm:p-6 lg:p-8">
+                        <div className="mx-auto grid w-full max-w-6xl grid-cols-1 items-start gap-6 lg:h-full lg:min-h-0 lg:grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-8">
+                        <section aria-label="Audiobook player" className="flex min-w-0 flex-col items-center gap-5 lg:h-full lg:min-h-0 lg:justify-start lg:overflow-y-auto lg:py-2">
 
-                        {/* Artwork / CD Style UI */}
-                        <div className={`w-32 h-48 sm:w-40 sm:h-60 md:w-48 md:h-72 rounded-xl shadow-2xl mb-4 sm:mb-8 border border-[#2d3748] overflow-hidden bg-[#2d3748] flex items-center justify-center transition-all shrink-0 ${!isGenerating && audioUrl ? 'scale-105' : 'scale-100 opacity-80'}`}>
+                        <div className="flex w-full max-w-lg shrink-0 items-center gap-4 sm:gap-5">
+                        {/* Cover and chapter details share a compact row. */}
+                        <div className={`w-20 h-28 sm:w-24 sm:h-36 rounded-lg shadow-xl border border-[#2d3748] overflow-hidden bg-[#2d3748] flex items-center justify-center transition-opacity shrink-0 ${isGenerating ? 'opacity-80' : 'opacity-100'}`}>
                             {book.cover ? (
-                                <img src={book.cover} alt="Cover" className="w-full h-full object-cover" />
+                                <img src={book.cover} alt={`${book.title} cover`} className="w-full h-full object-contain" />
                             ) : (
                                 <svg className="w-24 h-24 text-[#4a5568]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
                             )}
                         </div>
 
                         {/* Title and Info */}
-                        <div className="text-center max-w-2xl px-2 sm:px-4 w-full">
-                            <h2 className="text-lg sm:text-2xl md:text-3xl font-bold text-white mb-1 sm:mb-2 md:mb-3 truncate">
+                        <div className="min-w-0 flex-1 text-left">
+                            <h2 className="text-lg sm:text-xl font-bold leading-snug text-white mb-2 break-words">
                                 {currentChapter?.title || 'Unknown Chapter'}
                             </h2>
-                            <p className="text-[#a0aec0] mb-3 sm:mb-8 text-xs sm:text-sm md:text-base font-medium">Chapter {currentChapterIndex + 1} of {book.chapters.length}</p>
+                            <p className="text-[#a0aec0] text-sm font-medium">Chapter {currentChapterIndex + 1} of {book.chapters.length}</p>
+
+                        </div>
+                        </div>
 
                             {/* Audio Player */}
-                            <div className="bg-[#2d3748] rounded-xl p-3 sm:p-4 md:p-4 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
+                            <div className="shrink-0 bg-[#2d3748] rounded-xl p-3 sm:p-4 md:p-4 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
 
+                                <audio
+                                    ref={audioRef}
+                                    src={audioUrl || undefined}
+                                    className="hidden"
+                                    onEnded={handleAudioEnded}
+                                    onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
+                                    onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+                                    onCanPlay={() => {
+                                        const audio = audioRef.current;
+                                        if (!audio?.getAttribute('src') || audio.currentSrc !== audio.src) return;
+                                        switchingAudioRef.current = false;
+                                        attemptPlayback();
+                                    }}
+                                    onPlay={() => {
+                                        if (audioRef.current?.paused) return;
+                                        playIntentRef.current = true;
+                                        setIsPlaying(true);
+                                    }}
+                                    onPause={() => {
+                                        if (!switchingAudioRef.current && !audioRef.current?.ended) {
+                                            playIntentRef.current = false;
+                                        }
+                                        setIsPlaying(false);
+                                    }}
+                                />
+
+                                {!isGenerating && audioUrl && audioSource && (
+                                    <p role="status" className="mb-3 text-center text-xs text-[#a0aec0]">
+                                        {audioSource === 'device' ? 'Playing from device cache' : audioSource === 'database' ? 'Playing from server cache' : 'Newly generated audio'}
+                                    </p>
+                                )}
                                 {isGenerating ? (
                                     <div className="flex flex-col items-center justify-center py-4">
                                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4fd1c5] mb-3"></div>
@@ -533,17 +743,6 @@ export default function ListenPage() {
                                     </div>
                                 ) : audioUrl ? (
                                     <div className="flex flex-col items-center gap-2 w-full">
-                                        <audio
-                                            ref={audioRef}
-                                            src={audioUrl}
-                                            className="hidden"
-                                            onEnded={handleAudioEnded}
-                                            onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
-                                            onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
-                                            onPlay={() => setIsPlaying(true)}
-                                            onPause={() => setIsPlaying(false)}
-                                            autoPlay={currentChapterIndex > 0}
-                                        />
 
                                         {/* Timer pulse display */}
                                         {timeRemaining !== null && (
@@ -562,6 +761,7 @@ export default function ListenPage() {
                                             <span>{formatTime(currentTime)}</span>
                                             <input
                                                 type="range"
+                                                aria-label="Audio progress"
                                                 min={0}
                                                 max={duration || 100}
                                                 value={currentTime || 0}
@@ -592,10 +792,16 @@ export default function ListenPage() {
 
                                             {/* Play/Pause */}
                                             <button
+                                                aria-label={isPlaying ? 'Pause audiobook' : 'Play audiobook'}
                                                 onClick={() => {
                                                     if (!audioRef.current) return;
-                                                    if (isPlaying) audioRef.current.pause();
-                                                    else audioRef.current.play();
+                                                    if (isPlaying) {
+                                                        playIntentRef.current = false;
+                                                        audioRef.current.pause();
+                                                    } else {
+                                                        playIntentRef.current = true;
+                                                        attemptPlayback();
+                                                    }
                                                 }}
                                                 className="w-12 h-12 sm:w-14 sm:h-14 shrink-0 bg-[#4fd1c5] hover:bg-[#38b2ac] text-[#1a202c] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(79,209,197,0.4)] transition transform hover:scale-105"
                                             >
@@ -636,12 +842,12 @@ export default function ListenPage() {
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                        </section>
 
-                        {/* Lyrics / Chapter Text */}
-                        <div className="w-full max-w-2xl mx-auto mt-6 bg-[#2d3748] rounded-xl p-4 sm:p-6 shadow-xl border border-[#4a5568] max-h-96 overflow-y-auto">
-                            <h3 className="text-lg font-bold mb-4 text-[#e2e8f0] border-b border-[#4a5568] pb-2">Chapter Lyrics</h3>
-                            <div className="space-y-4 text-left pb-8 pr-2">
+                        {/* Chapter text scrolls independently without shrinking the player. */}
+                        <section aria-label="Chapter text" className="hidden min-w-0 flex-col overflow-hidden lg:flex lg:h-full lg:min-h-0 rounded-xl bg-[#2d3748] shadow-xl border border-[#4a5568]">
+                            <h3 className="shrink-0 px-5 py-4 text-base font-bold text-[#e2e8f0] border-b border-[#4a5568]">Chapter text</h3>
+                            <div ref={chapterTextRef} className="max-h-[55dvh] min-h-[16rem] lg:min-h-0 lg:max-h-none lg:flex-1 overflow-y-auto overscroll-contain space-y-5 px-5 py-5 sm:px-6 text-left text-base leading-8 break-words [scrollbar-gutter:stable]">
                                 {currentChapter?.content && (() => {
                                     let paragraphs: string[] = [];
                                     try {
@@ -662,7 +868,7 @@ export default function ListenPage() {
                                         return (
                                             <p 
                                                 key={i} 
-                                                className={`transition-all duration-300 ${isActive ? 'text-[#4fd1c5] font-bold text-lg md:text-xl drop-shadow-md' : isPast ? 'text-white' : 'text-[#a0aec0]'}`}
+                                                className={`transition-colors duration-300 ${isActive ? 'text-[#4fd1c5] font-medium' : isPast ? 'text-[#e2e8f0]' : 'text-[#a0aec0]'}`}
                                             >
                                                 {para}
                                             </p>
@@ -670,11 +876,11 @@ export default function ListenPage() {
                                     });
                                 })()}
                                 {!currentChapter?.content && (
-                                    <p className="text-[#a0aec0] italic text-center">Lyrics not available for this chapter.</p>
+                                    <p className="text-[#a0aec0] italic text-center">Text not available for this chapter.</p>
                                 )}
                             </div>
+                        </section>
                         </div>
-
                     </main>
                 </div>
             </div>

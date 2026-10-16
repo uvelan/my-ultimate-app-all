@@ -4,6 +4,12 @@ import { prisma as db } from '@/lib/prisma';
 import * as googleTTS from 'google-tts-api';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
+import { generateMimoAudio, MIMO_VOICES, TtsProviderError } from '@/lib/mimo-tts';
+
+export const maxDuration = 300;
+
+// Leave room for BSON metadata under MongoDB's per-document limit.
+const MAX_DATABASE_AUDIO_BYTES = 15 * 1024 * 1024;
 
 // Rate limiting map: { "userId_chapterId": count, expiresAt }
 const rateLimitMap = new Map<string, { count: number; expiresAt: number }>();
@@ -20,7 +26,17 @@ export async function GET(request: Request) {
         const questionId = searchParams.get('questionId');
         const questionField = searchParams.get('questionField');
         const grammarModel = searchParams.get('grammarModel') || "OFF";
-        const voice = searchParams.get('voice') || "en";
+        const provider = searchParams.get('provider') || 'google';
+        if (provider !== 'google' && provider !== 'xiaomi') {
+            return NextResponse.json({ error: 'Unsupported TTS provider.' }, { status: 400 });
+        }
+        const voice = searchParams.get('voice') || (provider === 'xiaomi' ? 'Mia' : 'en');
+        if (provider === 'xiaomi' && !(MIMO_VOICES as readonly string[]).includes(voice)) {
+            return NextResponse.json({ error: 'Unsupported Xiaomi MiMo voice.' }, { status: 400 });
+        }
+        if (provider === 'xiaomi' && !process.env.MIMO_API_KEY) {
+            return NextResponse.json({ error: 'Xiaomi MiMo is not configured. Set MIMO_API_KEY on the server.' }, { status: 503 });
+        }
 
         if (!chapterId && !questionId) {
             return NextResponse.json({ error: 'Chapter ID or Question ID is required' }, { status: 400 });
@@ -40,6 +56,11 @@ export async function GET(request: Request) {
             if (!chapter) {
                 return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
             }
+
+            request.signal.throwIfAborted();
+            await pruneChapterAudioWindow(chapter.bookId, searchParams.get('prefetch') === '1' ? Math.max(0, chapter.order - 1) : chapter.order).catch(error =>
+                console.warn('[TTS Cache] Could not prune the chapter window:', error)
+            );
 
             try {
                 const parsedContent = typeof chapter.content === 'string'
@@ -166,9 +187,35 @@ ${JSON.stringify(contentArray)}`;
         fullText = fullText.replace(/`[^`]*`/g, ' '); // remove inline code
         fullText = fullText.replace(/!\[.*?\]\(.*?\)/g, ' '); // remove images
         fullText = fullText.replace(/\[(.*?)\]\(.*?\)/g, '$1'); // replace links with their text
+        fullText = fullText.replace(/<[^>]*>?/gm, ''); // HTML before removing Markdown quote markers
         fullText = fullText.replace(/[#*~_>]/g, ''); // remove bold, italics, quotes, headers
-        fullText = fullText.replace(/<[^>]*>?/gm, ''); // HTML
         fullText = fullText.replace(/\s+/g, ' ').trim(); // normalize whitespace
+
+        if (!fullText) {
+            return NextResponse.json({ error: 'No text is available to read.' }, { status: 400 });
+        }
+
+        if (provider === 'xiaomi') {
+            const audio = await generateMimoAudio(fullText, voice, request.signal);
+            // Stream the binary response so long WAV narrations can exceed the
+            // hosting platform's buffered response limit. Google DB caches stay separate.
+            let offset = 0;
+            return new NextResponse(new ReadableStream<Uint8Array>({
+                pull(controller) {
+                    if (offset >= audio.length) { controller.close(); return; }
+                    const end = Math.min(offset + 64 * 1024, audio.length);
+                    controller.enqueue(new Uint8Array(audio.subarray(offset, end)));
+                    offset = end;
+                },
+            }), {
+                headers: {
+                    'Content-Type': 'audio/wav',
+                    'Cache-Control': 'private, no-store',
+                    'X-TTS-Provider': 'xiaomi',
+                    'X-TTS-Cache': 'generated',
+                },
+            });
+        }
 
         if (voice === 'gemini-3.1-kore' || voice === 'gemini-2.5-kore') {
             try {
@@ -247,7 +294,7 @@ ${JSON.stringify(contentArray)}`;
                         'Content-Type': 'audio/mpeg',
                         'Content-Length': audioBuffer.length.toString(),
                         'Accept-Ranges': 'bytes',
-                        'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
+                        'Cache-Control': 'private, no-store',
                     }
                 });
             } catch (error) {
@@ -287,13 +334,14 @@ ${JSON.stringify(contentArray)}`;
                 let lastError: any = null;
                 for (let i = 0; i < 3; i++) {
                     try {
-                        const response = await fetch(item.url);
+                        const response = await fetch(item.url, { signal: request.signal });
                         if (!response.ok) {
                             throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
                         }
                         const arrayBuffer = await response.arrayBuffer();
                         return Buffer.from(arrayBuffer);
                     } catch (error) {
+                        if (request.signal.aborted) throw error;
                         lastError = error;
                         if (i < 2) await new Promise(res => setTimeout(res, 1000 * (i + 1))); // Backoff
                     }
@@ -303,9 +351,10 @@ ${JSON.stringify(contentArray)}`;
 
             // Combine buffers into 1 file
             combinedBuffer = Buffer.concat(buffers);
+            request.signal.throwIfAborted();
 
             // Save to DB cache if applicable
-            if (voice === 'en' && grammarModel === 'OFF' && chapterId && chapter) {
+            if (voice === 'en' && grammarModel === 'OFF' && chapterId && chapter && combinedBuffer.length <= MAX_DATABASE_AUDIO_BYTES) {
                 try {
                     await db.chapterAudio.upsert({
                         where: { chapterId: chapterId },
@@ -323,122 +372,35 @@ ${JSON.stringify(contentArray)}`;
             }
         }
 
-        // Trigger smart background cache logic (fire and forget)
-        if (voice === 'en' && grammarModel === 'OFF' && chapter) {
-            executeSmartCacheLogic(chapter.bookId, chapter.order, googleLang).catch(err => 
-                console.error("[TTS Cache Background Error]", err)
-            );
-        }
-
-        // Return the final combined audio stream with CDN caching headers
+        // Keep authenticated audio private; the browser owns the bounded playback cache.
         return new NextResponse(combinedBuffer ? new Uint8Array(combinedBuffer) : null, {
             headers: {
                 'Content-Type': 'audio/mpeg',
                 'Content-Length': combinedBuffer ? combinedBuffer.length.toString() : '0',
+                'X-TTS-Cache': isFromCache ? 'database' : 'generated',
                 'Accept-Ranges': 'bytes',
-                'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
+                'Cache-Control': 'private, no-store',
             }
         });
 
     } catch (error: any) {
+        if (error instanceof TtsProviderError) {
+            return NextResponse.json({ error: error.message }, { status: error.status });
+        }
         console.error("TTS GENERATION ERROR:", error);
         return NextResponse.json({ error: 'Internal server error while generating audio.' }, { status: 500 });
     }
 }
 
-// ---------------------------------------------------------
-// Background DB Caching Logic
-// ---------------------------------------------------------
-async function executeSmartCacheLogic(bookId: string, currentOrder: number, lang: string) {
-    // 1. Prune caches outside of [currentOrder - 1, currentOrder, currentOrder + 1]
-    const allCaches = await db.chapterAudio.findMany({
+// Cache only the active chapter and its successor. The browser owns next-chapter
+// prefetch, avoiding duplicate Google/MiMo generation on the server.
+async function pruneChapterAudioWindow(bookId: string, currentOrder: number) {
+    const caches = await db.chapterAudio.findMany({
         where: { bookId },
-        include: { chapter: { select: { order: true } } }
+        select: { id: true, chapter: { select: { order: true } } },
     });
-
-    const toDeleteIds: string[] = [];
-    for (const cache of allCaches) {
-        const order = cache.chapter?.order;
-        if (order !== undefined && (order < currentOrder - 1 || order > currentOrder + 1)) {
-            toDeleteIds.push(cache.id);
-        }
-    }
-
-    if (toDeleteIds.length > 0) {
-        await db.chapterAudio.deleteMany({
-            where: { id: { in: toDeleteIds } }
-        });
-        console.log(`[TTS Cache Prune] Deleted ${toDeleteIds.length} old chapters for book ${bookId}`);
-    }
-
-    // 2. Prefetch N-1 and N+1
-    const targetOrders = [currentOrder - 1, currentOrder + 1].filter(o => o >= 0);
-    const targetChapters = await db.chapter.findMany({
-        where: {
-            bookId,
-            order: { in: targetOrders }
-        }
-    });
-
-    for (const tChap of targetChapters) {
-        // Check if already cached
-        const exists = await db.chapterAudio.findUnique({
-            where: { chapterId: tChap.id }
-        });
-        if (exists) continue;
-
-        // Generate Audio
-        try {
-            let contentArray: string[] = [];
-            const rawContent = tChap.content;
-            if (Array.isArray(rawContent)) {
-                contentArray = rawContent.map(String);
-            } else if (typeof rawContent === 'object' && rawContent !== null) {
-                if (Array.isArray((rawContent as any).correctedContent)) {
-                    contentArray = (rawContent as any).correctedContent.map(String);
-                } else if (typeof (rawContent as any).content === 'string') {
-                    contentArray = [(rawContent as any).content];
-                } else {
-                    contentArray = [String(rawContent)];
-                }
-            } else {
-                contentArray = [String(rawContent)];
-            }
-
-            let fullText = contentArray.join(' ');
-            fullText = fullText.replace(/```[\s\S]*?```/g, ' ')
-                               .replace(/`[^`]*`/g, ' ')
-                               .replace(/!\[.*?\]\(.*?\)/g, ' ')
-                               .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-                               .replace(/[#*~_>]/g, '')
-                               .replace(/<[^>]*>?/gm, '')
-                               .replace(/\s+/g, ' ').trim();
-
-            if (!fullText) continue;
-
-            const results = googleTTS.getAllAudioUrls(fullText, {
-                lang, slow: false, host: 'https://translate.google.com', splitPunct: ',.?',
-            });
-
-            const buffers = await Promise.all(results.map(async (item) => {
-                const response = await fetch(item.url);
-                if (!response.ok) throw new Error('Fetch failed');
-                const arrayBuffer = await response.arrayBuffer();
-                return Buffer.from(arrayBuffer);
-            }));
-
-            const combinedBuffer = Buffer.concat(buffers);
-
-            await db.chapterAudio.create({
-                data: {
-                    chapterId: tChap.id,
-                    bookId: tChap.bookId,
-                    audio: new Uint8Array(combinedBuffer)
-                }
-            });
-            console.log(`[TTS Cache Prefetch] Generated and saved chapter ${tChap.order}`);
-        } catch (err) {
-            console.error(`[TTS Cache Prefetch] Failed for chapter ${tChap.order}:`, err);
-        }
+    const stale = caches.filter(cache => cache.chapter.order !== currentOrder && cache.chapter.order !== currentOrder + 1);
+    if (stale.length) {
+        await db.chapterAudio.deleteMany({ where: { id: { in: stale.map(cache => cache.id) } } });
     }
 }

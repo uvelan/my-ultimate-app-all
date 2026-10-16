@@ -64,6 +64,9 @@ export async function PATCH(
             data: { content },
         });
 
+        // Narration is derived from chapter text; edits invalidate the server cache.
+        await prisma.chapterAudio.deleteMany({ where: { chapterId: updatedChapter.id } });
+
         return NextResponse.json(updatedChapter);
     } catch (error) {
         console.error('Error updating chapter:', error);
