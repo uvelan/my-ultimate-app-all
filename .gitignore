@@ -35,3 +35,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Captured local diagnostics (not application data)
+/build_log.txt
+/build_output.txt
+/chapter-out.txt
+/db-output.txt
+/lint_log.txt
+/test-output.txt
+/test-result.txt
+/tmp-db-out.txt
+/tsc_errors.txt
+/tts_cache_debug.txt
+/type_errors.txt
+/type_errors_2.txt
