@@ -6,6 +6,8 @@ import { revalidatePath } from 'next/cache'
 import { Frequency, TransactionType } from '@prisma/client'
 import { z } from 'zod'
 
+// Finance pages also call this during rendering. Keep path invalidation in
+// mutation actions so processing due entries cannot trigger render-time errors.
 export async function processRecurringTransactions() {
   const { isAuthenticated, user } = await verifyAuth()
   const userId = user?.id
@@ -17,8 +19,6 @@ export async function processRecurringTransactions() {
   const recurring = await prisma.recurringTransaction.findMany({
     where: { userId, isActive: true },
   })
-
-  let anyCreated = false
 
   for (const rt of recurring) {
     let processFrom = rt.lastProcessed || rt.startDate
@@ -92,14 +92,7 @@ export async function processRecurringTransactions() {
         where: { id: rt.id },
         data: { lastProcessed: processFrom }
       })
-      
-      anyCreated = true
     }
-  }
-
-  if (anyCreated) {
-    revalidatePath('/finance/dashboard')
-    revalidatePath('/finance/transactions')
   }
 }
 
@@ -155,8 +148,7 @@ export async function upsertRecurringTransaction(data: RecurringInput & { id?: s
   // Prompt generating if due immediately
   await processRecurringTransactions()
   
-  revalidatePath('/finance/recurring')
-  revalidatePath('/finance/dashboard')
+  revalidatePath('/finance', 'layout')
 }
 
 export async function deleteRecurringTransaction(id: string) {
