@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
+import { compressNarrationAudio } from '@/lib/audio-compression';
 
 const STATE_ID = 'global';
 const CHUNK_BYTES = 6 * 1024 * 1024;
+const compressionInFlight = new Map<string, Promise<CachedAudio>>();
 export const SERVER_AUDIO_WINDOW_SIZE = 5;
 
 export interface CachedAudio {
@@ -87,25 +89,54 @@ export async function getAudioCacheWindow(bookId: string, currentChapterId: stri
     return state?.bookId === bookId && state.currentChapterId === currentChapterId ? state : null;
 }
 
-export async function readServerAudio(window: AudioCacheWindow, chapterId: string, key: string): Promise<CachedAudio | null> {
+export async function readServerAudio(window: AudioCacheWindow, chapterId: string, key: string, signal?: AbortSignal): Promise<CachedAudio | null> {
     const state = await prisma.ttsAudioCacheState.findUnique({ where: { id: STATE_ID } });
     if (state?.windowToken !== window.windowToken || !state.chapterIds.includes(chapterId)) return null;
     const entry = entries(state.entries).find(item => item.chapterId === chapterId && (item.requestedKey === key || item.actualKey === key));
     if (!entry) return null;
-    const chunks = await prisma.ttsAudioCacheChunk.findMany({ where: { audioId: entry.audioId }, orderBy: { index: 'asc' } });
+    // Sort small chunk descriptors locally: MongoDB sorting full binary records can
+    // exceed its aggregation memory limit for a single long chapter.
+    const chunks = await prisma.ttsAudioCacheChunk.findMany({ where: { audioId: entry.audioId } });
+    chunks.sort((a, b) => a.index - b.index);
     if (chunks.length !== entry.chunkCount || chunks.some((chunk, index) => chunk.index !== index)) return null;
     const audio = Buffer.concat(chunks.map(chunk => Buffer.from(chunk.audio)));
     if (audio.length !== entry.byteLength) return null;
-    return { audio, contentType: entry.contentType, provider: entry.provider, voice: entry.voice, fallback: entry.fallback };
+    const cached = { audio, contentType: entry.contentType, provider: entry.provider, voice: entry.voice, fallback: entry.fallback };
+    if (!/wav/i.test(entry.contentType)) return cached;
+
+    // Existing WAVs are upgraded in place without invoking a speech provider.
+    // Share the CPU work for simultaneous reads, without one caller's abort
+    // cancelling a conversion that another listener is still awaiting.
+    let conversion = compressionInFlight.get(entry.audioId);
+    if (!conversion) {
+        conversion = (async () => {
+            let compressed;
+            try {
+                compressed = await compressNarrationAudio(audio, entry.contentType);
+            } catch {
+                return cached;
+            }
+            const result = { ...cached, ...compressed };
+            if (result.contentType !== entry.contentType || result.audio.length !== audio.length) {
+                await writeServerAudio(window, chapterId, entry.requestedKey, entry.actualKey, result, entry.audioId).catch(() => {});
+            }
+            return result;
+        })().finally(() => compressionInFlight.delete(entry.audioId));
+        compressionInFlight.set(entry.audioId, conversion);
+    }
+    const result = await conversion;
+    signal?.throwIfAborted();
+    return result;
 }
 
-export async function writeServerAudio(window: AudioCacheWindow, chapterId: string, requestedKey: string, actualKey: string, audio: CachedAudio): Promise<void> {
+export async function writeServerAudio(window: AudioCacheWindow, chapterId: string, requestedKey: string, actualKey: string, audio: CachedAudio, expectedAudioId?: string): Promise<void> {
     if (!audio.audio.length) return;
     const audioId = randomUUID();
     let published = false;
     try {
         const initial = await prisma.ttsAudioCacheState.findUnique({ where: { id: STATE_ID } });
         if (initial?.windowToken !== window.windowToken || !initial.chapterIds.includes(chapterId)) return;
+        if (expectedAudioId && !entries(initial.entries).some(item => item.chapterId === chapterId && item.audioId === expectedAudioId)) return;
         let chunkCount = 0;
         for (let offset = 0; offset < audio.audio.length; offset += CHUNK_BYTES) {
             await prisma.ttsAudioCacheChunk.create({ data: { audioId, index: chunkCount++, audio: new Uint8Array(audio.audio.subarray(offset, offset + CHUNK_BYTES)) } });
@@ -115,6 +146,7 @@ export async function writeServerAudio(window: AudioCacheWindow, chapterId: stri
             const state = await prisma.ttsAudioCacheState.findUnique({ where: { id: STATE_ID } });
             if (state?.windowToken !== window.windowToken || !state.chapterIds.includes(chapterId)) return;
             const previous = entries(state.entries);
+            if (expectedAudioId && !previous.some(item => item.chapterId === chapterId && item.audioId === expectedAudioId)) return;
             const next = [...previous.filter(item => item.chapterId !== chapterId), entry];
             const updated = await prisma.ttsAudioCacheState.updateMany({
                 where: { id: STATE_ID, revision: state.revision, windowToken: window.windowToken },

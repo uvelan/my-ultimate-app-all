@@ -8,8 +8,8 @@ const ts = require('typescript');
 
 // A compare-and-swap database double: reads return snapshots, and writes only
 // succeed against the revision/window they actually observed. No Prisma import.
-function harness() {
-  const memory = { state: null, chunks: new Map(), conflicts: 0, failedCas: 0, failChunk: -1, beforeChunk: null, legacyClears: 0 };
+function harness({ compress } = {}) {
+  const memory = { state: null, chunks: new Map(), conflicts: 0, failedCas: 0, failChunk: -1, beforeChunk: null, legacyClears: 0, compression: [], reverseChunkResults: false };
   const chapters = ['book-a', 'book-b'].flatMap(bookId => Array.from({ length: 9 }, (_, order) => ({ id: `${bookId}-${order}`, bookId, order })));
   const clone = value => value == null ? value : structuredClone(value);
   const prisma = {
@@ -43,8 +43,10 @@ function harness() {
         memory.chunks.set(`${data.audioId}:${data.index}`, chunk);
         return chunk;
       },
-      async findMany({ where }) {
-        return [...memory.chunks.values()].filter(chunk => chunk.audioId === where.audioId).sort((a, b) => a.index - b.index);
+      async findMany({ where, orderBy }) {
+        assert.equal(orderBy, undefined, 'sorting binary audio in MongoDB can exceed its 32 MB sort memory limit');
+        const chunks = [...memory.chunks.values()].filter(chunk => chunk.audioId === where.audioId);
+        return memory.reverseChunkResults ? chunks.reverse() : chunks;
       },
       async deleteMany({ where }) {
         let count = 0;
@@ -67,6 +69,10 @@ function harness() {
     require(name) {
       if (name === 'node:crypto') return crypto;
       if (name === '@/lib/prisma') return { prisma };
+      if (name === '@/lib/audio-compression') return { async compressNarrationAudio(audio, contentType, signal) {
+        memory.compression.push({ audio, contentType, signal });
+        return compress ? await compress(audio, contentType, signal) : { audio, contentType };
+      } };
       throw new Error(`Unexpected cache dependency: ${name}`);
     },
   });
@@ -156,10 +162,11 @@ test('fallback audio is reusable under requested and actual identities but chang
   ]) assert.equal(await cache.readServerAudio(window, 'book-a-0', cache.serverAudioCacheKey(...variant)), null);
 });
 
-test('audio larger than a MongoDB document is chunked and read back without loss', async () => {
+test('audio above MongoDB sort memory limits is fetched unsorted and reassembled locally without loss', async () => {
   const cache = harness();
+  cache.memory.reverseChunkResults = true;
   const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
-  const bytes = Buffer.alloc(17 * 1024 * 1024 + 5, 7);
+  const bytes = Buffer.alloc(33 * 1024 * 1024 + 5, 7);
   bytes[6 * 1024 * 1024] = 9;
   bytes[12 * 1024 * 1024] = 11;
   await cache.writeServerAudio(window, 'book-a-0', 'key', 'key', audio(bytes));
@@ -226,5 +233,103 @@ test('an interrupted chunk write preserves the last published audio and removes 
   await assert.rejects(cache.writeServerAudio(window, 'book-a-0', 'new-key', 'new-key', audio(Buffer.alloc(7 * 1024 * 1024))), /storage unavailable/);
   assert.equal((await cache.readServerAudio(window, 'book-a-0', 'old-key')).audio.toString(), 'published');
   assert.equal(await cache.readServerAudio(window, 'book-a-0', 'new-key'), null);
+  assert.equal(cache.memory.chunks.size, 1);
+});
+
+test('legacy WAV reads upgrade stored bytes while preserving requested and actual fallback identities', async () => {
+  const mp3 = Buffer.from('small-mp3');
+  const legacy = Buffer.from('large legacy WAV audio payload');
+  const cache = harness({ compress: async () => ({ audio: mp3, contentType: 'audio/mpeg' }) });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  const requestedKey = cache.serverAudioCacheKey(['Text.'], 'gemini', 'Kore', 'OFF');
+  const actualKey = cache.serverAudioCacheKey(['Text.'], 'xiaomi', 'Mia', 'OFF');
+  await cache.writeServerAudio(window, 'book-a-0', requestedKey, actualKey, audio(legacy, {
+    provider: 'xiaomi', voice: 'Mia', fallback: ['gemini'],
+  }));
+  const oldAudioId = cache.memory.state.entries[0].audioId;
+  const upgraded = await cache.readServerAudio(window, 'book-a-0', actualKey);
+  assert.equal(upgraded.contentType, 'audio/mpeg');
+  assert.deepEqual(upgraded.audio, mp3);
+  assert.equal(upgraded.provider, 'xiaomi');
+  assert.equal(upgraded.voice, 'Mia');
+  assert.deepEqual(Array.from(upgraded.fallback), ['gemini']);
+  const entry = cache.memory.state.entries[0];
+  assert.equal(entry.requestedKey, requestedKey, 'reading by the actual key must preserve the requested-key alias');
+  assert.equal(entry.actualKey, actualKey);
+  assert.equal(entry.contentType, 'audio/mpeg');
+  assert.equal(entry.byteLength, mp3.length);
+  assert.notEqual(entry.audioId, oldAudioId);
+  assert.ok([...cache.memory.chunks.values()].every(chunk => chunk.audioId !== oldAudioId));
+  assert.deepEqual((await cache.readServerAudio(window, 'book-a-0', requestedKey)).audio, mp3);
+  assert.equal(cache.memory.compression.length, 1, 'already stored MP3 audio is not compressed again');
+  assert.deepEqual(cache.memory.compression[0].audio, legacy);
+});
+
+test('a legacy upgrade save failure still returns compressed audio and retains the valid stored chapter', async () => {
+  const mp3 = Buffer.from('mp3');
+  const cache = harness({ compress: async () => ({ audio: mp3, contentType: 'audio/mpeg' }) });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'requested', 'actual', audio(Buffer.from('old WAV bytes')));
+  const oldAudioId = cache.memory.state.entries[0].audioId;
+  cache.memory.failChunk = 0;
+  const result = await cache.readServerAudio(window, 'book-a-0', 'requested');
+  assert.equal(result.contentType, 'audio/mpeg');
+  assert.deepEqual(result.audio, mp3);
+  assert.equal(cache.memory.state.entries[0].audioId, oldAudioId);
+  assert.equal(cache.memory.state.entries[0].contentType, 'audio/wav');
+  assert.equal(cache.memory.chunks.size, 1, 'failed upgrades do not remove the last valid stored bytes');
+});
+
+test('simultaneous legacy reads share one conversion and cache the resulting MP3', async () => {
+  const started = deferred();
+  const finish = deferred();
+  const cache = harness({ compress: async () => {
+    started.resolve();
+    await finish.promise;
+    return { audio: Buffer.from('mp3'), contentType: 'audio/mpeg' };
+  } });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'requested', 'actual', audio());
+  const pending = Promise.all(['requested', 'actual', 'requested'].map(key => cache.readServerAudio(window, 'book-a-0', key)));
+  await started.promise;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(cache.memory.compression.length, 1);
+  finish.resolve();
+  for (const result of await pending) assert.equal(result.contentType, 'audio/mpeg');
+  assert.equal(cache.memory.state.entries[0].contentType, 'audio/mpeg');
+  assert.equal(cache.memory.chunks.size, 1);
+});
+
+test('a slow legacy conversion cannot overwrite a newer chapter variant', async () => {
+  const started = deferred();
+  const finish = deferred();
+  const cache = harness({ compress: async () => {
+    started.resolve();
+    await finish.promise;
+    return { audio: Buffer.from('old-compressed'), contentType: 'audio/mpeg' };
+  } });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'old', 'old', audio());
+  const pending = cache.readServerAudio(window, 'book-a-0', 'old');
+  await started.promise;
+  await cache.writeServerAudio(window, 'book-a-0', 'new', 'new', audio(Buffer.from('fresh-mp3'), { contentType: 'audio/mpeg', voice: 'Puck' }));
+  finish.resolve();
+  await pending;
+  const current = await cache.readServerAudio(window, 'book-a-0', 'new');
+  assert.equal(current.audio.toString(), 'fresh-mp3');
+  assert.equal(current.voice, 'Puck');
+  assert.equal(await cache.readServerAudio(window, 'book-a-0', 'old'), null);
+  assert.equal(cache.memory.chunks.size, 1);
+});
+
+test('encoding failure leaves existing WAV playable without modifying the cache', async () => {
+  const cache = harness({ compress: async () => { throw new Error('Encoder unavailable'); } });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'key', 'key', audio(Buffer.from('legacy WAV')));
+  const oldAudioId = cache.memory.state.entries[0].audioId;
+  const result = await cache.readServerAudio(window, 'book-a-0', 'key');
+  assert.equal(result.contentType, 'audio/wav');
+  assert.equal(result.audio.toString(), 'legacy WAV');
+  assert.equal(cache.memory.state.entries[0].audioId, oldAudioId);
   assert.equal(cache.memory.chunks.size, 1);
 });

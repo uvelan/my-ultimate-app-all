@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { prisma as db } from '@/lib/prisma';
 import { generateGoogleAudio } from '@/lib/google-tts';
 import { activateAudioCacheWindow, getAudioCacheWindow, readServerAudio, serverAudioCacheKey, writeServerAudio, type AudioCacheWindow } from '@/lib/server-audio-cache';
+import { compressNarrationAudio } from '@/lib/audio-compression';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import { generateMimoAudio, MIMO_VOICES, TtsProviderError } from '@/lib/mimo-tts';
@@ -118,7 +119,7 @@ export async function GET(request: Request) {
             requestedCacheKey = serverAudioCacheKey(chapter.content, requestedProvider, requestedVoice, grammarModel);
             if (cacheWindow && searchParams.get('bypassCache') !== '1') {
                 try {
-                    const cached = await readServerAudio(cacheWindow, chapterId, requestedCacheKey);
+                    const cached = await readServerAudio(cacheWindow, chapterId, requestedCacheKey, request.signal);
                     if (cached) return audioResponse(cached.audio, cached.contentType, cached.provider, cached.voice, cached.fallback, 'database');
                 } catch (error) {
                     console.warn('[TTS Cache] Lookup failed:', error);
@@ -260,6 +261,15 @@ ${JSON.stringify(contentArray)}`;
 
         const finishAudio = async (audio: Buffer, contentType: string, actualProvider: string, actualVoice: string, fallback: string[]) => {
             request.signal.throwIfAborted();
+            try {
+                const compressed = await compressNarrationAudio(audio, contentType, request.signal);
+                audio = compressed.audio;
+                contentType = compressed.contentType;
+            } catch (error) {
+                request.signal.throwIfAborted();
+                console.warn('[TTS Cache] Audio compression unavailable:', error);
+            }
+            request.signal.throwIfAborted();
             if (chapter && chapterId && cacheWindow) {
                 try {
                     await writeServerAudio(cacheWindow, chapterId, requestedCacheKey,
@@ -278,7 +288,7 @@ ${JSON.stringify(contentArray)}`;
             if (!chapter || !chapterId || !cacheWindow || searchParams.get('bypassCache') === '1') return null;
             try {
                 const cached = await readServerAudio(cacheWindow, chapterId,
-                    serverAudioCacheKey(chapter.content, provider, voice, grammarModel));
+                    serverAudioCacheKey(chapter.content, provider, voice, grammarModel), request.signal);
                 if (!cached) return null;
                 const chain = Array.from(new Set([...fallback, ...cached.fallback]));
                 // Link the requested provider to the existing fallback without another paid call.

@@ -8,6 +8,7 @@ const ts = require('typescript');
 // Transpile the real server code, but never import Next, Prisma, or API SDKs.
 // Every test gets its own globals, environment, and module state.
 const root = path.resolve(__dirname, '..');
+const compressedPremiumAudio = Buffer.from('compressed-premium-mp3');
 function loadTs(relativePath, { mocks = {}, env = {}, fetch } = {}) {
   const filename = path.join(root, relativePath);
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -96,8 +97,8 @@ function helper(options = {}) {
 
 function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello world.'], cached = null,
   cachedAudio = null, cachedFor = { provider: 'google', voice: 'en', grammar: 'OFF' },
-  cacheReadError = false, cacheWriteError = false, activeWindow = true, chapters = null, fetch, authenticated = true } = {}) {
-  const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cacheKeys: [], windowActivate: [], windowRead: [], cacheBackground: [], google: [] };
+  cacheReadError = false, cacheWriteError = false, compressionError = false, activeWindow = true, chapters = null, fetch, authenticated = true } = {}) {
+  const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cacheKeys: [], compression: [], windowActivate: [], windowRead: [], cacheBackground: [], google: [] };
   const db = {
     chapter: {
       async findUnique(args) {
@@ -150,6 +151,12 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
       '@/lib/gemini-tts': gemini,
       '@/lib/google-tts': google,
       '@/lib/server-audio-cache': serverCache,
+      '@/lib/audio-compression': { async compressNarrationAudio(audio, contentType, signal) {
+        calls.compression.push({ audio, contentType, signal });
+        signal?.throwIfAborted();
+        if (compressionError) throw new Error('Encoder unavailable');
+        return /wav/i.test(contentType) ? { audio: compressedPremiumAudio, contentType: 'audio/mpeg' } : { audio, contentType };
+      } },
       '@google/generative-ai': { GoogleGenerativeAI: class { constructor() { throw new Error('Unexpected Gemini call'); } } },
       openai: class { constructor() { throw new Error('Unexpected OpenAI call'); } },
     },
@@ -311,14 +318,15 @@ test('server cache hits return premium and fallback audio before grammar correct
   ]) {
     await t.test(`${requested.provider}/${requested.voice} to ${actual.provider}/${actual.voice}`, async () => {
       const content = ['Original **chapter** text.'];
-      const audio = wav();
+      const audio = compressedPremiumAudio;
       const app = routeHarness({ env: {}, content,
         cachedFor: { ...requested, grammar: 'gpt-4o-mini' },
-        cachedAudio: { audio, contentType: 'audio/wav', ...actual },
+        cachedAudio: { audio, contentType: 'audio/mpeg', ...actual },
       });
       const response = await app.get(`chapterId=chapter-1&provider=${requested.provider}&voice=${requested.voice}&grammarModel=gpt-4o-mini`);
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('X-TTS-Cache'), 'database');
+      assert.equal(response.headers.get('Content-Type'), 'audio/mpeg');
       assert.equal(response.headers.get('Content-Length'), String(audio.length));
       assert.equal(response.headers.get('X-TTS-Provider'), actual.provider);
       assert.equal(response.headers.get('X-TTS-Voice'), actual.voice);
@@ -327,6 +335,7 @@ test('server cache hits return premium and fallback audio before grammar correct
       assert.deepEqual(app.calls.cacheKeys[0], [content, requested.provider, requested.voice, 'gpt-4o-mini']);
       assert.equal(app.calls.cacheWrite.length, 0);
       assert.equal(app.calls.google.length, 0);
+      assert.equal(app.calls.compression.length, 0, 'server cache reads already return their stored format');
     });
   }
 });
@@ -360,13 +369,42 @@ test('server storage failures do not prevent successful chapter playback', async
   assert.equal(app.calls.cacheWrite.length, 1);
 });
 
+test('a failed cache write still serves newly compressed premium audio without another provider call', async () => {
+  let requests = 0;
+  const app = routeHarness({ cacheWriteError: true, fetch: async () => { requests++; return audioResponse(); } });
+  const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Mia');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'audio/mpeg');
+  assert.equal(response.headers.get('Content-Length'), String(compressedPremiumAudio.length));
+  assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
+  assert.equal(response.headers.get('X-TTS-Fallback'), null);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), compressedPremiumAudio);
+  assert.equal(app.calls.cacheWrite.length, 1);
+  assert.equal(app.calls.compression.length, 1);
+  assert.equal(requests, 1);
+  assert.equal(app.calls.google.length, 0);
+});
+
+test('an encoder failure preserves playable original audio without restarting speech generation', async () => {
+  let requests = 0;
+  const app = routeHarness({ compressionError: true, fetch: async () => { requests++; return audioResponse(); } });
+  const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Mia');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'audio/wav');
+  assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
+  assert.equal(response.headers.get('X-TTS-Fallback'), null);
+  assert.deepEqual(readWav(Buffer.from(await response.arrayBuffer())).data, Buffer.from([1, 0, 2, 0]));
+  assert.equal(requests, 1);
+  assert.equal(app.calls.google.length, 0);
+});
+
 test('failed alias persistence still plays an already cached fallback without a second paid request', async () => {
   const urls = [];
-  const bytes = wav();
+  const bytes = compressedPremiumAudio;
   const app = routeHarness({
     env: { GEMINI_API_KEY: 'gemini-key' }, cacheWriteError: true,
     cachedFor: { provider: 'xiaomi', voice: 'Mia', grammar: 'OFF' },
-    cachedAudio: { audio: bytes, contentType: 'audio/wav', provider: 'xiaomi', voice: 'Mia', fallback: [] },
+    cachedAudio: { audio: bytes, contentType: 'audio/mpeg', provider: 'xiaomi', voice: 'Mia', fallback: [] },
     fetch: async url => { urls.push(url); return new Response(null, { status: 429 }); },
   });
   const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Kore');
@@ -458,7 +496,7 @@ test('anchor validation uses adjacent chapter positions when stored chapter orde
   assert.equal(distant.calls.windowActivate.length, 0, 'the third actual chapter must start a new window');
 });
 
-test('Xiaomi cleans narration and returns private WAV without consulting or writing Google caches', async () => {
+test('Xiaomi cleans narration and stores and serves compressed audio with its original voice metadata', async () => {
   const requests = [];
   const app = routeHarness({
     cached: Buffer.from('old-mp3'),
@@ -467,18 +505,22 @@ test('Xiaomi cleans narration and returns private WAV without consulting or writ
   });
   const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Chloe');
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type'), 'audio/wav');
+  assert.equal(response.headers.get('content-type'), 'audio/mpeg');
   assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
   assert.equal(response.headers.get('X-TTS-Voice'), 'Chloe');
   assert.equal(response.headers.get('X-TTS-Fallback'), null);
   assert.match(response.headers.get('cache-control'), /private/);
   assert.match(response.headers.get('cache-control'), /no-store/);
   assert.ok(response.body, 'audio is returned as a readable response body');
-  assert.deepEqual(readWav(Buffer.from(await response.arrayBuffer())).data, Buffer.from([1, 0, 2, 0]));
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), compressedPremiumAudio);
   assert.equal(requests[0].body.messages.find(message => message.role === 'assistant').content, 'Hello reader. Visit End.');
   assert.equal(app.calls.google.length, 0);
   assert.equal(app.calls.cacheRead.length, 1);
   assert.equal(app.calls.cacheWrite.length, 1);
+  assert.equal(app.calls.cacheWrite[0].audio.contentType, 'audio/mpeg');
+  assert.deepEqual(app.calls.cacheWrite[0].audio.audio, compressedPremiumAudio);
+  assert.equal(app.calls.compression.length, 1);
+  assert.deepEqual(readWav(app.calls.compression[0].audio).data, Buffer.from([1, 0, 2, 0]));
   assert.equal(app.calls.windowActivate.length, 1);
   assert.equal(app.calls.cacheBackground.length, 0);
 });
@@ -495,7 +537,7 @@ test('Xiaomi supports question narration and its default voice', async () => {
   assert.equal(app.calls.cacheWrite.length, 0);
 });
 
-test('Gemini uses its selected voice and returns WAV without consulting Google audio', async () => {
+test('Gemini uses its selected voice and compresses its WAV before storage and response', async () => {
   const requests = [];
   const app = routeHarness({ env: { GEMINI_API_KEY: 'gemini-key' }, cached: Buffer.from('unrelated-google-mp3'), fetch: async (url, options) => {
     requests.push({ url, body: JSON.parse(options.body) });
@@ -503,15 +545,19 @@ test('Gemini uses its selected voice and returns WAV without consulting Google a
   } });
   const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Charon');
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type'), 'audio/wav');
+  assert.equal(response.headers.get('content-type'), 'audio/mpeg');
   assert.equal(response.headers.get('X-TTS-Provider'), 'gemini');
   assert.equal(response.headers.get('X-TTS-Voice'), 'Charon');
   assert.equal(response.headers.get('X-TTS-Fallback'), null);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, 'Charon');
-  assert.deepEqual(readWav(Buffer.from(await response.arrayBuffer())).data, Buffer.from([1, 0, 2, 0]));
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), compressedPremiumAudio);
   assert.equal(app.calls.cacheRead.length, 1);
   assert.equal(app.calls.cacheWrite.length, 1);
+  assert.equal(app.calls.cacheWrite[0].audio.contentType, 'audio/mpeg');
+  assert.deepEqual(app.calls.cacheWrite[0].audio.audio, compressedPremiumAudio);
+  assert.equal(JSON.parse(app.calls.cacheWrite[0].actualKey)[1], 'gemini');
+  assert.equal(app.calls.compression.length, 1);
   assert.equal(app.calls.google.length, 0);
 });
 
@@ -523,7 +569,7 @@ test('Gemini quota failure falls back to MiMo with its own default voice', async
   } });
   const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Fenrir');
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type'), 'audio/wav');
+  assert.equal(response.headers.get('content-type'), 'audio/mpeg');
   assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
   assert.equal(response.headers.get('X-TTS-Voice'), 'Mia');
   assert.equal(response.headers.get('X-TTS-Fallback'), 'gemini');
@@ -667,6 +713,9 @@ test('Google cache misses still generate MP3 and save the chapter cache', async 
   assert.equal(app.calls.google[0].options.lang, 'en');
   assert.equal(app.calls.cacheWrite.length, 1);
   assert.deepEqual(Buffer.from(app.calls.cacheWrite[0].audio.audio), mp3);
+  assert.equal(app.calls.compression.length, 1);
+  assert.equal(app.calls.compression[0].contentType, 'audio/mpeg');
+  assert.deepEqual(app.calls.compression[0].audio, mp3, 'existing Google MP3 bytes pass through unchanged');
 });
 
 test('foreground requests activate the server window while prefetch only reads its current window', async t => {

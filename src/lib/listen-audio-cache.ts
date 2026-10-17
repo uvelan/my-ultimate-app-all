@@ -1,7 +1,7 @@
 // Browser-only, best-effort cache. Audio stays on this device, isolated by user
 // and narration settings. Bump the version if the speech/cleaning pipeline changes.
-const CACHE_NAME = 'listen-audio-v1';
-const WINDOW_CACHE_NAME = 'listen-audio-window-v1';
+const CACHE_NAME = 'listen-audio-v2';
+const WINDOW_CACHE_NAME = 'listen-audio-window-v2';
 export const LISTEN_AUDIO_WINDOW_SIZE = 5;
 const MAX_CHAPTERS = LISTEN_AUDIO_WINDOW_SIZE;
 let activeWindow: Set<string> | null = null;
@@ -19,7 +19,7 @@ export interface AudioCacheIdentity {
 
 async function cacheRequest(identity: AudioCacheIdentity): Promise<Request | null> {
     if (!identity.userId || !globalThis.caches || !globalThis.crypto?.subtle) return null;
-    const input = JSON.stringify(['v1', identity.userId, identity.chapterId, identity.content,
+    const input = JSON.stringify(['v2', identity.userId, identity.chapterId, identity.content,
         identity.provider, identity.voice, identity.grammarModel]);
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
     const hash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
@@ -115,8 +115,15 @@ async function storeChapterAudio(identity: AudioCacheIdentity, audio: Blob): Pro
 // Serialize writes and access-time updates. Web Locks also coordinate multiple
 // tabs where supported, so they do not race past the storage budget.
 let cacheQueue: Promise<unknown> = Promise.resolve();
+let legacyCleanup: Promise<void> | null = null;
 function withCacheLock<T>(operation: () => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
+        if (globalThis.caches && !legacyCleanup) {
+            // Old WAV entries must not keep downloads large after the MP3 rollout.
+            legacyCleanup = Promise.all(['listen-audio-v1', 'listen-audio-window-v1']
+                .map(name => caches.delete(name))).then(() => undefined).catch(() => {});
+        }
+        await legacyCleanup;
         if (globalThis.navigator?.locks) return await navigator.locks.request(CACHE_NAME, operation);
         return await operation();
     };

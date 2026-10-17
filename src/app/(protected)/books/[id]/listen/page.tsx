@@ -71,7 +71,6 @@ export default function ListenPage() {
     const [geminiVoice, setGeminiVoice] = useState<GeminiVoice>('Kore');
     const [preferencesReady, setPreferencesReady] = useState(false);
     const [cacheUserId, setCacheUserId] = useState('');
-    const [audioSource, setAudioSource] = useState<AudioSource | null>(null);
     const [audioError, setAudioError] = useState<string | null>(null);
     const [retryCount, setRetryCount] = useState(0);
 
@@ -317,7 +316,6 @@ export default function ListenPage() {
             setCurrentTime(0);
             setDuration(0);
             setAudioUrl(null);
-            setAudioSource(null);
             setIsGenerating(true);
         }
 
@@ -448,7 +446,7 @@ export default function ListenPage() {
                 // Pruning is best effort, independent of prepared playback/prefetch.
                 void retainChapterAudioWindow(identities);
                 if (!promoted) {
-                    const loaded = await loadAudio(currentIdentity);
+                    await loadAudio(currentIdentity);
                     if (!active) return;
                     const task = audioTasksRef.current.get(currentKey);
                     if (!task?.objectUrl) return;
@@ -461,7 +459,6 @@ export default function ListenPage() {
                         if (playIntentRef.current) attemptPlayback();
                     }
                     setAudioUrl(task.objectUrl);
-                    setAudioSource(loaded.source);
                     // The synchronized settings effect will prefetch with the actual provider.
                     if (changed) return;
                 }
@@ -538,7 +535,7 @@ export default function ListenPage() {
                 const { actualKey } = applyTaskSelection(task, nextIdentity, endedIndex + 1);
                 promotedAudioKeyRef.current = actualKey;
                 setAudioUrl(task.objectUrl);
-                setAudioSource(task.loaded.source);
+
                 setAudioError(null);
                 setIsGenerating(false);
                 setCurrentTime(0);
@@ -1064,12 +1061,6 @@ export default function ListenPage() {
                                         }
                                     }}
                                 />
-
-                                {!isGenerating && audioUrl && audioSource && (
-                                    <p role="status" className="mb-3 text-center text-xs text-[#a0aec0]">
-                                        {audioSource === 'device' ? 'Playing from device cache' : audioSource === 'database' ? 'Playing from server cache' : 'Newly generated audio'}
-                                    </p>
-                                )}
                                 {audioError ? (
                                     <div className="py-4 text-center text-sm text-[#a0aec0]">
                                         <p role="alert" className="mb-3">{audioError}</p>
