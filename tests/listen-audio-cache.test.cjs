@@ -223,11 +223,27 @@ test('the final chapter retains only current audio and an empty window clears st
   assert.equal(cache.storage.stores.get('listen-audio-v1').size, 0);
 });
 
-test('even tiny audio is limited to two cached chapters', async () => {
+test('even tiny audio is limited to five cached chapters', async () => {
   const cache = loadCache();
   const audio = new Blob(['small audio'], { type: 'audio/mpeg' });
-  await Promise.all([0, 1, 2, 3].map(index => cache.cacheChapterAudio({ ...identity, chapterId: `small-${index}` }, audio)));
-  assert.equal(cache.storage.stores.get('listen-audio-v1').size, 2, 'chapter count is bounded independently of byte size');
+  await Promise.all([0, 1, 2, 3, 4, 5, 6].map(index => cache.cacheChapterAudio({ ...identity, chapterId: `small-${index}` }, audio)));
+  assert.equal(cache.storage.stores.get('listen-audio-v1').size, 5, 'chapter count is bounded independently of byte size');
+});
+
+test('the five-chapter window slides without retaining previous or sixth-ahead audio', async () => {
+  const cache = loadCache();
+  const chapters = Array.from({ length: 7 }, (_, index) => ({ ...identity, chapterId: `window-${index}` }));
+  const audio = new Blob(['ready narration'], { type: 'audio/wav' });
+  await cache.retainChapterAudioWindow(chapters.slice(0, 5));
+  for (const chapter of chapters) await cache.cacheChapterAudio(chapter, audio);
+  assert.equal(cache.storage.stores.get('listen-audio-v1').size, 5);
+  assert.equal(await cache.getCachedChapterAudio(chapters[5]), null);
+  await cache.retainChapterAudioWindow(chapters.slice(1, 6));
+  await cache.cacheChapterAudio(chapters[0], audio);
+  await cache.cacheChapterAudio(chapters[5], audio);
+  assert.equal(await cache.getCachedChapterAudio(chapters[0]), null);
+  for (const chapter of chapters.slice(1, 6)) assert.ok(await cache.getCachedChapterAudio(chapter));
+  assert.equal(cache.storage.stores.get('listen-audio-v1').size, 5);
 });
 
 test('oversized audio cannot crowd out an existing useful chapter', async () => {

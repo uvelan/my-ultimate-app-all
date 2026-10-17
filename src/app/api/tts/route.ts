@@ -1,16 +1,14 @@
 import { verifyAuth } from '@/lib/auth-server';
 import { NextResponse } from 'next/server';
 import { prisma as db } from '@/lib/prisma';
-import * as googleTTS from 'google-tts-api';
+import { generateGoogleAudio } from '@/lib/google-tts';
+import { activateAudioCacheWindow, getAudioCacheWindow, readServerAudio, serverAudioCacheKey, writeServerAudio, type AudioCacheWindow } from '@/lib/server-audio-cache';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
 import { generateMimoAudio, MIMO_VOICES, TtsProviderError } from '@/lib/mimo-tts';
 import { generateGeminiAudio, GEMINI_VOICES } from '@/lib/gemini-tts';
 
 export const maxDuration = 300;
-
-// Leave room for BSON metadata under MongoDB's per-document limit.
-const MAX_DATABASE_AUDIO_BYTES = 15 * 1024 * 1024;
 
 function audioResponse(audio: Buffer, contentType: string, provider: string, voice: string, fallback: string[], cache = 'generated') {
     let offset = 0;
@@ -23,6 +21,7 @@ function audioResponse(audio: Buffer, contentType: string, provider: string, voi
         },
     }), { headers: {
         'Content-Type': contentType,
+        'Content-Length': String(audio.length),
         'Cache-Control': 'private, no-store',
         'X-TTS-Provider': provider,
         'X-TTS-Voice': voice,
@@ -68,6 +67,10 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Chapter ID or Question ID is required' }, { status: 400 });
         }
 
+        const requestedProvider = provider;
+        const requestedVoice = voice;
+        let cacheWindow: AudioCacheWindow | null = null;
+        let requestedCacheKey = '';
         let contentArray: string[] = [];
         let chapter = null;
 
@@ -82,9 +85,45 @@ export async function GET(request: Request) {
             }
 
             request.signal.throwIfAborted();
-            await pruneChapterAudioWindow(chapter.bookId, searchParams.get('prefetch') === '1' ? Math.max(0, chapter.order - 1) : chapter.order).catch(error =>
-                console.warn('[TTS Cache] Could not prune the chapter window:', error)
-            );
+            const windowStart = searchParams.get('windowStart') || chapterId;
+            const windowOnly = searchParams.get('windowOnly') === '1';
+            const isPrefetch = searchParams.get('prefetch') === '1' && !windowOnly;
+            let anchor = chapter;
+            if (!isPrefetch && windowStart !== chapterId) {
+                if (!/^[a-fA-F0-9]{24}$/.test(windowStart)) {
+                    return NextResponse.json({ error: 'Invalid audio cache window.' }, { status: 400 });
+                }
+                const candidate = await db.chapter.findUnique({ where: { id: windowStart } });
+                if (!candidate || candidate.bookId !== chapter.bookId || chapter.order < candidate.order) {
+                    return NextResponse.json({ error: 'Invalid audio cache window.' }, { status: 400 });
+                }
+                const firstTwo = await db.chapter.findMany({
+                    where: { bookId: chapter.bookId, order: { gte: candidate.order } },
+                    orderBy: { order: 'asc' }, take: 2, select: { id: true },
+                });
+                if (!firstTwo.some(item => item.id === chapterId)) {
+                    return NextResponse.json({ error: 'Invalid audio cache window.' }, { status: 400 });
+                }
+                anchor = candidate;
+            }
+            try {
+                cacheWindow = isPrefetch
+                    ? await getAudioCacheWindow(chapter.bookId, windowStart)
+                    : await activateAudioCacheWindow(chapter.bookId, anchor.id, anchor.order, request.signal);
+            } catch (error) {
+                request.signal.throwIfAborted();
+                console.warn('[TTS Cache] Cache unavailable:', error);
+            }
+            if (windowOnly) return new NextResponse(null, { status: 204 });
+            requestedCacheKey = serverAudioCacheKey(chapter.content, requestedProvider, requestedVoice, grammarModel);
+            if (cacheWindow && searchParams.get('bypassCache') !== '1') {
+                try {
+                    const cached = await readServerAudio(cacheWindow, chapterId, requestedCacheKey);
+                    if (cached) return audioResponse(cached.audio, cached.contentType, cached.provider, cached.voice, cached.fallback, 'database');
+                } catch (error) {
+                    console.warn('[TTS Cache] Lookup failed:', error);
+                }
+            }
 
             try {
                 const parsedContent = typeof chapter.content === 'string'
@@ -219,12 +258,43 @@ ${JSON.stringify(contentArray)}`;
             return NextResponse.json({ error: 'No text is available to read.' }, { status: 400 });
         }
 
+        const finishAudio = async (audio: Buffer, contentType: string, actualProvider: string, actualVoice: string, fallback: string[]) => {
+            request.signal.throwIfAborted();
+            if (chapter && chapterId && cacheWindow) {
+                try {
+                    await writeServerAudio(cacheWindow, chapterId, requestedCacheKey,
+                        serverAudioCacheKey(chapter.content, actualProvider, actualVoice, grammarModel),
+                        { audio, contentType, provider: actualProvider, voice: actualVoice, fallback });
+                } catch (error) {
+                    console.warn('[TTS Cache] Save failed:', error);
+                }
+            }
+            return audioResponse(audio, contentType, actualProvider, actualVoice, fallback);
+        };
+
         generatingAudio = true;
         const fallback: string[] = [];
+        const reuseFallbackAudio = async (): Promise<NextResponse | null> => {
+            if (!chapter || !chapterId || !cacheWindow || searchParams.get('bypassCache') === '1') return null;
+            try {
+                const cached = await readServerAudio(cacheWindow, chapterId,
+                    serverAudioCacheKey(chapter.content, provider, voice, grammarModel));
+                if (!cached) return null;
+                const chain = Array.from(new Set([...fallback, ...cached.fallback]));
+                // Link the requested provider to the existing fallback without another paid call.
+                await writeServerAudio(cacheWindow, chapterId, requestedCacheKey,
+                    serverAudioCacheKey(chapter.content, cached.provider, cached.voice, grammarModel),
+                    { ...cached, fallback: chain }).catch(error => console.warn('[TTS Cache] Fallback alias save failed:', error));
+                return audioResponse(cached.audio, cached.contentType, cached.provider, cached.voice, chain, 'database');
+            } catch (error) {
+                console.warn('[TTS Cache] Fallback lookup failed:', error);
+                return null;
+            }
+        };
         if (provider === 'gemini') {
             try {
                 const audio = await generateGeminiAudio(fullText, voice, request.signal);
-                return audioResponse(audio, 'audio/wav', 'gemini', voice, fallback);
+                return await finishAudio(audio, 'audio/wav', 'gemini', voice, fallback);
             } catch {
                 // User cancellation must never start another paid provider request.
                 request.signal.throwIfAborted();
@@ -234,11 +304,15 @@ ${JSON.stringify(contentArray)}`;
             }
         }
         if (provider === 'xiaomi') {
+            if (fallback.length) {
+                const cached = await reuseFallbackAudio();
+                if (cached) return cached;
+            }
             try {
                 // Leave time in the route budget for the final Google fallback.
                 const signal = AbortSignal.any([request.signal, AbortSignal.timeout(150_000)]);
                 const audio = await generateMimoAudio(fullText, voice, signal);
-                return audioResponse(audio, 'audio/wav', 'xiaomi', voice, fallback);
+                return await finishAudio(audio, 'audio/wav', 'xiaomi', voice, fallback);
             } catch {
                 request.signal.throwIfAborted();
                 fallback.push('xiaomi');
@@ -247,77 +321,12 @@ ${JSON.stringify(contentArray)}`;
             }
         }
 
-        // ---------------------------------------------------------
-        // DB CACHE LOOKUP (For default Google TTS & Grammar OFF only)
-        // ---------------------------------------------------------
-        let combinedBuffer: Buffer | null = null;
-        let isFromCache = false;
-        const googleLang = voice;
-
-        if (voice === 'en' && grammarModel === 'OFF' && chapterId) {
-            const cachedAudio = await db.chapterAudio.findUnique({
-                where: { chapterId: chapterId }
-            });
-            if (cachedAudio) {
-                combinedBuffer = Buffer.from(cachedAudio.audio);
-                isFromCache = true;
-                console.log(`[TTS Cache] Served chapter ${chapterId} from DB.`);
-            }
+        if (fallback.length) {
+            const cached = await reuseFallbackAudio();
+            if (cached) return cached;
         }
-
-        if (!combinedBuffer) {
-            // Generate live from Google TTS
-            const results = googleTTS.getAllAudioUrls(fullText, {
-                lang: googleLang,
-                slow: false,
-                host: 'https://translate.google.com',
-                splitPunct: ',.?',
-            });
-
-            const buffers = await Promise.all(results.map(async (item) => {
-                let lastError: any = null;
-                for (let i = 0; i < 3; i++) {
-                    try {
-                        const response = await fetch(item.url, { signal: request.signal });
-                        if (!response.ok) {
-                            throw new Error(`Failed to fetch TTS audio for chunk: ${response.statusText}`);
-                        }
-                        const arrayBuffer = await response.arrayBuffer();
-                        return Buffer.from(arrayBuffer);
-                    } catch (error) {
-                        if (request.signal.aborted) throw error;
-                        lastError = error;
-                        if (i < 2) await new Promise(res => setTimeout(res, 1000 * (i + 1))); // Backoff
-                    }
-                }
-                throw new Error(`Audio conversion failed after 3 attempts: ${lastError?.message || 'Unknown error'}`);
-            }));
-
-            // Combine buffers into 1 file
-            combinedBuffer = Buffer.concat(buffers);
-            request.signal.throwIfAborted();
-
-            // Save to DB cache if applicable
-            if (voice === 'en' && grammarModel === 'OFF' && chapterId && chapter && combinedBuffer.length <= MAX_DATABASE_AUDIO_BYTES) {
-                try {
-                    await db.chapterAudio.upsert({
-                        where: { chapterId: chapterId },
-                        update: { audio: new Uint8Array(combinedBuffer) },
-                        create: {
-                            chapterId: chapterId,
-                            bookId: chapter.bookId,
-                            audio: new Uint8Array(combinedBuffer)
-                        }
-                    });
-                    console.log(`[TTS Cache] Saved chapter ${chapterId} to DB.`);
-                } catch (dbErr: any) {
-                    console.error("[TTS Cache] Failed to save to DB:", dbErr);
-                }
-            }
-        }
-
-        if (!combinedBuffer?.length) throw new Error('Google TTS returned no audio.');
-        return audioResponse(combinedBuffer, 'audio/mpeg', 'google', googleLang, fallback, isFromCache ? 'database' : 'generated');
+        const audio = await generateGoogleAudio(fullText, voice, request.signal);
+        return await finishAudio(audio, 'audio/mpeg', 'google', voice, fallback);
 
     } catch (error: any) {
         if (error instanceof TtsProviderError) {
@@ -327,18 +336,5 @@ ${JSON.stringify(contentArray)}`;
         return NextResponse.json({ error: generatingAudio
             ? 'Audio generation failed. All selected speech providers are unavailable. Please try again.'
             : 'Unable to load content for audio generation.' }, { status: generatingAudio ? 502 : 500 });
-    }
-}
-
-// Cache only the active chapter and its successor. The browser owns next-chapter
-// prefetch, avoiding duplicate Google/MiMo generation on the server.
-async function pruneChapterAudioWindow(bookId: string, currentOrder: number) {
-    const caches = await db.chapterAudio.findMany({
-        where: { bookId },
-        select: { id: true, chapter: { select: { order: true } } },
-    });
-    const stale = caches.filter(cache => cache.chapter.order !== currentOrder && cache.chapter.order !== currentOrder + 1);
-    if (stale.length) {
-        await db.chapterAudio.deleteMany({ where: { id: { in: stale.map(cache => cache.id) } } });
     }
 }

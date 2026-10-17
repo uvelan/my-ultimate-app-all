@@ -2,7 +2,8 @@
 // and narration settings. Bump the version if the speech/cleaning pipeline changes.
 const CACHE_NAME = 'listen-audio-v1';
 const WINDOW_CACHE_NAME = 'listen-audio-window-v1';
-const MAX_CHAPTERS = 2;
+export const LISTEN_AUDIO_WINDOW_SIZE = 5;
+const MAX_CHAPTERS = LISTEN_AUDIO_WINDOW_SIZE;
 let activeWindow: Set<string> | null = null;
 const MAX_BYTES = 100 * 1024 * 1024;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -149,5 +150,5 @@ export async function retainChapterAudioWindow(identities: AudioCacheIdentity[])
                 if (!activeWindow.has(request.url)) await cache.delete(request);
             }
         });
-    } catch { /* Storage is optional; the player still keeps only its two active tasks. */ }
+    } catch { /* Storage is optional; the player still keeps only its five active tasks. */ }
 }

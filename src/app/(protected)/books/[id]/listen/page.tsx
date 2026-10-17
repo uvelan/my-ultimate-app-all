@@ -5,7 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import { cacheChapterAudio, getCachedChapterAudio, retainChapterAudioWindow, type AudioCacheIdentity } from '@/lib/listen-audio-cache';
+import { cacheChapterAudio, getCachedChapterAudio, retainChapterAudioWindow, LISTEN_AUDIO_WINDOW_SIZE, type AudioCacheIdentity } from '@/lib/listen-audio-cache';
+import { AudioRequestError, retryAudioOperation } from '@/lib/listen-audio-request';
+import { preparedAudioEvictions } from '@/lib/listen-audio-buffer';
+import { nextAudioWindowStart } from '@/lib/listen-audio-window';
 import { handoffPreparedAudio, isAudioAtEnd } from '@/lib/listen-playback';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
 import { geminiVoices, mimoVoices, migrateLegacyTtsSelection, readTtsAudioMetadata,
@@ -29,6 +32,7 @@ type GeminiVoice = typeof geminiVoices[number];
 type AudioSource = 'device' | 'database' | 'generated';
 interface LoadedAudio extends TtsAudioMetadata { audio: Blob; source: AudioSource }
 interface AudioTask {
+    identity: AudioCacheIdentity;
     controller: AbortController;
     promise: Promise<LoadedAudio>;
     loaded?: LoadedAudio;
@@ -90,15 +94,24 @@ export default function ListenPage() {
     const bypassCacheKeysRef = useRef(new Set<string>());
     const lastResumeAttemptRef = useRef(0);
     const mediaStalledRef = useRef(false);
+    const refillWindowRef = useRef<() => void>(() => {});
+    const memoryEvictedKeysRef = useRef(new Set<string>());
+    const audioWindowRef = useRef<{ bookId: string; start: number; current: number } | null>(null);
 
     const currentChapter = book?.chapters[currentChapterIndex];
     const bookId = book?.id;
     const chapterId = currentChapter?.id;
     const selectedVoice = ttsProvider === 'gemini' ? geminiVoice : ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
     const chapterContent = currentChapter?.content;
-    const nextChapter = book?.chapters[currentChapterIndex + 1];
-    const nextChapterId = nextChapter?.id;
-    const nextChapterContent = nextChapter?.content;
+
+    const updateAudioWindow = (index: number) => {
+        const previous = audioWindowRef.current;
+        const sameBook = previous?.bookId === bookId;
+        const start = nextAudioWindowStart(sameBook ? previous!.start : null,
+            sameBook ? previous!.current : null, index);
+        audioWindowRef.current = { bookId: bookId || '', start, current: index };
+        return start;
+    };
 
     useEffect(() => {
         if (chapterTextRef.current) chapterTextRef.current.scrollTop = 0;
@@ -200,24 +213,37 @@ export default function ListenPage() {
             audioTasksRef.current.delete(requestedKey);
             audioTasksRef.current.set(actualKey, task);
         }
+        task.identity = actualIdentity;
         activeAudioKeyRef.current = actualKey;
         if (changed) {
             promotedAudioKeyRef.current = actualKey;
-            const followingChapter = book?.chapters[index + 1];
-            const window = followingChapter ? [actualIdentity, { ...actualIdentity,
-                chapterId: followingChapter.id, content: followingChapter.content }] : [actualIdentity];
+            const start = updateAudioWindow(index);
+            const window = book?.chapters.slice(start, start + LISTEN_AUDIO_WINDOW_SIZE)
+                .map(chapter => ({ ...actualIdentity, chapterId: chapter.id, content: chapter.content })) || [actualIdentity];
             const allowed = new Set(window.map(audioIdentityKey));
             for (const [key, other] of Array.from(audioTasksRef.current.entries())) {
+                if (!allowed.has(key) && other.loaded?.provider === loaded.provider && other.loaded.voice === loaded.voice) {
+                    const actualOther = { ...other.identity, provider: loaded.provider, voice: loaded.voice };
+                    const otherKey = audioIdentityKey(actualOther);
+                    if (allowed.has(otherKey)) {
+                        audioTasksRef.current.delete(key);
+                        other.identity = actualOther;
+                        audioTasksRef.current.set(otherKey, other);
+                        continue;
+                    }
+                }
                 if (!allowed.has(key)) {
                     other.controller.abort();
                     if (other.objectUrl) URL.revokeObjectURL(other.objectUrl);
                     audioTasksRef.current.delete(key);
                 }
             }
-            // Cache the actual voice only once its new current+next window is retained.
+            // Cache the actual voice only once its new five-chapter window is retained.
             void retainChapterAudioWindow(window).then(() => {
-                if (!task.controller.signal.aborted && audioTasksRef.current.get(actualKey) === task) {
-                    void cacheChapterAudio(actualIdentity, loaded.audio);
+                for (const [key, retained] of Array.from(audioTasksRef.current.entries())) {
+                    if (allowed.has(key) && !retained.controller.signal.aborted && retained.loaded) {
+                        void cacheChapterAudio(retained.identity, retained.loaded.audio);
+                    }
                 }
             });
             setTtsProvider(loaded.provider);
@@ -247,20 +273,29 @@ export default function ListenPage() {
         audioTasksRef.current.clear();
     }, []);
 
-    // Keep only the current chapter and its immediate successor, on disk and in memory.
+    // Keep the current chapter and four successors, on disk and in memory.
     useEffect(() => {
         if (!bookId || !chapterId || !preferencesReady) return;
 
         let active = true;
+        const windowController = new AbortController();
         const identityFor = (id: string, content: unknown): AudioCacheIdentity => ({
             userId: cacheUserId, chapterId: id, content,
             provider: ttsProvider, voice: selectedVoice, grammarModel,
         });
         const currentIdentity = identityFor(chapterId, chapterContent);
         const currentKey = audioIdentityKey(currentIdentity);
-        const nextIdentity = nextChapterId ? identityFor(nextChapterId, nextChapterContent) : null;
-        const identities = nextIdentity ? [currentIdentity, nextIdentity] : [currentIdentity];
+        const windowStartIndex = updateAudioWindow(currentChapterIndex);
+        const identities = book!.chapters.slice(windowStartIndex, windowStartIndex + LISTEN_AUDIO_WINDOW_SIZE)
+            .map(chapter => identityFor(chapter.id, chapter.content));
+        const futureIdentities = book!.chapters.slice(currentChapterIndex + 1, windowStartIndex + LISTEN_AUDIO_WINDOW_SIZE)
+            .map(chapter => identityFor(chapter.id, chapter.content));
         const allowedKeys = new Set(identities.map(audioIdentityKey));
+        for (const key of Array.from(memoryEvictedKeysRef.current)) {
+            if (!allowedKeys.has(key) || [currentIdentity, futureIdentities[0]].some(identity => identity && audioIdentityKey(identity) === key)) {
+                memoryEvictedKeysRef.current.delete(key);
+            }
+        }
         const preparedCurrent = audioTasksRef.current.get(currentKey);
         const promoted = promotedAudioKeyRef.current === currentKey
             && preparedCurrent?.objectUrl === audioRef.current?.src;
@@ -316,19 +351,32 @@ export default function ListenPage() {
                     voice: identity.voice,
                 });
                 if (prefetch) query.set('prefetch', '1');
-                const response = await authenticatedFetch(`/api/tts?${query}`, { signal: controller.signal });
-                controller.signal.throwIfAborted();
-                if (response.status === 401 || response.status === 403) {
-                    router.push('/login');
-                    throw new Error('Please sign in to continue listening.');
-                }
-                if (!response.ok) {
-                    const details = await response.json().catch(() => null);
-                    throw new Error(typeof details?.error === 'string'
-                        ? details.error : 'Failed to generate audio for this chapter.');
-                }
-                const audio = await response.blob();
-                controller.signal.throwIfAborted();
+                const { response, audio } = await retryAudioOperation(async attempt => {
+                    const windowStart = book?.chapters[audioWindowRef.current?.start ?? currentChapterIndexRef.current]?.id;
+                    if (windowStart) query.set('windowStart', windowStart);
+                    // Explicit retry regenerates once; network retries use the resulting server cache.
+                    if (bypassCache && attempt === 0) query.set('bypassCache', '1');
+                    else query.delete('bypassCache');
+                    const response = await authenticatedFetch(`/api/tts?${query}`, { signal: controller.signal });
+                    query.delete('bypassCache');
+                    if (response.status === 401 || response.status === 403) {
+                        router.push('/login');
+                        throw new AudioRequestError('Please sign in to continue listening.', response.status);
+                    }
+                    if (!response.ok) {
+                        const details = await response.json().catch(() => null);
+                        throw new AudioRequestError(typeof details?.error === 'string'
+                            ? details.error : 'Failed to generate audio for this chapter.', response.status);
+                    }
+                    const audio = await response.blob();
+                    const contentLength = response.headers.get('Content-Length');
+                    const expectedBytes = contentLength === null ? null : Number(contentLength);
+                    if (!audio.size || !audio.type.startsWith('audio/')
+                        || (expectedBytes !== null && Number.isFinite(expectedBytes) && expectedBytes >= 0 && audio.size !== expectedBytes)) {
+                        throw new AudioRequestError('The audio download was incomplete. Please try again.', 502);
+                    }
+                    return { response, audio };
+                }, controller.signal);
                 const metadata = readTtsAudioMetadata(response.headers,
                     { provider: identity.provider as TtsProvider, voice: identity.voice });
                 if (metadata.provider === identity.provider && metadata.voice === identity.voice) {
@@ -341,9 +389,20 @@ export default function ListenPage() {
                 if (audioTasksRef.current.get(key) !== task) throw new DOMException('Obsolete audio request', 'AbortError');
                 task.loaded = loaded;
                 task.objectUrl = URL.createObjectURL(loaded.audio);
+                const evictions = preparedAudioEvictions(Array.from(audioTasksRef.current.entries())
+                    .filter(([, candidate]) => !!candidate.loaded)
+                    .map(([key, candidate]) => ({ key, bytes: candidate.loaded!.audio.size,
+                        index: book!.chapters.findIndex(chapter => chapter.id === candidate.identity.chapterId) })),
+                currentChapterIndexRef.current);
+                for (const evictedKey of evictions) {
+                    const evicted = audioTasksRef.current.get(evictedKey);
+                    if (evicted?.objectUrl) URL.revokeObjectURL(evicted.objectUrl);
+                    audioTasksRef.current.delete(evictedKey);
+                    memoryEvictedKeysRef.current.add(evictedKey);
+                }
                 return loaded;
             });
-            const task: AudioTask = { controller, promise };
+            const task: AudioTask = { identity, controller, promise };
             audioTasksRef.current.set(key, task);
             // Failed prefetches may be retried when that chapter becomes current.
             void promise.catch(() => {
@@ -351,6 +410,38 @@ export default function ListenPage() {
             });
             return promise;
         };
+
+        let activation: Promise<void> | null = null;
+        const activateWindow = () => {
+            if (!activation) {
+                activation = retryAudioOperation(async () => {
+                    const query = new URLSearchParams({ chapterId, windowOnly: '1',
+                        windowStart: book!.chapters[windowStartIndex].id });
+                    const response = await authenticatedFetch(`/api/tts?${query}`, { signal: windowController.signal });
+                    if (!response.ok) throw new AudioRequestError('Unable to prepare the chapter window.', response.status);
+                }, windowController.signal).catch(error => { activation = null; throw error; });
+            }
+            return activation;
+        };
+        // Start activation even if a retained foreground prefetch is still downloading.
+        void activateWindow().catch(() => {});
+        let filling = false;
+        const fillAhead = async () => {
+            if (!active || filling || !audioTasksRef.current.get(currentKey)?.loaded) return;
+            filling = true;
+            try {
+                // Cached promotions have no foreground audio GET to activate the server window.
+                await activateWindow();
+                for (const identity of futureIdentities) {
+                    if (!active) return;
+                    if (memoryEvictedKeysRef.current.has(audioIdentityKey(identity))) continue;
+                    try { await loadAudio(identity, true); }
+                    catch { if (!active) return; /* Continue filling later chapters; resume retries failures. */ }
+                }
+            } catch { /* Foreground listening remains independent of prefetch/activation. */ }
+            finally { filling = false; }
+        };
+        refillWindowRef.current = () => { void fillAhead(); };
 
         const prepareAudio = async () => {
             try {
@@ -375,7 +466,7 @@ export default function ListenPage() {
                     if (changed) return;
                 }
                 // Start only after current audio is ready. Its task is reused on advance.
-                if (nextIdentity) void loadAudio(nextIdentity, true).catch(() => {});
+                void fillAhead();
             } catch (error) {
                 if (!active) return;
                 console.error(error);
@@ -391,8 +482,9 @@ export default function ListenPage() {
 
         return () => {
             active = false;
+            windowController.abort();
         };
-    }, [currentChapterIndex, chapterId, bookId, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, nextChapterId, nextChapterContent, retryCount]);
+    }, [currentChapterIndex, chapterId, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount]);
 
     const handlePlaybackError = (error: unknown, requestedSource: string) => {
         const audio = audioRef.current;
@@ -427,6 +519,7 @@ export default function ListenPage() {
             setSleepTimer(null);
             toast('End of chapter reached. Timer stopped.');
         } else if (playIntentRef.current && book && endedIndex < book.chapters.length - 1) {
+            updateAudioWindow(endedIndex + 1);
             const nextIdentity: AudioCacheIdentity = {
                 userId: cacheUserId,
                 chapterId: book.chapters[endedIndex + 1].id,
@@ -463,15 +556,18 @@ export default function ListenPage() {
         }
     };
 
-    const retryCurrentAudio = () => {
-        const key = activeAudioKeyRef.current;
+    const retryCurrentAudio = (forceRegenerate = false) => {
+        const key = activeAudioKeyRef.current || (chapterId ? audioIdentityKey({
+            userId: cacheUserId, chapterId, content: chapterContent,
+            provider: ttsProvider, voice: selectedVoice, grammarModel,
+        }) : null);
         if (key) {
             const task = audioTasksRef.current.get(key);
             switchingAudioRef.current = true;
             task?.controller.abort();
             if (task?.objectUrl) URL.revokeObjectURL(task.objectUrl);
             audioTasksRef.current.delete(key);
-            bypassCacheKeysRef.current.add(key);
+            if (forceRegenerate) bypassCacheKeysRef.current.add(key);
         }
         setRetryCount(count => count + 1);
     };
@@ -479,7 +575,9 @@ export default function ListenPage() {
     // Background suspension can delay a pending fetch; resume only existing play intent.
     useEffect(() => {
         const resume = () => {
-            if (document.visibilityState === 'hidden' || !playIntentRef.current) return;
+            if (document.visibilityState === 'hidden') return;
+            refillWindowRef.current();
+            if (!playIntentRef.current) return;
             const audio = audioRef.current;
             if (Date.now() - lastResumeAttemptRef.current < 1000) return;
             lastResumeAttemptRef.current = Date.now();
@@ -503,11 +601,13 @@ export default function ListenPage() {
         document.addEventListener('resume', resume);
         window.addEventListener('focus', resume);
         window.addEventListener('pageshow', resume);
+        window.addEventListener('online', resume);
         return () => {
             document.removeEventListener('visibilitychange', resume);
             document.removeEventListener('resume', resume);
             window.removeEventListener('focus', resume);
             window.removeEventListener('pageshow', resume);
+            window.removeEventListener('online', resume);
         };
     }, [audioError, audioUrl, chapterId, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book]);
 
@@ -666,7 +766,9 @@ export default function ListenPage() {
 
     const handleNextChapter = () => {
         if (book && currentChapterIndex < book.chapters.length - 1) {
-            setCurrentChapterIndex(prev => prev + 1);
+            updateAudioWindow(currentChapterIndex + 1);
+            currentChapterIndexRef.current = currentChapterIndex + 1;
+            setCurrentChapterIndex(currentChapterIndex + 1);
         } else {
             toast('You have reached the end of the book.', { icon: '🏁' });
         }
@@ -674,11 +776,15 @@ export default function ListenPage() {
 
     const handlePrevChapter = () => {
         if (currentChapterIndex > 0) {
-            setCurrentChapterIndex(prev => prev - 1);
+            updateAudioWindow(currentChapterIndex - 1);
+            currentChapterIndexRef.current = currentChapterIndex - 1;
+            setCurrentChapterIndex(currentChapterIndex - 1);
         }
     };
 
     const handleJumpToChapter = (index: number) => {
+        updateAudioWindow(index);
+        currentChapterIndexRef.current = index;
         setCurrentChapterIndex(index);
         setSidebarOpen(false);
     };
@@ -893,7 +999,7 @@ export default function ListenPage() {
 
                     {/* Main UI Area */}
                     <main className="min-h-0 min-w-0 flex-1 overflow-y-auto lg:overflow-hidden overscroll-contain bg-gradient-to-b from-[#1a202c] to-[#000000] p-4 sm:p-6 lg:p-8">
-                        <div className="mx-auto grid w-full max-w-6xl grid-cols-1 items-start gap-6 lg:h-full lg:min-h-0 lg:grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-8">
+                        <div className="mx-auto grid h-full min-h-0 w-full max-w-6xl grid-cols-1 grid-rows-[auto_minmax(16rem,1fr)] items-stretch gap-5 lg:grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-8">
                         <section aria-label="Audiobook player" className="flex min-w-0 flex-col items-center gap-5 lg:h-full lg:min-h-0 lg:justify-start lg:overflow-y-auto lg:py-2">
 
                         <div className="flex w-full max-w-lg shrink-0 items-center gap-4 sm:gap-5">
@@ -967,7 +1073,7 @@ export default function ListenPage() {
                                 {audioError ? (
                                     <div className="py-4 text-center text-sm text-[#a0aec0]">
                                         <p role="alert" className="mb-3">{audioError}</p>
-                                        <button onClick={retryCurrentAudio} className={topBtnStyle}>Retry audio</button>
+                                        <button onClick={() => retryCurrentAudio(true)} className={topBtnStyle}>Retry audio</button>
                                     </div>
                                 ) : isGenerating ? (
                                     <div className="flex flex-col items-center justify-center py-4">
@@ -1078,9 +1184,9 @@ export default function ListenPage() {
                         </section>
 
                         {/* Chapter text scrolls independently without shrinking the player. */}
-                        <section aria-label="Chapter text" className="hidden min-w-0 flex-col overflow-hidden lg:flex lg:h-full lg:min-h-0 rounded-xl bg-[#2d3748] shadow-xl border border-[#4a5568]">
+                        <section aria-label="Chapter text" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-[#2d3748] shadow-xl border border-[#4a5568]">
                             <h3 className="shrink-0 px-5 py-4 text-base font-bold text-[#e2e8f0] border-b border-[#4a5568]">Chapter text</h3>
-                            <div ref={chapterTextRef} className="max-h-[55dvh] min-h-[16rem] lg:min-h-0 lg:max-h-none lg:flex-1 overflow-y-auto overscroll-contain space-y-5 px-5 py-5 sm:px-6 text-left text-base leading-8 break-words [scrollbar-gutter:stable]">
+                            <div ref={chapterTextRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5 px-5 py-5 sm:px-6 text-left text-base leading-8 break-words [scrollbar-gutter:stable]">
                                 {currentChapter?.content && (() => {
                                     let paragraphs: string[] = [];
                                     try {

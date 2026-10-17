@@ -94,22 +94,42 @@ function helper(options = {}) {
   return loadTs('src/lib/mimo-tts.ts', { ...options, env: { MIMO_API_KEY: 'test-key', ...options.env } });
 }
 
-function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello world.'], cached = null, cacheRows = [], fetch, authenticated = true } = {}) {
-  const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cachePrune: [], cacheDelete: [], cacheBackground: [], google: [] };
+function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello world.'], cached = null,
+  cachedAudio = null, cachedFor = { provider: 'google', voice: 'en', grammar: 'OFF' },
+  cacheReadError = false, cacheWriteError = false, activeWindow = true, chapters = null, fetch, authenticated = true } = {}) {
+  const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cacheKeys: [], windowActivate: [], windowRead: [], cacheBackground: [], google: [] };
   const db = {
     chapter: {
-      async findUnique(args) { calls.chapter.push(args); return { id: 'chapter-1', bookId: 'book-1', order: 2, content }; },
-      async findMany(args) { calls.cacheBackground.push(args); return []; },
+      async findUnique(args) {
+        calls.chapter.push(args);
+        return chapters ? chapters[args.where.id] || null : { id: 'chapter-1', bookId: 'book-1', order: 2, content };
+      },
+      async findMany(args) {
+        calls.cacheBackground.push(args);
+        if (!chapters) return [];
+        return Object.values(chapters).filter(chapter => chapter.bookId === args.where.bookId && chapter.order >= args.where.order.gte)
+          .sort((a, b) => a.order - b.order).slice(0, args.take).map(({ id }) => ({ id }));
+      },
     },
     interviewQuestion: {
       async findUnique(args) { calls.question.push(args); return { answer: content.join(' ') }; },
     },
-    chapterAudio: {
-      async findUnique(args) { calls.cacheRead.push(args); return cached ? { audio: cached } : null; },
-      async upsert(args) { calls.cacheWrite.push(args); },
-      async findMany(args) { calls.cachePrune.push(args); return cacheRows; },
-      async deleteMany(args) { calls.cacheDelete.push(args); },
-      async create() { throw new Error('Unexpected background cache generation'); },
+  };
+  const cacheWindow = { bookId: 'book-1', currentChapterId: 'chapter-1', windowToken: 'window-1', chapterIds: ['chapter-1', 'chapter-2', 'chapter-3', 'chapter-4', 'chapter-5'] };
+  const serverCache = {
+    async activateAudioCacheWindow(...args) { calls.windowActivate.push(args); return cacheWindow; },
+    async getAudioCacheWindow(...args) { calls.windowRead.push(args); return activeWindow ? cacheWindow : null; },
+    serverAudioCacheKey(...args) { calls.cacheKeys.push(args); return JSON.stringify(args); },
+    async readServerAudio(window, chapterId, key) {
+      calls.cacheRead.push({ window, chapterId, key });
+      if (cacheReadError) throw new Error('Cache unavailable');
+      const [, provider, voice, grammar] = JSON.parse(key);
+      if (provider !== cachedFor.provider || voice !== cachedFor.voice || grammar !== cachedFor.grammar) return null;
+      return cachedAudio || (cached ? { audio: cached, contentType: 'audio/mpeg', provider: 'google', voice: 'en', fallback: [] } : null);
+    },
+    async writeServerAudio(window, chapterId, requestedKey, actualKey, audio) {
+      calls.cacheWrite.push({ window, chapterId, requestedKey, actualKey, audio });
+      if (cacheWriteError) throw new Error('Cache write failed');
     },
   };
   class NextResponse extends Response {
@@ -117,6 +137,9 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
   }
   const mimo = loadTs('src/lib/mimo-tts.ts', { env, fetch });
   const gemini = loadTs('src/lib/gemini-tts.ts', { env, fetch });
+  const google = loadTs('src/lib/google-tts.ts', { env, fetch, mocks: {
+    'google-tts-api': { getAllAudioUrls(text, options) { calls.google.push({ text, options }); return [{ url: 'https://google.test/audio' }]; } },
+  } });
   const route = loadTs('src/app/api/tts/route.ts', {
     env, fetch,
     mocks: {
@@ -125,7 +148,8 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
       '@/lib/prisma': { prisma: db },
       '@/lib/mimo-tts': mimo,
       '@/lib/gemini-tts': gemini,
-      'google-tts-api': { getAllAudioUrls(text, options) { calls.google.push({ text, options }); return [{ url: 'https://google.test/audio' }]; } },
+      '@/lib/google-tts': google,
+      '@/lib/server-audio-cache': serverCache,
       '@google/generative-ai': { GoogleGenerativeAI: class { constructor() { throw new Error('Unexpected Gemini call'); } } },
       openai: class { constructor() { throw new Error('Unexpected OpenAI call'); } },
     },
@@ -273,8 +297,165 @@ test('missing MiMo credentials fall back to cached English Google audio', async 
   assert.equal(response.headers.get('X-TTS-Fallback'), 'xiaomi');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), cached);
   assert.equal(app.calls.chapter.length, 1);
-  assert.equal(app.calls.cacheRead.length, 1);
+  assert.equal(app.calls.cacheRead.length, 2);
   assert.equal(app.calls.google.length, 0);
+  assert.equal(JSON.parse(app.calls.cacheWrite[0].requestedKey)[1], 'xiaomi');
+  assert.equal(JSON.parse(app.calls.cacheWrite[0].actualKey)[1], 'google');
+});
+
+test('server cache hits return premium and fallback audio before grammar correction or paid generation', async t => {
+  for (const [requested, actual] of [
+    [{ provider: 'gemini', voice: 'Puck' }, { provider: 'gemini', voice: 'Puck', fallback: [] }],
+    [{ provider: 'xiaomi', voice: 'Dean' }, { provider: 'xiaomi', voice: 'Dean', fallback: [] }],
+    [{ provider: 'gemini', voice: 'Kore' }, { provider: 'xiaomi', voice: 'Mia', fallback: ['gemini'] }],
+  ]) {
+    await t.test(`${requested.provider}/${requested.voice} to ${actual.provider}/${actual.voice}`, async () => {
+      const content = ['Original **chapter** text.'];
+      const audio = wav();
+      const app = routeHarness({ env: {}, content,
+        cachedFor: { ...requested, grammar: 'gpt-4o-mini' },
+        cachedAudio: { audio, contentType: 'audio/wav', ...actual },
+      });
+      const response = await app.get(`chapterId=chapter-1&provider=${requested.provider}&voice=${requested.voice}&grammarModel=gpt-4o-mini`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('X-TTS-Cache'), 'database');
+      assert.equal(response.headers.get('Content-Length'), String(audio.length));
+      assert.equal(response.headers.get('X-TTS-Provider'), actual.provider);
+      assert.equal(response.headers.get('X-TTS-Voice'), actual.voice);
+      assert.equal(response.headers.get('X-TTS-Fallback'), actual.fallback.length ? actual.fallback.join(',') : null);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), audio);
+      assert.deepEqual(app.calls.cacheKeys[0], [content, requested.provider, requested.voice, 'gpt-4o-mini']);
+      assert.equal(app.calls.cacheWrite.length, 0);
+      assert.equal(app.calls.google.length, 0);
+    });
+  }
+});
+
+test('window-only activation prepares server ownership without generating or reading audio', async () => {
+  const app = routeHarness({ env: {} });
+  const response = await app.get('chapterId=chapter-1&windowOnly=1&grammarModel=gpt-4o-mini');
+  assert.equal(response.status, 204);
+  assert.equal(app.calls.windowActivate.length, 1);
+  assert.equal(app.calls.cacheRead.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 0);
+  assert.equal(app.calls.google.length, 0);
+});
+
+test('manual retry bypasses stored audio and publishes the fresh result', async () => {
+  const app = routeHarness({ env: {}, cached: Buffer.from('broken-old-audio'), fetch: async () => new Response(Buffer.from('fresh-audio')) });
+  const response = await app.get('chapterId=chapter-1&bypassCache=1');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('X-TTS-Cache'), 'generated');
+  assert.equal(await response.text(), 'fresh-audio');
+  assert.equal(app.calls.cacheRead.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 1);
+});
+
+test('server storage failures do not prevent successful chapter playback', async () => {
+  const app = routeHarness({ env: {}, cacheReadError: true, cacheWriteError: true, fetch: async () => new Response(Buffer.from('playable')) });
+  const response = await app.get('chapterId=chapter-1');
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'playable');
+  assert.equal(app.calls.cacheRead.length, 1);
+  assert.equal(app.calls.cacheWrite.length, 1);
+});
+
+test('failed alias persistence still plays an already cached fallback without a second paid request', async () => {
+  const urls = [];
+  const bytes = wav();
+  const app = routeHarness({
+    env: { GEMINI_API_KEY: 'gemini-key' }, cacheWriteError: true,
+    cachedFor: { provider: 'xiaomi', voice: 'Mia', grammar: 'OFF' },
+    cachedAudio: { audio: bytes, contentType: 'audio/wav', provider: 'xiaomi', voice: 'Mia', fallback: [] },
+    fetch: async url => { urls.push(url); return new Response(null, { status: 429 }); },
+  });
+  const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Kore');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('X-TTS-Cache'), 'database');
+  assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
+  assert.equal(response.headers.get('X-TTS-Fallback'), 'gemini');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+  assert.equal(urls.length, 1);
+  assert.ok(urls[0].includes('generativelanguage'));
+  assert.equal(app.calls.cacheRead.length, 2);
+  assert.equal(app.calls.cacheWrite.length, 1);
+  assert.equal(app.calls.google.length, 0);
+});
+
+test('an obsolete prefetch never activates or writes into another active server window', async () => {
+  const app = routeHarness({ env: {}, activeWindow: false, fetch: async () => new Response(Buffer.from('uncached-audio')) });
+  const response = await app.get('chapterId=chapter-1&prefetch=1&windowStart=old-chapter');
+  assert.equal(response.status, 200);
+  assert.equal(app.calls.windowActivate.length, 0);
+  assert.deepEqual(app.calls.windowRead, [['book-1', 'old-chapter']]);
+  assert.equal(app.calls.cacheRead.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 0);
+  assert.equal(app.calls.chapter.length, 1, 'stale prefetch does not try to activate its supplied anchor');
+});
+
+test('middle chapter playback preserves its anchor while later and backward navigation activate the requested anchor', async t => {
+  const id = chapter => String(chapter).padStart(24, '0');
+  const chapters = Object.fromEntries([1, 2, 3].map(chapter => [id(chapter), {
+    id: id(chapter), bookId: 'book-1', order: chapter - 1, content: [`Chapter ${chapter}.`],
+  }]));
+  for (const [name, chapter, anchor, windowOnly] of [
+    ['chapter 2 retains the chapter 1 anchor', 2, 1, false],
+    ['chapter 3 starts the chapter 3 window', 3, 3, false],
+    ['backward chapter 2 resets its own anchor', 2, null, false],
+    ['window-only promotion preserves chapter 1 anchor', 2, 1, true],
+  ]) {
+    await t.test(name, async () => {
+      const app = routeHarness({ env: {}, chapters, cached: Buffer.from('cached') });
+      const query = `chapterId=${id(chapter)}${anchor ? `&windowStart=${id(anchor)}` : ''}${windowOnly ? '&windowOnly=1' : ''}`;
+      const response = await app.get(query);
+      assert.equal(response.status, windowOnly ? 204 : 200);
+      assert.equal(app.calls.windowActivate.length, 1);
+      const expectedAnchor = anchor || chapter;
+      assert.deepEqual(app.calls.windowActivate[0].slice(0, 3), ['book-1', id(expectedAnchor), expectedAnchor - 1]);
+      assert.equal(app.calls.windowRead.length, 0);
+      if (!windowOnly) assert.equal(app.calls.cacheRead[0].chapterId, id(chapter), 'audio lookup uses current chapter even when window anchor differs');
+      else assert.equal(app.calls.cacheRead.length, 0);
+      assert.equal(app.calls.google.length, 0);
+    });
+  }
+});
+
+test('invalid, missing, cross-book, and out-of-range anchors are rejected before cache activation', async t => {
+  const id = chapter => String(chapter).padStart(24, '0');
+  const chapters = Object.fromEntries([1, 2, 3, 4].map(chapter => [id(chapter), {
+    id: id(chapter), bookId: 'book-1', order: chapter - 1, content: ['Text.'],
+  }]));
+  chapters[id(9)] = { id: id(9), bookId: 'other-book', order: 1, content: ['Other book.'] };
+  for (const [name, anchor] of [
+    ['malformed', 'invalid-id'], ['missing', id(8)], ['cross-book', id(9)],
+    ['too far behind current', id(1)], ['ahead of current', id(4)],
+  ]) {
+    await t.test(name, async () => {
+      const app = routeHarness({ env: {}, chapters });
+      const response = await app.get(`chapterId=${id(3)}&windowStart=${anchor}&windowOnly=1`);
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error, 'Invalid audio cache window.');
+      assert.equal(app.calls.windowActivate.length, 0);
+      assert.equal(app.calls.windowRead.length, 0);
+      assert.equal(app.calls.cacheRead.length, 0);
+      assert.equal(app.calls.cacheWrite.length, 0);
+      assert.equal(app.calls.google.length, 0);
+    });
+  }
+});
+
+test('anchor validation uses adjacent chapter positions when stored chapter orders have gaps', async () => {
+  const id = chapter => String(chapter).padStart(24, '0');
+  const chapters = Object.fromEntries([10, 30, 100].map((order, index) => [id(index + 1), {
+    id: id(index + 1), bookId: 'book-1', order, content: ['Chapter text.'],
+  }]));
+  const adjacent = routeHarness({ env: {}, chapters, cached: Buffer.from('cached') });
+  const response = await adjacent.get(`chapterId=${id(2)}&windowStart=${id(1)}`);
+  assert.equal(response.status, 200, 'the next actual chapter may have a nonconsecutive order');
+  assert.deepEqual(adjacent.calls.windowActivate[0].slice(0, 3), ['book-1', id(1), 10]);
+  const distant = routeHarness({ env: {}, chapters });
+  assert.equal((await distant.get(`chapterId=${id(3)}&windowStart=${id(1)}&windowOnly=1`)).status, 400);
+  assert.equal(distant.calls.windowActivate.length, 0, 'the third actual chapter must start a new window');
 });
 
 test('Xiaomi cleans narration and returns private WAV without consulting or writing Google caches', async () => {
@@ -296,9 +477,9 @@ test('Xiaomi cleans narration and returns private WAV without consulting or writ
   assert.deepEqual(readWav(Buffer.from(await response.arrayBuffer())).data, Buffer.from([1, 0, 2, 0]));
   assert.equal(requests[0].body.messages.find(message => message.role === 'assistant').content, 'Hello reader. Visit End.');
   assert.equal(app.calls.google.length, 0);
-  assert.equal(app.calls.cacheRead.length, 0);
-  assert.equal(app.calls.cacheWrite.length, 0);
-  assert.equal(app.calls.cachePrune.length, 1, 'only cache-window metadata is consulted');
+  assert.equal(app.calls.cacheRead.length, 1);
+  assert.equal(app.calls.cacheWrite.length, 1);
+  assert.equal(app.calls.windowActivate.length, 1);
   assert.equal(app.calls.cacheBackground.length, 0);
 });
 
@@ -310,6 +491,8 @@ test('Xiaomi supports question narration and its default voice', async () => {
   assert.equal(body.audio.voice, 'Mia');
   assert.equal(app.calls.question.length, 1);
   assert.equal(app.calls.chapter.length, 0);
+  assert.equal(app.calls.cacheRead.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 0);
 });
 
 test('Gemini uses its selected voice and returns WAV without consulting Google audio', async () => {
@@ -327,8 +510,8 @@ test('Gemini uses its selected voice and returns WAV without consulting Google a
   assert.equal(requests.length, 1);
   assert.equal(requests[0].body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, 'Charon');
   assert.deepEqual(readWav(Buffer.from(await response.arrayBuffer())).data, Buffer.from([1, 0, 2, 0]));
-  assert.equal(app.calls.cacheRead.length, 0);
-  assert.equal(app.calls.cacheWrite.length, 0);
+  assert.equal(app.calls.cacheRead.length, 1);
+  assert.equal(app.calls.cacheWrite.length, 1);
   assert.equal(app.calls.google.length, 0);
 });
 
@@ -349,8 +532,8 @@ test('Gemini quota failure falls back to MiMo with its own default voice', async
   assert.ok(requests[1].url.includes('xiaomimimo'));
   assert.equal(requests[1].body.audio.voice, 'Mia');
   assert.equal(app.calls.google.length, 0);
-  assert.equal(app.calls.cacheRead.length, 0);
-  assert.equal(app.calls.cacheWrite.length, 0);
+  assert.equal(app.calls.cacheRead.length, 2);
+  assert.equal(app.calls.cacheWrite.length, 1);
 });
 
 test('Gemini and MiMo failures reach free English Google audio in order', async t => {
@@ -361,7 +544,7 @@ test('Gemini and MiMo failures reach free English Google audio in order', async 
         env: failure === 'missing credentials' ? {} : { GEMINI_API_KEY: 'gemini-key', MIMO_API_KEY: 'mimo-key' },
         fetch: async url => {
           urls.push(url);
-          if (url === 'https://google.test/audio') return new Response('free-google-mp3');
+          if (url === 'https://google.test/audio') return new Response('free-google-mp3', { headers: { 'Content-Type': 'audio/mpeg' } });
           return failure === 'quota' ? new Response(null, { status: 429 }) : Response.json({});
         },
       });
@@ -416,7 +599,7 @@ test('cancelling premium generation never starts a fallback provider', async t =
       assert.equal(urls.length, 1);
       assert.ok(urls[0].includes(provider === 'gemini' ? 'generativelanguage' : 'xiaomimimo'));
       assert.equal(app.calls.google.length, 0);
-      assert.equal(app.calls.cacheRead.length, 0);
+      assert.equal(app.calls.cacheRead.length, 1);
       assert.equal(app.calls.cacheWrite.length, 0);
     });
   }
@@ -432,7 +615,7 @@ test('Xiaomi operational failures fall back to English Google audio and report t
       const urls = [];
       const app = routeHarness({ fetch: async url => {
         urls.push(url);
-        return url === 'https://google.test/audio' ? new Response('google-mp3') : failedResponse();
+        return url === 'https://google.test/audio' ? new Response('google-mp3', { headers: { 'Content-Type': 'audio/mpeg' } }) : failedResponse();
       } });
       const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Dean');
       assert.equal(response.status, 200);
@@ -443,7 +626,7 @@ test('Xiaomi operational failures fall back to English Google audio and report t
       assert.equal(await response.text(), 'google-mp3');
       assert.equal(app.calls.google.length, 1);
       assert.equal(app.calls.google[0].options.lang, 'en');
-      assert.equal(app.calls.cacheRead.length, 1);
+      assert.equal(app.calls.cacheRead.length, 2);
       assert.equal(app.calls.cacheWrite.length, 1);
       assert.equal(urls.length, 2);
     });
@@ -478,28 +661,28 @@ test('Google cache misses still generate MP3 and save the chapter cache', async 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-type'), 'audio/mpeg');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), mp3);
+  assert.equal(response.headers.get('Content-Length'), String(mp3.length));
   assert.deepEqual(urls, ['https://google.test/audio']);
   assert.equal(app.calls.google.length, 1);
   assert.equal(app.calls.google[0].options.lang, 'en');
   assert.equal(app.calls.cacheWrite.length, 1);
-  assert.deepEqual(Buffer.from(app.calls.cacheWrite[0].create.audio), mp3);
+  assert.deepEqual(Buffer.from(app.calls.cacheWrite[0].audio.audio), mp3);
 });
 
-test('server cache pruning keeps current and next without retaining previous or generating neighbors', async t => {
-  for (const [name, query, removed] of [
-    ['foreground chapter', '', ['cache-0', 'cache-1', 'cache-4']],
-    ['prefetched next chapter', '&prefetch=1', ['cache-0', 'cache-3', 'cache-4']],
+test('foreground requests activate the server window while prefetch only reads its current window', async t => {
+  for (const [name, query, prefetch] of [
+    ['foreground chapter', '', false],
+    ['prefetched chapter', '&prefetch=1&windowStart=chapter-current', true],
   ]) {
     await t.test(name, async () => {
-      const cacheRows = [0, 1, 2, 3, 4].map(order => ({ id: `cache-${order}`, chapter: { order } }));
-      const app = routeHarness({ env: {}, cached: Buffer.from('cached-mp3'), cacheRows });
+      const app = routeHarness({ env: {}, cached: Buffer.from('cached-mp3') });
       const response = await app.get(`chapterId=chapter-1&provider=google${query}`);
       assert.equal(response.status, 200);
-      assert.equal(app.calls.cachePrune.length, 1);
-      assert.equal(app.calls.cachePrune[0].where.bookId, 'book-1');
-      assert.equal(app.calls.cacheDelete.length, 1);
-      assert.deepEqual(Array.from(app.calls.cacheDelete[0].where.id.in), removed);
-      assert.equal(app.calls.cacheBackground.length, 0, 'server does not load neighbor chapters for a second prefetch');
+      assert.equal(app.calls.windowActivate.length, prefetch ? 0 : 1);
+      assert.equal(app.calls.windowRead.length, prefetch ? 1 : 0);
+      if (prefetch) assert.deepEqual(app.calls.windowRead[0], ['book-1', 'chapter-current']);
+      else assert.deepEqual(app.calls.windowActivate[0].slice(0, 3), ['book-1', 'chapter-1', 2]);
+      assert.equal(app.calls.cacheBackground.length, 0, 'the route leaves neighbor preparation to the browser');
       assert.equal(app.calls.google.length, 0, 'cached audio does not trigger background generation');
       assert.equal(app.calls.cacheWrite.length, 0);
     });
@@ -515,13 +698,14 @@ test('MiMo rejects filtered partial narration instead of presenting it as a full
 });
 
 
-test('Oversized Google audio stays playable without a MongoDB cache write', async () => {
+test('large Google audio remains playable and is offered to the chunked server cache', async () => {
   const audio = Buffer.alloc(16 * 1024 * 1024, 1);
   const app = routeHarness({ env: {}, fetch: async () => new Response(audio) });
   const response = await app.get('chapterId=chapter-1&provider=google');
   assert.equal(response.status, 200);
   assert.equal((await response.arrayBuffer()).byteLength, audio.length);
-  assert.equal(app.calls.cacheWrite.length, 0);
+  assert.equal(app.calls.cacheWrite.length, 1);
+  assert.equal(app.calls.cacheWrite[0].audio.audio.length, audio.length);
 });
 
 

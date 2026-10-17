@@ -84,6 +84,7 @@ model Chapter {
   @@index([bookId, order])
 }
 
+// Legacy Google cache, cleared when the shared listening cache is activated.
 model ChapterAudio {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   chapterId String   @db.ObjectId @unique
@@ -96,6 +97,30 @@ model ChapterAudio {
   book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
 
   @@index([bookId])
+}
+
+// One global active book, retaining only the current chapter and four successors.
+// Metadata is published with compare-and-swap after all audio chunks are stored.
+model TtsAudioCacheState {
+  id               String   @id @map("_id")
+  bookId           String
+  currentChapterId String
+  chapterIds       String[]
+  windowToken      String
+  revision         String
+  entries          Json
+}
+
+// Small BSON documents support long PCM/WAV audio without the 16 MiB limit.
+model TtsAudioCacheChunk {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  audioId   String
+  index     Int
+  audio     Bytes
+  createdAt DateTime @default(now())
+
+  @@index([audioId])
+  @@index([createdAt])
 }
 
 model ReplacementRule {
