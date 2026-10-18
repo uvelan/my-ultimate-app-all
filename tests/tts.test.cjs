@@ -95,7 +95,7 @@ function helper(options = {}) {
   return loadTs('src/lib/mimo-tts.ts', { ...options, env: { MIMO_API_KEY: 'test-key', ...options.env } });
 }
 
-function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello world.'], cached = null,
+function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello world.'], title = '', cached = null,
   cachedAudio = null, cachedFor = { provider: 'google', voice: 'en', grammar: 'OFF' },
   cacheReadError = false, cacheWriteError = false, compressionError = false, activeWindow = true, chapters = null, fetch, authenticated = true } = {}) {
   const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cacheKeys: [], compression: [], windowActivate: [], windowRead: [], cacheBackground: [], google: [] };
@@ -103,7 +103,7 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
     chapter: {
       async findUnique(args) {
         calls.chapter.push(args);
-        return chapters ? chapters[args.where.id] || null : { id: 'chapter-1', bookId: 'book-1', order: 2, content };
+        return chapters ? chapters[args.where.id] || null : { id: 'chapter-1', bookId: 'book-1', order: 2, title, content };
       },
       async findMany(args) {
         calls.cacheBackground.push(args);
@@ -124,8 +124,9 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
     async readServerAudio(window, chapterId, key) {
       calls.cacheRead.push({ window, chapterId, key });
       if (cacheReadError) throw new Error('Cache unavailable');
-      const [, provider, voice, grammar] = JSON.parse(key);
+      const [identity, provider, voice, grammar] = JSON.parse(key);
       if (provider !== cachedFor.provider || voice !== cachedFor.voice || grammar !== cachedFor.grammar) return null;
+      if (Object.hasOwn(cachedFor, 'identity') && JSON.stringify(identity) !== JSON.stringify(cachedFor.identity)) return null;
       return cachedAudio || (cached ? { audio: cached, contentType: 'audio/mpeg', provider: 'google', voice: 'en', fallback: [] } : null);
     },
     async writeServerAudio(window, chapterId, requestedKey, actualKey, audio) {
@@ -138,6 +139,7 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
   }
   const mimo = loadTs('src/lib/mimo-tts.ts', { env, fetch });
   const gemini = loadTs('src/lib/gemini-tts.ts', { env, fetch });
+  const chapterNarration = loadTs('src/lib/chapter-narration.ts');
   const google = loadTs('src/lib/google-tts.ts', { env, fetch, mocks: {
     'google-tts-api': { getAllAudioUrls(text, options) { calls.google.push({ text, options }); return [{ url: 'https://google.test/audio' }]; } },
   } });
@@ -151,6 +153,7 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
       '@/lib/gemini-tts': gemini,
       '@/lib/google-tts': google,
       '@/lib/server-audio-cache': serverCache,
+      '@/lib/chapter-narration': chapterNarration,
       '@/lib/audio-compression': { async compressNarrationAudio(audio, contentType, signal) {
         calls.compression.push({ audio, contentType, signal });
         signal?.throwIfAborted();
@@ -332,7 +335,7 @@ test('server cache hits return premium and fallback audio before grammar correct
       assert.equal(response.headers.get('X-TTS-Voice'), actual.voice);
       assert.equal(response.headers.get('X-TTS-Fallback'), actual.fallback.length ? actual.fallback.join(',') : null);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), audio);
-      assert.deepEqual(app.calls.cacheKeys[0], [content, requested.provider, requested.voice, 'gpt-4o-mini']);
+      assert.deepEqual(JSON.parse(JSON.stringify(app.calls.cacheKeys[0])), [{ title: '', content, narrationVersion: 2 }, requested.provider, requested.voice, 'gpt-4o-mini']);
       assert.equal(app.calls.cacheWrite.length, 0);
       assert.equal(app.calls.google.length, 0);
       assert.equal(app.calls.compression.length, 0, 'server cache reads already return their stored format');
@@ -513,7 +516,7 @@ test('Xiaomi cleans narration and stores and serves compressed audio with its or
   assert.match(response.headers.get('cache-control'), /no-store/);
   assert.ok(response.body, 'audio is returned as a readable response body');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), compressedPremiumAudio);
-  assert.equal(requests[0].body.messages.find(message => message.role === 'assistant').content, 'Hello reader. Visit End.');
+  assert.equal(requests[0].body.messages.find(message => message.role === 'assistant').content, 'Hello reader . Visit End.');
   assert.equal(app.calls.google.length, 0);
   assert.equal(app.calls.cacheRead.length, 1);
   assert.equal(app.calls.cacheWrite.length, 1);
@@ -535,6 +538,119 @@ test('Xiaomi supports question narration and its default voice', async () => {
   assert.equal(app.calls.chapter.length, 0);
   assert.equal(app.calls.cacheRead.length, 0);
   assert.equal(app.calls.cacheWrite.length, 0);
+});
+
+test('every speech provider reads the cleaned chapter title once before the body', async t => {
+  for (const provider of ['gemini', 'xiaomi', 'google']) {
+    await t.test(provider, async () => {
+      const spoken = [];
+      const app = routeHarness({
+        title: '# **<i>Chapter 7:</i> The Return**', content: ['The gates opened. Birds sang.'],
+        env: { GEMINI_API_KEY: 'gemini-key', MIMO_API_KEY: 'mimo-key' },
+        fetch: async (url, options) => {
+          if (url.includes('generativelanguage')) {
+            spoken.push(JSON.parse(options.body).contents[0].parts[0].text);
+            return geminiAudioResponse();
+          }
+          if (url.includes('xiaomimimo')) {
+            spoken.push(JSON.parse(options.body).messages[0].content);
+            return audioResponse();
+          }
+          return new Response(Buffer.from('google-mp3'));
+        },
+      });
+      const response = await app.get(`chapterId=chapter-1&provider=${provider}`);
+      assert.equal(response.status, 200);
+      if (provider === 'google') spoken.push(app.calls.google[0].text);
+      assert.equal(spoken.length, 1);
+      assert.equal(spoken[0], 'Chapter 7: The Return. The gates opened. Birds sang.');
+      assert.equal(spoken[0].split('Chapter 7: The Return').length - 1, 1);
+    });
+  }
+});
+
+test('an existing title at the start of narration is not repeated after case and punctuation normalization', async t => {
+  for (const content of [
+    ['# CHAPTER 7 - THE RETURN!', 'The gates opened.'],
+    ['CHAPTER 7 - THE RETURN! The gates opened.'],
+  ]) {
+    await t.test(content.length === 2 ? 'title paragraph' : 'title and body in one paragraph', async () => {
+      const app = routeHarness({ title: 'Chapter 7: The Return', content, env: {}, fetch: async () => new Response(Buffer.from('mp3')) });
+      assert.equal((await app.get('chapterId=chapter-1')).status, 200);
+      assert.equal(app.calls.google[0].text, 'CHAPTER 7 - THE RETURN! The gates opened.');
+    });
+  }
+  const distinct = routeHarness({ title: 'Chapter 7', content: ['Chapter 70 begins.'], env: {}, fetch: async () => new Response(Buffer.from('mp3')) });
+  assert.equal((await distinct.get('chapterId=chapter-1')).status, 200);
+  assert.equal(distinct.calls.google[0].text, 'Chapter 7. Chapter 70 begins.', 'a prefix inside another chapter number is not a duplicate title');
+});
+
+test('a stored title does not turn an empty chapter into a title-only audio request', async t => {
+  for (const provider of ['gemini', 'xiaomi', 'google']) {
+    await t.test(provider, async () => {
+      const app = routeHarness({ title: 'Chapter 7: The Return', content: ['<span></span>', '```hidden code```', '   '] });
+      const response = await app.get(`chapterId=chapter-1&provider=${provider}`);
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error, 'No text is available to read.');
+      assert.equal(app.calls.google.length, 0);
+      assert.equal(app.calls.cacheWrite.length, 0);
+      assert.equal(app.calls.compression.length, 0);
+    });
+  }
+});
+
+test('question narration remains its field content without chapter title narration', async () => {
+  let spoken;
+  const app = routeHarness({ title: 'Unrelated chapter title', content: ['An interview answer.'], fetch: async (_url, options) => {
+    spoken = JSON.parse(options.body).messages[0].content;
+    return audioResponse();
+  } });
+  assert.equal((await app.get('questionId=question-1&questionField=answer&provider=xiaomi')).status, 200);
+  assert.equal(spoken, 'An interview answer.');
+  assert.equal(app.calls.cacheKeys.length, 0);
+});
+
+test('all fallback providers receive the title and all cache aliases use the title-aware versioned identity', async () => {
+  const title = 'Chapter 7: The Return';
+  const content = ['The gates opened.'];
+  const paidNarration = [];
+  const app = routeHarness({ title, content, env: { GEMINI_API_KEY: 'gemini-key', MIMO_API_KEY: 'mimo-key' }, fetch: async (url, options) => {
+    if (url === 'https://google.test/audio') return new Response(Buffer.from('mp3'));
+    const body = JSON.parse(options.body);
+    paidNarration.push(body.contents ? body.contents[0].parts[0].text : body.messages[0].content);
+    return new Response(null, { status: 429 });
+  } });
+  const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Kore');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('X-TTS-Fallback'), 'gemini,xiaomi');
+  assert.deepEqual([...paidNarration, app.calls.google[0].text], Array(3).fill('Chapter 7: The Return. The gates opened.'));
+  assert.equal(app.calls.cacheKeys.length, 4, 'original, fallback-stage, and saved actual keys all use the same narration identity');
+  for (const [identity] of app.calls.cacheKeys) {
+    assert.deepEqual(JSON.parse(JSON.stringify(identity)), { narrationVersion: 2, title, content });
+  }
+  const saved = app.calls.cacheWrite[0];
+  assert.deepEqual(JSON.parse(saved.requestedKey)[0], { narrationVersion: 2, title, content });
+  assert.deepEqual(JSON.parse(saved.actualKey)[0], { narrationVersion: 2, title, content });
+});
+
+test('body-only legacy keys and a previous title cannot serve cached narration after a title change', async t => {
+  const content = ['The same chapter body.'];
+  const title = 'New Chapter Title';
+  for (const oldIdentity of [content, { narrationVersion: 2, title: 'Old Chapter Title', content }]) {
+    await t.test(Array.isArray(oldIdentity) ? 'body-only legacy key' : 'changed title', async () => {
+      const app = routeHarness({ title, content, env: {}, cached: Buffer.from('old-audio'),
+        cachedFor: { provider: 'google', voice: 'en', grammar: 'OFF', identity: oldIdentity },
+        fetch: async () => new Response(Buffer.from('new-audio')),
+      });
+      const response = await app.get('chapterId=chapter-1');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('X-TTS-Cache'), 'generated');
+      assert.equal(await response.text(), 'new-audio');
+      assert.equal(app.calls.google[0].text, 'New Chapter Title. The same chapter body.');
+      for (const [identity] of app.calls.cacheKeys) assert.deepEqual(JSON.parse(JSON.stringify(identity)), { narrationVersion: 2, title, content });
+      assert.equal(app.calls.cacheWrite.length, 1);
+    });
+  }
 });
 
 test('Gemini uses its selected voice and compresses its WAV before storage and response', async () => {

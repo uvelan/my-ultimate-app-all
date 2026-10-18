@@ -1,3 +1,4 @@
+import { cleanNarrationText, prependChapterTitle, chapterNarrationIdentity } from '@/lib/chapter-narration';
 import { verifyAuth } from '@/lib/auth-server';
 import { NextResponse } from 'next/server';
 import { prisma as db } from '@/lib/prisma';
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
                 console.warn('[TTS Cache] Cache unavailable:', error);
             }
             if (windowOnly) return new NextResponse(null, { status: 204 });
-            requestedCacheKey = serverAudioCacheKey(chapter.content, requestedProvider, requestedVoice, grammarModel);
+            requestedCacheKey = serverAudioCacheKey(chapterNarrationIdentity(chapter), requestedProvider, requestedVoice, grammarModel);
             if (cacheWindow && searchParams.get('bypassCache') !== '1') {
                 try {
                     const cached = await readServerAudio(cacheWindow, chapterId, requestedCacheKey, request.signal);
@@ -244,20 +245,13 @@ ${JSON.stringify(contentArray)}`;
         }
         // --- END GRAMMAR CORRECTION PIPELINE ---
 
-        let fullText = contentArray.join(' ');
-
-        // Strip markdown and HTML to make TTS cleaner
-        fullText = fullText.replace(/```[\s\S]*?```/g, ' '); // remove code blocks
-        fullText = fullText.replace(/`[^`]*`/g, ' '); // remove inline code
-        fullText = fullText.replace(/!\[.*?\]\(.*?\)/g, ' '); // remove images
-        fullText = fullText.replace(/\[(.*?)\]\(.*?\)/g, '$1'); // replace links with their text
-        fullText = fullText.replace(/<[^>]*>?/gm, ''); // HTML before removing Markdown quote markers
-        fullText = fullText.replace(/[#*~_>]/g, ''); // remove bold, italics, quotes, headers
-        fullText = fullText.replace(/\s+/g, ' ').trim(); // normalize whitespace
+        let fullText = cleanNarrationText(contentArray.join(' '));
 
         if (!fullText) {
             return NextResponse.json({ error: 'No text is available to read.' }, { status: 400 });
         }
+
+        if (chapter) fullText = prependChapterTitle(fullText, chapter.title);
 
         const finishAudio = async (audio: Buffer, contentType: string, actualProvider: string, actualVoice: string, fallback: string[]) => {
             request.signal.throwIfAborted();
@@ -273,7 +267,7 @@ ${JSON.stringify(contentArray)}`;
             if (chapter && chapterId && cacheWindow) {
                 try {
                     await writeServerAudio(cacheWindow, chapterId, requestedCacheKey,
-                        serverAudioCacheKey(chapter.content, actualProvider, actualVoice, grammarModel),
+                        serverAudioCacheKey(chapterNarrationIdentity(chapter), actualProvider, actualVoice, grammarModel),
                         { audio, contentType, provider: actualProvider, voice: actualVoice, fallback });
                 } catch (error) {
                     console.warn('[TTS Cache] Save failed:', error);
@@ -288,12 +282,12 @@ ${JSON.stringify(contentArray)}`;
             if (!chapter || !chapterId || !cacheWindow || searchParams.get('bypassCache') === '1') return null;
             try {
                 const cached = await readServerAudio(cacheWindow, chapterId,
-                    serverAudioCacheKey(chapter.content, provider, voice, grammarModel), request.signal);
+                    serverAudioCacheKey(chapterNarrationIdentity(chapter), provider, voice, grammarModel), request.signal);
                 if (!cached) return null;
                 const chain = Array.from(new Set([...fallback, ...cached.fallback]));
                 // Link the requested provider to the existing fallback without another paid call.
                 await writeServerAudio(cacheWindow, chapterId, requestedCacheKey,
-                    serverAudioCacheKey(chapter.content, cached.provider, cached.voice, grammarModel),
+                    serverAudioCacheKey(chapterNarrationIdentity(chapter), cached.provider, cached.voice, grammarModel),
                     { ...cached, fallback: chain }).catch(error => console.warn('[TTS Cache] Fallback alias save failed:', error));
                 return audioResponse(cached.audio, cached.contentType, cached.provider, cached.voice, chain, 'database');
             } catch (error) {

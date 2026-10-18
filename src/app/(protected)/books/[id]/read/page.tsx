@@ -1,5 +1,7 @@
 'use client';
 
+import { readerParagraphNarration } from '@/lib/chapter-narration';
+
 import { useState, useEffect, useRef } from 'react';
 import { diffWords } from 'diff';
 import { Crimson_Text } from 'next/font/google';
@@ -221,16 +223,13 @@ export default function ReadBookPage() {
             return;
         }
 
-        const text = processedContent[currentParagraphIndex];
+        const ttsText = readerParagraphNarration(processedContent, currentParagraphIndex, currentChapter?.title);
 
-        // Skip empty paragraphs
-        if (!text || !text.trim()) {
+        // Skip paragraphs with no spoken text without changing saved indices.
+        if (!ttsText.trim()) {
             setCurrentParagraphIndex(prev => prev + 1);
             return;
         }
-
-        // Strip markdown headings for TTS
-        const ttsText = text.replace(/^#+\s+/g, '');
 
         // Cancel previous speech and invalidate ref to prevent onend from advancing
         speechRef.current = null;
@@ -266,7 +265,7 @@ export default function ReadBookPage() {
         // because the next run will cancel. 
         // But on unmount/isPlaying=false, we cancel.
 
-    }, [currentParagraphIndex, isPlaying, processedContent, playbackSpeed, selectedVoice, voices]);
+    }, [currentParagraphIndex, isPlaying, processedContent, playbackSpeed, selectedVoice, voices, currentChapter?.title]);
 
 
     const autoCorrectChapter = async (chap: Chapter, index: number) => {

@@ -41,7 +41,7 @@ interface AudioTask {
 }
 
 function audioIdentityKey(identity: AudioCacheIdentity): string {
-    return JSON.stringify([identity.userId, identity.chapterId, identity.content,
+    return JSON.stringify([identity.userId, identity.chapterId, identity.title, identity.content,
         identity.provider, identity.voice, identity.grammarModel]);
 }
 
@@ -102,6 +102,7 @@ export default function ListenPage() {
     const chapterId = currentChapter?.id;
     const selectedVoice = ttsProvider === 'gemini' ? geminiVoice : ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
     const chapterContent = currentChapter?.content;
+    const chapterTitle = currentChapter?.title;
 
     const updateAudioWindow = (index: number) => {
         const previous = audioWindowRef.current;
@@ -218,7 +219,7 @@ export default function ListenPage() {
             promotedAudioKeyRef.current = actualKey;
             const start = updateAudioWindow(index);
             const window = book?.chapters.slice(start, start + LISTEN_AUDIO_WINDOW_SIZE)
-                .map(chapter => ({ ...actualIdentity, chapterId: chapter.id, content: chapter.content })) || [actualIdentity];
+                .map(chapter => ({ ...actualIdentity, chapterId: chapter.id, title: chapter.title, content: chapter.content })) || [actualIdentity];
             const allowed = new Set(window.map(audioIdentityKey));
             for (const [key, other] of Array.from(audioTasksRef.current.entries())) {
                 if (!allowed.has(key) && other.loaded?.provider === loaded.provider && other.loaded.voice === loaded.voice) {
@@ -278,17 +279,17 @@ export default function ListenPage() {
 
         let active = true;
         const windowController = new AbortController();
-        const identityFor = (id: string, content: unknown): AudioCacheIdentity => ({
-            userId: cacheUserId, chapterId: id, content,
+        const identityFor = (chapter: Chapter): AudioCacheIdentity => ({
+            userId: cacheUserId, chapterId: chapter.id, title: chapter.title, content: chapter.content,
             provider: ttsProvider, voice: selectedVoice, grammarModel,
         });
-        const currentIdentity = identityFor(chapterId, chapterContent);
+        const currentIdentity = identityFor(currentChapter!);
         const currentKey = audioIdentityKey(currentIdentity);
         const windowStartIndex = updateAudioWindow(currentChapterIndex);
         const identities = book!.chapters.slice(windowStartIndex, windowStartIndex + LISTEN_AUDIO_WINDOW_SIZE)
-            .map(chapter => identityFor(chapter.id, chapter.content));
+            .map(identityFor);
         const futureIdentities = book!.chapters.slice(currentChapterIndex + 1, windowStartIndex + LISTEN_AUDIO_WINDOW_SIZE)
-            .map(chapter => identityFor(chapter.id, chapter.content));
+            .map(identityFor);
         const allowedKeys = new Set(identities.map(audioIdentityKey));
         for (const key of Array.from(memoryEvictedKeysRef.current)) {
             if (!allowedKeys.has(key) || [currentIdentity, futureIdentities[0]].some(identity => identity && audioIdentityKey(identity) === key)) {
@@ -481,7 +482,7 @@ export default function ListenPage() {
             active = false;
             windowController.abort();
         };
-    }, [currentChapterIndex, chapterId, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount]);
+    }, [currentChapterIndex, chapterId, chapterTitle, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount]);
 
     const handlePlaybackError = (error: unknown, requestedSource: string) => {
         const audio = audioRef.current;
@@ -520,6 +521,7 @@ export default function ListenPage() {
             const nextIdentity: AudioCacheIdentity = {
                 userId: cacheUserId,
                 chapterId: book.chapters[endedIndex + 1].id,
+                title: book.chapters[endedIndex + 1].title,
                 content: book.chapters[endedIndex + 1].content,
                 provider: ttsProvider, voice: selectedVoice, grammarModel,
             };
@@ -555,7 +557,7 @@ export default function ListenPage() {
 
     const retryCurrentAudio = (forceRegenerate = false) => {
         const key = activeAudioKeyRef.current || (chapterId ? audioIdentityKey({
-            userId: cacheUserId, chapterId, content: chapterContent,
+            userId: cacheUserId, chapterId, title: chapterTitle, content: chapterContent,
             provider: ttsProvider, voice: selectedVoice, grammarModel,
         }) : null);
         if (key) {
@@ -579,7 +581,7 @@ export default function ListenPage() {
             if (Date.now() - lastResumeAttemptRef.current < 1000) return;
             lastResumeAttemptRef.current = Date.now();
             const currentKey = audioIdentityKey({ userId: cacheUserId, chapterId: chapterId || '',
-                content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel });
+                title: chapterTitle, content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel });
             if (audio?.ended && activeAudioKeyRef.current === currentKey) {
                 handleAudioEnded();
                 return;
@@ -606,7 +608,7 @@ export default function ListenPage() {
             window.removeEventListener('pageshow', resume);
             window.removeEventListener('online', resume);
         };
-    }, [audioError, audioUrl, chapterId, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book]);
+    }, [audioError, audioUrl, chapterId, chapterTitle, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book]);
 
     // Timer logic
     useEffect(() => {
