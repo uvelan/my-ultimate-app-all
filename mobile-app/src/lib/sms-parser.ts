@@ -98,8 +98,13 @@ export function parseSmsTransaction(message: SmsMessage): ParsedSmsTransaction |
     if (!body || !Number.isSafeInteger(rawDateMillis) || rawDateMillis <= 0 || rawDateMillis > 8_640_000_000_000_000 - 19_800_000) return null;
     if (/\b(?:failed|declined|rejected|unsuccessful|cancelled|canceled|reversed|reversal|not debited|not credited)\b/i.test(body)) return null;
     if (/\b(?:will be|scheduled|payment due|amount due|minimum due|reminder|collect request|payment request|requested to pay|request received|pre-approved|apply now|offer valid|eligible for|win up to|cashback up to)\b/i.test(body)) return null;
-    if (/\b(?:one[ -]time password|verification code|authori[sz]ation code|otp\s*(?:is|for|:|\d)|\d{4,8}\s+(?:is\s+your\s+)?otp)\b/i.test(body)) return null;
+    if (/\b(?:one[ -]time password|verification code|authori[sz]ation code|otp\s*(?:is|for|:|\d+)|\d{4,8}\s+(?:is\s+your\s+)?otp)\b/i.test(body)) return null;
 
+    // HDFC card-on-UPI receipts omit the usual debit/success verbs. Require
+    // the complete receipt structure so generic card/UPI notices stay excluded.
+    const hdfcCardReceipt = senderName(message.address || '') === 'HDFCBK'
+        ? body.match(/^Txn\s+(?:Rs\.?|INR|\u20b9)\s*\d[\d,]*(?:\.\d+)?\s+On\s+HDFC\s+Bank\s+Card\s+[xX*\d]{4,}\s+At\s+(.+?)\s+by\s+UPI\s+(\d{12})\s+On\s+\d{2}-\d{2}(?:-\d{2,4})?(?=\s|[.,]|$)/i)
+        : null;
     const debit = /\b(?:debited|spent|paid|sent|withdrawn|deducted|purchased)\b/gi;
     const credit = /\b(?:credited|received|refunded)\b/gi;
     let verbs = Array.from(body.matchAll(debit));
@@ -107,6 +112,10 @@ export function parseSmsTransaction(message: SmsMessage): ParsedSmsTransaction |
     if (!verbs.length) { verbs = Array.from(body.matchAll(credit)); type = 'INCOME'; }
     if (!verbs.length && /\b(?:card|upi)\b/i.test(body) && /\b(?:successful|completed|used at)\b/i.test(body)) {
         verbs = Array.from(body.matchAll(/\b(?:txn|transaction|purchase|used)\b/gi));
+        type = 'EXPENSE';
+    }
+    if (!verbs.length && hdfcCardReceipt) {
+        verbs = Array.from(body.matchAll(/\bTxn\b/gi));
         type = 'EXPENSE';
     }
     if (!verbs.length) return null;
@@ -135,9 +144,9 @@ export function parseSmsTransaction(message: SmsMessage): ParsedSmsTransaction |
     const accountDigits = accountMatch?.[1].replace(/\D/g, '').slice(-4);
     const account = accountDigits ? 'XX' + accountDigits : null;
     const reference = Array.from(body.matchAll(/\b(?:UTR|RRN|UPI\s*ref(?:erence)?|ref(?:erence)?|txn(?:\s*id|\s*no)?|transaction\s*id)\s*(?:no\.?|number|id)?\s*[:#.-]?\s*([a-zA-Z0-9]{6,40})\b/gi))
-        .map(match => match[1]).find(value => /\d/.test(value)) || null;
+        .map(match => match[1]).find(value => /\d/.test(value)) || hdfcCardReceipt?.[2] || null;
     const merchantMatch = body.match(/\b(?:to|at|info\s*:)\s+(.+?)(?=\s+(?:on|via|ref(?:erence)?|UPI\s*ref|UTR|RRN|bal(?:ance)?|avbl|available|a\/?c|account)\b|[;\n]|$)/i);
-    let merchant = merchantMatch?.[1].replace(/[.,\s]+$/, '').trim().slice(0, 80) || null;
+    let merchant = (hdfcCardReceipt?.[1] || merchantMatch?.[1])?.replace(/[.,\s]+$/, '').trim().slice(0, 80) || null;
     if (merchant && /^(?:your\s+)?(?:a\/?c|account|card)\b/i.test(merchant)) merchant = null;
     const source: ParsedSmsTransaction['source'] = /\bATM\b/i.test(body) ? 'ATM'
         : /\bUPI\b/i.test(body) ? 'UPI' : /\bcard\b/i.test(body) ? 'Card'
@@ -151,4 +160,14 @@ export function parseSmsTransaction(message: SmsMessage): ParsedSmsTransaction |
         source, notes: `${bank ? bank + ' ' : ''}${source} - ${merchant || (type === 'INCOME' ? 'Credit' : 'Transaction')}`,
         date, rawDateMillis, rawBody: message.body, synced: false, fingerprint, bank, account, merchant, reference,
     };
+}
+
+// Work in integer paise to preserve exact totals for reviewed SMS amounts.
+export function smsTransactionTotals(items: Pick<ParsedSmsTransaction, 'type' | 'amountPaise'>[]) {
+    let expensePaise = 0, incomePaise = 0;
+    for (const item of items) {
+        if (item.type === 'EXPENSE') expensePaise += item.amountPaise;
+        else if (item.type === 'INCOME') incomePaise += item.amountPaise;
+    }
+    return { expensePaise, incomePaise, netPaise: incomePaise - expensePaise };
 }

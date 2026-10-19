@@ -5,7 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { ChevronLeft, X } from 'lucide-react-native';
 import { api } from '@/src/lib/api-client';
 import { smsPeriodDates, smsBookingTimestamp, type SmsPeriod } from '@/src/lib/sms-date-range';
-import { parseSmsTransaction, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
+import { parseSmsTransaction, smsTransactionTotals, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
 import { buildSmsPageArguments, type SmsPageCursor } from '@/src/lib/sms-bridge';
 
 type Transaction = ParsedSmsTransaction;
@@ -168,6 +168,8 @@ export default function SpentSyncScreen() {
         finally { saveBusy.current = false; setSaving(false); }
     };
 
+    const totals = smsTransactionTotals(transactions);
+    const formatTotal = (paise: number) => rupee + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const visible = transactions.filter(item => filter === 'ALL' || item.type === filter);
     return <View className="flex-1 bg-background">
         <View className="flex-row items-center gap-3 border-b border-border px-5 pb-4 pt-12">
@@ -193,6 +195,20 @@ export default function SpentSyncScreen() {
             </TouchableOpacity>
             {loading && <TouchableOpacity onPress={() => { generation.current++; setLoading(false); }}><Text className="text-center text-text-secondary">Cancel scan ({scanned} messages checked)</Text></TouchableOpacity>}
             {!!notice && <Text accessibilityLiveRegion="polite" className="text-sm text-text-secondary">{notice}</Text>}
+            {transactions.length > 0 && <View accessibilityLiveRegion="polite" className="rounded-xl border border-border bg-background-surface p-3">
+                <Text className="mb-2 text-xs text-text-secondary">{hasMore ? 'Partial scanned totals' : 'Scanned totals'} ? {transactions.length} transactions</Text>
+                <View className="flex-row gap-2">
+                    {([
+                        ['Expenses', totals.expensePaise, '#f87171'],
+                        ['Income', totals.incomePaise, '#34d399'],
+                        ['Net', totals.netPaise, totals.netPaise < 0 ? '#f87171' : '#34d399'],
+                    ] as const).map(([label, amount, color]) => <View key={label} className="flex-1">
+                        <Text className="text-xs text-text-secondary">{label}</Text>
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ color }} className="mt-1 text-base font-bold">{formatTotal(amount)}</Text>
+                    </View>)}
+                </View>
+                <Text className="mt-2 text-xs text-text-secondary">Net = income ? expenses. Includes imported alerts.{hasMore ? ' Scan more to complete these totals.' : ''}</Text>
+            </View>}
             <View className="flex-row gap-2">{(['ALL', 'EXPENSE', 'INCOME'] as const).map(value => <TouchableOpacity key={value} onPress={() => setFilter(value)} className={'rounded-full border px-3 py-2 ' + (filter === value ? 'border-accent bg-accent/20' : 'border-border')}><Text className="text-text-primary">{value === 'ALL' ? 'All' : value === 'EXPENSE' ? 'Expenses' : 'Income'}</Text></TouchableOpacity>)}</View>
         </View>
         <FlatList data={visible} keyExtractor={item => item.fingerprint} contentContainerStyle={{ padding: 16, paddingTop: 0 }}

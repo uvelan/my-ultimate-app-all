@@ -1,6 +1,6 @@
 # Native Android updates
 
-Version 1.1.2 (Android version code 6) adds native screens for transactions,
+Version 1.1.3 (Android version code 7) adds native screens for transactions,
 categories, budgets, recurring transactions, reports, tasks, interview tools,
 resume editing and PDF sharing, settings, and administrator data sync. These use
 the same authenticated backend data as web. Native resume templates have their
@@ -14,6 +14,11 @@ own print layouts; they are not pixel-identical copies of the web editor.
 - Reader TTS submits sentences to Android QUEUE_ADD, prepares the next chapter while the current chapter plays, and refills on native start events.
 - A media playback foreground task and playback-scoped CPU wake lock support minimized/locked-screen reading. Notification, lock-screen and headset play/pause, next/previous sentence, and stop controls invoke the reader directly. Pause resumes at the last started sentence. Force-stopping the app ends playback.
 - Native media/session and SMS modules are reproduced by tracked Expo config plugins; generated Android sources and signed APKs remain local build artifacts.
+
+## Android 1.1.3 SMS updates
+
+- Recognize HDFC card-on-UPI receipts beginning with ?Txn Rs.? even without debit/success wording, while rejecting OTP, failed, and incomplete notices.
+- Show scanned expenses, income, and net totals for the selected date period, including imported alerts; mark incomplete scans as partial totals.
 
 ## SMS sync
 

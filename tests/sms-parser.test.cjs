@@ -112,3 +112,43 @@ test('opaque fingerprints match standard SHA-256 for the documented canonical id
   assert.match(expected, /^sms-v1:[a-f0-9]{64}$/);
   assert.ok(!expected.includes('1234'));
 });
+
+test('HDFC card-on-UPI receipts without debit or successful wording appear on the inbox day', () => {
+  const received = Date.parse('2026-10-19T05:00:00Z');
+  for (const [amount, merchant, reference] of [['139.00', '*1111@hdfcb', '111111111111'], ['130.00', '*2222@hdfcb', '222222222222']]) {
+    const body = `Txn Rs.${amount}\nOn HDFC Bank Card 1234\nAt ${merchant}\nby UPI ${reference}\nOn 19-10\nNot You?\nCall 1800000000/SMS BLOCK CC 1234 to 9000000000`;
+    const message = sms(body, { date: received });
+    const parsed = parseSmsTransaction(message);
+    assert.ok(parsed);
+    assert.equal(parsed.amountPaise, Number(amount) * 100);
+    assert.equal(parsed.type, 'EXPENSE');
+    assert.equal(parsed.date, '2026-10-19');
+    assert.equal(parsed.reference, reference);
+    assert.equal(parsed.merchant, merchant);
+    assert.equal(parsed.account, 'XX1234');
+    assert.equal(parsed.source, 'UPI');
+    assert.equal(parsed.bank, 'HDFC');
+    assert.equal(parseSmsTransaction({ ...message, date: received + 60000, _id: '99' }).fingerprint, parsed.fingerprint);
+    for (const invalid of [body + ' failed', body + ' reversed', body + ' OTP 123456', body.replace('by UPI ' + reference, ''), body.replace('On HDFC Bank Card 1234', '')]) {
+      assert.equal(parseSmsTransaction(sms(invalid, { date: received })), null);
+    }
+    assert.equal(parseSmsTransaction(sms(body, { date: received, address: 'VM-OTHER-S' })), null);
+  }
+});
+
+test('SMS totals use exact paise for the scanned period and update after review edits', () => {
+  const { smsTransactionTotals } = moduleObject.exports;
+  assert.deepEqual(JSON.parse(JSON.stringify(smsTransactionTotals([]))), { expensePaise: 0, incomePaise: 0, netPaise: 0 });
+  const items = [
+    { type: 'EXPENSE', amountPaise: 13900, synced: true },
+    { type: 'EXPENSE', amountPaise: 13000, synced: false },
+    { type: 'INCOME', amountPaise: 100000, synced: false },
+    { type: 'EXPENSE', amountPaise: 10, synced: false },
+    { type: 'EXPENSE', amountPaise: 20, synced: false },
+  ];
+  const summary = () => JSON.parse(JSON.stringify(smsTransactionTotals(items)));
+  assert.deepEqual(summary(), { expensePaise: 26930, incomePaise: 100000, netPaise: 73070 });
+  items[0].amountPaise = 14000;
+  assert.deepEqual(summary(), { expensePaise: 27030, incomePaise: 100000, netPaise: 72970 });
+  assert.equal(smsTransactionTotals(items.filter(item => item.type === 'EXPENSE')).netPaise, -27030);
+});

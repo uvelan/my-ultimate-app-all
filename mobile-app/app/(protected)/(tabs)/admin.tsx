@@ -112,7 +112,7 @@ export default function AdminScreen() {
 
                 <View className="mt-8 p-4 bg-[#8b4513]/5 rounded-xl border border-[#8b4513]/10">
                     <Text className="text-[#d4c5b0]/40 text-xs text-center font-serif">
-                        Ultimate App Mobile v1.1.2
+                        Ultimate App Mobile v1.1.3
                     </Text>
                 </View>
             </View>
