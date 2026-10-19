@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { compressNarrationAudio } from '@/lib/audio-compression';
+import type { NarrationSync } from '@/lib/narration-sync';
 
 const STATE_ID = 'global';
 const CHUNK_BYTES = 6 * 1024 * 1024;
@@ -13,6 +14,8 @@ export interface CachedAudio {
     provider: string;
     voice: string;
     fallback: string[];
+    narrationSync?: NarrationSync;
+    narrationAudioHash?: string;
 }
 
 interface Entry extends Omit<CachedAudio, 'audio'> {
@@ -89,6 +92,16 @@ export async function getAudioCacheWindow(bookId: string, currentChapterId: stri
     return state?.bookId === bookId && state.currentChapterId === currentChapterId ? state : null;
 }
 
+/** Metadata only: no activation, audio reads, compression, or provider calls. */
+export async function readServerNarrationSync(bookId: string, chapterId: string, key: string): Promise<{ sync: NarrationSync | null; audioId: string | null }> {
+    const state = await prisma.ttsAudioCacheState.findUnique({ where: { id: STATE_ID } });
+    if (state?.bookId !== bookId || !state.chapterIds.includes(chapterId)) return { sync: null, audioId: null };
+    const entry = entries(state.entries).find(item => item.chapterId === chapterId && (item.requestedKey === key || item.actualKey === key));
+    const hash = entry?.narrationAudioHash;
+    if (!hash || !/^[a-f0-9]{64}$/.test(hash)) return { sync: null, audioId: null };
+    return { sync: entry?.narrationSync || null, audioId: hash };
+}
+
 export async function readServerAudio(window: AudioCacheWindow, chapterId: string, key: string, signal?: AbortSignal): Promise<CachedAudio | null> {
     const state = await prisma.ttsAudioCacheState.findUnique({ where: { id: STATE_ID } });
     if (state?.windowToken !== window.windowToken || !state.chapterIds.includes(chapterId)) return null;
@@ -101,7 +114,9 @@ export async function readServerAudio(window: AudioCacheWindow, chapterId: strin
     if (chunks.length !== entry.chunkCount || chunks.some((chunk, index) => chunk.index !== index)) return null;
     const audio = Buffer.concat(chunks.map(chunk => Buffer.from(chunk.audio)));
     if (audio.length !== entry.byteLength) return null;
-    const cached = { audio, contentType: entry.contentType, provider: entry.provider, voice: entry.voice, fallback: entry.fallback };
+    const cached: CachedAudio = { audio, contentType: entry.contentType, provider: entry.provider, voice: entry.voice, fallback: entry.fallback,
+        ...(entry.narrationSync ? { narrationSync: entry.narrationSync } : {}),
+        narrationAudioHash: createHash('sha256').update(audio).digest('hex') };
     if (!/wav/i.test(entry.contentType)) return cached;
 
     // Existing WAVs are upgraded in place without invoking a speech provider.
@@ -116,7 +131,7 @@ export async function readServerAudio(window: AudioCacheWindow, chapterId: strin
             } catch {
                 return cached;
             }
-            const result = { ...cached, ...compressed };
+            const result = { ...cached, ...compressed, narrationAudioHash: createHash('sha256').update(compressed.audio).digest('hex') };
             if (result.contentType !== entry.contentType || result.audio.length !== audio.length) {
                 await writeServerAudio(window, chapterId, entry.requestedKey, entry.actualKey, result, entry.audioId).catch(() => {});
             }
@@ -141,7 +156,9 @@ export async function writeServerAudio(window: AudioCacheWindow, chapterId: stri
         for (let offset = 0; offset < audio.audio.length; offset += CHUNK_BYTES) {
             await prisma.ttsAudioCacheChunk.create({ data: { audioId, index: chunkCount++, audio: new Uint8Array(audio.audio.subarray(offset, offset + CHUNK_BYTES)) } });
         }
-        const entry: Entry = { chapterId, requestedKey, actualKey, audioId, chunkCount, byteLength: audio.audio.length, contentType: audio.contentType, provider: audio.provider, voice: audio.voice, fallback: audio.fallback };
+        const entry: Entry = { chapterId, requestedKey, actualKey, audioId, chunkCount, byteLength: audio.audio.length, contentType: audio.contentType, provider: audio.provider, voice: audio.voice, fallback: audio.fallback,
+            ...(audio.narrationSync ? { narrationSync: audio.narrationSync } : {}),
+            narrationAudioHash: createHash('sha256').update(audio.audio).digest('hex') };
         for (let attempt = 0; attempt < 8; attempt++) {
             const state = await prisma.ttsAudioCacheState.findUnique({ where: { id: STATE_ID } });
             if (state?.windowToken !== window.windowToken || !state.chapterIds.includes(chapterId)) return;

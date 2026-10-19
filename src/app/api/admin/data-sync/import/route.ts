@@ -14,8 +14,15 @@ export async function POST(req: Request) {
         const file = formData.get('file') as File;
         const mode = formData.get('mode') as 'REPLACE' | 'UPDATE';
 
+        if (!['REPLACE', 'UPDATE'].includes(mode)) {
+            return NextResponse.json({ error: 'Choose REPLACE or UPDATE mode' }, { status: 400 });
+        }
+
         if (!file) {
             return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+        }
+        if (typeof file.text !== 'function' || file.size > 50 * 1024 * 1024) {
+            return NextResponse.json({ error: 'Choose a JSON backup smaller than 50 MB' }, { status: 400 });
         }
 
         const fileContent = await file.text();
@@ -28,6 +35,10 @@ export async function POST(req: Request) {
         }
 
         const models = Prisma.dmmf.datamodel.models;
+        if (!dump || Array.isArray(dump) || typeof dump !== 'object' || !Object.values(dump).every(records => Array.isArray(records) && records.every(record => record && typeof record === 'object' && !Array.isArray(record))) || !models.some(model => Array.isArray(dump[model.name]) && dump[model.name].length > 0)) {
+            return NextResponse.json({ error: 'Invalid or empty application backup' }, { status: 400 });
+        }
+        const failedModels = new Set<string>();
 
         // In REPLACE mode, we want to clear everything first
         if (mode === 'REPLACE') {
@@ -39,6 +50,8 @@ export async function POST(req: Request) {
                     await (prisma as any)[delegateName].deleteMany({});
                 } catch (e) {
                     console.error(`Failed to clear ${modelName}:`, e);
+                    // Stop before importing into a partially cleared database.
+                    return NextResponse.json({ error: `Unable to clear ${modelName}. The replacement stopped; some earlier tables may already be cleared.` }, { status: 422 });
                 }
             }
         }
@@ -69,6 +82,7 @@ export async function POST(req: Request) {
                     });
                 } catch (e) {
                     console.error(`Failed to bulk insert ${modelName}:`, e);
+                    failedModels.add(modelName);
                 }
             } else if (mode === 'UPDATE') {
                 // Upsert each record
@@ -87,11 +101,13 @@ export async function POST(req: Request) {
                         }
                     } catch (e) {
                         console.error(`Failed to upsert record in ${modelName}:`, e);
+                        failedModels.add(modelName);
                     }
                 }
             }
         }
 
+        if (failedModels.size) return NextResponse.json({ error: `Import partially completed. Failed tables: ${Array.from(failedModels).join(', ')}. Review the backup before retrying.` }, { status: 422 });
         return NextResponse.json({ message: 'Import successful' });
     } catch (error) {
         console.error('Import Error:', error);

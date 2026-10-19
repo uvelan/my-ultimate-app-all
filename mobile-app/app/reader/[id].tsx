@@ -11,12 +11,12 @@ import {
 } from 'lucide-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { bookService, ChapterMeta } from '@/src/services/book.service';
-import { replacementService } from '@/src/services/features.service';
 import { offlineService } from '@/src/services/offline.service';
 import { ttsService } from '@/src/services/tts.service';
 import { cacheService } from '@/src/lib/storage';
 import { usePlaybackStore } from '@/src/store/playbackStore';
 import { playbackNotificationService } from '@/src/services/playback-notification.service';
+import { readerTitlePrefix } from '@/src/lib/listen-audio';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
@@ -30,6 +30,9 @@ export default function ReaderScreen() {
     const [chapterId, setChapterId] = useState<string>(
         Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0')
     );
+    const readerSelectionRef = useRef({ bookId: String(id || ''), chapterId });
+    readerSelectionRef.current = { bookId: String(id || ''), chapterId };
+    const chapterLoadRef = useRef(0);
 
     // Sync state when URL param changes
     useEffect(() => {
@@ -50,6 +53,7 @@ export default function ReaderScreen() {
     const [searchWord, setSearchWord] = useState('');
     const [replaceWord, setReplaceWord] = useState('');
     const [isRegexRule, setIsRegexRule] = useState(false);
+    const [isGlobalRule, setIsGlobalRule] = useState(false);
     const [isLightMode, setIsLightMode] = useState(false);
 
     useEffect(() => {
@@ -68,7 +72,8 @@ export default function ReaderScreen() {
     const handleAddReplacement = async () => {
         if (!searchWord.trim()) return;
         try {
-            await replacementService.addReplacement({ bookId: id, search: searchWord, replace: replaceWord, isRegex: isRegexRule });
+            if (isRegexRule) new RegExp(searchWord);
+            await bookService.addReplacementRule({ bookId: isGlobalRule ? undefined : id, search: searchWord, replace: replaceWord, isRegex: isRegexRule });
             setSearchWord('');
             setReplaceWord('');
             fetchReplacements();
@@ -77,7 +82,7 @@ export default function ReaderScreen() {
 
     const handleRemoveReplacement = async (ruleId: string) => {
         try {
-            await replacementService.deleteReplacement(ruleId);
+            await bookService.deleteReplacementRule(ruleId);
             fetchReplacements();
         } catch (e) { Alert.alert('Error', 'Failed to remove rule'); }
     };
@@ -98,6 +103,11 @@ export default function ReaderScreen() {
     const [isCorrecting, setIsCorrecting] = useState(false);
     const [fontSize, setFontSize] = useState(18);
     const [rate, setRate] = useState(1.0);
+    const [speechVoices, setSpeechVoices] = useState<{ identifier: string; name: string; language: string }[]>([]);
+    const [selectedVoice, setSelectedVoice] = useState('');
+    const [grammarProposal, setGrammarProposal] = useState<{ bookId: string; chapterId: string; content: string[]; original: string } | null>(null);
+    const resumeAfterGrammar = useRef(false);
+    const [readerSettingsReady, setReaderSettingsReady] = useState(false);
     const [sleepTimer, setSleepTimer] = useState<any>(null);
     const [selectedTimerMinutes, setSelectedTimerMinutes] = useState<number | null>(null);
     const [loadError, setLoadError] = useState<string>('');
@@ -113,6 +123,43 @@ export default function ReaderScreen() {
     const currentIndexRef = useRef<number>(-1);
     const ttsRateRef = useRef<number>(1.0);
     const skipDirectionRef = useRef<number>(1);
+    useEffect(() => {
+        const size = Number(cacheService.get('reader-font-size'));
+        const speed = Number(cacheService.get('reader-speech-rate'));
+        if (size >= 12 && size <= 32) setFontSize(size);
+        if ([0.75, 1, 1.25, 1.5, 2].includes(speed)) setRate(speed);
+        setReplacementsEnabled(cacheService.get('reader-replacements-enabled') !== 'false');
+        const voice = cacheService.get('reader-speech-voice') || '';
+        setSelectedVoice(voice); ttsService.selectVoice(voice);
+        void ttsService.voices().then(setSpeechVoices).catch(() => {});
+        setReaderSettingsReady(true);
+    }, []);
+    useEffect(() => {
+        if (!readerSettingsReady) return;
+        cacheService.set('reader-font-size', String(fontSize));
+        cacheService.set('reader-speech-rate', String(rate));
+        cacheService.set('reader-replacements-enabled', String(replacementsEnabled));
+        cacheService.set('reader-speech-voice', selectedVoice);
+        ttsService.selectVoice(selectedVoice);
+    }, [readerSettingsReady, fontSize, rate, replacementsEnabled, selectedVoice]);
+    const titlePendingRef = useRef(true);
+    const speakingTitleRef = useRef(false);
+    const utteranceRef = useRef(0);
+    const chapterTitleRef = useRef('');
+    chapterTitleRef.current = chapterList.find(chapter => chapter.order === Number(chapterId))?.title || '';
+    useEffect(() => {
+        const wasRunning = isSpeakingRef.current;
+        ttsService.stop();
+        isSpeakingRef.current = false;
+        if (wasRunning) shouldAutoStartTTSRef.current = true;
+        setIsSpeaking(false); setIsPaused(false);
+        currentIndexRef.current = -1; setCurrentSentenceIndex(-1);
+        titlePendingRef.current = true;
+        speakingTitleRef.current = false;
+        utteranceRef.current++;
+        scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }, [id, chapterId]);
+    useEffect(() => () => { utteranceRef.current++; isSpeakingRef.current = false; ttsService.stop(); }, []);
 
     // Keep the JS thread alive and screen on while reading/TTS is active
     useKeepAwake();
@@ -277,17 +324,23 @@ export default function ReaderScreen() {
 
     // ─── Load a single chapter from cache ───────────────────────────────────────
     const loadChapterFromCache = useCallback(async (bookId: string, chapId: string) => {
+        if (readerSelectionRef.current.bookId !== bookId || readerSelectionRef.current.chapterId !== chapId) return;
+        const request = ++chapterLoadRef.current;
+        const current = () => request === chapterLoadRef.current
+            && readerSelectionRef.current.bookId === bookId && readerSelectionRef.current.chapterId === chapId;
         setLoading(true);
         setLoadError('');
         setRawContent(''); // Clear old content completely to trigger auto-skip logic correctly
         try {
             const cached = await offlineService.getChapter(bookId, chapId);
+            if (!current()) return;
             if (cached) {
                 setRawContent(toStr(cached));
             } else {
                 // Fallback: individual network request if somehow not in cache
                 console.warn(`[Reader] Cache miss for chapter ${chapId}, fetching individually`);
                 const data = await bookService.getChapterContent(bookId, chapId);
+                if (!current()) return;
                 const liveContent = toStr(data?.content) || '';
                 setRawContent(liveContent);
                 if (liveContent) {
@@ -297,10 +350,11 @@ export default function ReaderScreen() {
                 }
             }
         } catch (err: any) {
+            if (!current()) return;
             console.error('[Reader] Error loading chapter:', err);
             setLoadError(`Error: ${err?.message || 'Unknown'}`);
         } finally {
-            setLoading(false);
+            if (current()) setLoading(false);
         }
     }, []);
 
@@ -357,7 +411,7 @@ export default function ReaderScreen() {
 
     const fetchReplacements = async () => {
         try {
-            const rules = await replacementService.getReplacements(id as string);
+            const rules = await bookService.getReplacementRules(id as string);
             setReplacements(rules);
         } catch (err) {
             console.error('Failed to fetch replacements', err);
@@ -429,13 +483,15 @@ export default function ReaderScreen() {
             if (id && chapterId) {
                 const cIndex = parseInt(chapterId);
                 if (!isNaN(cIndex)) {
-                    bookService.updateProgress(id as string, cIndex, 0)
+                    const paragraphIndex = currentSentenceIndex >= 0 ? flatSentences[currentSentenceIndex]?.paraIdx || 0 : 0;
+                    if (currentSentenceIndex >= 0) cacheService.setObject(`reader-progress-${id}`, { chapterIndex: cIndex, sentenceIndex: currentSentenceIndex });
+                    bookService.updateProgress(id as string, cIndex, paragraphIndex)
                         .catch((err: any) => console.error('Failed to sync progress:', err.message));
                 }
             }
         }, 1500);
         return () => clearTimeout(timer);
-    }, [id, chapterId]);
+    }, [id, chapterId, currentSentenceIndex]);
 
     // ─── TTS ────────────────────────────────────────────────────────────────────
     
@@ -454,6 +510,21 @@ export default function ReaderScreen() {
 
     const speakNextSentence = useCallback((replay = false) => {
         if (!isSpeakingRef.current) return;
+        if (titlePendingRef.current && currentIndexRef.current < 0) {
+            const title = readerTitlePrefix(chapterTitleRef.current, sentencesRef.current[0] || '');
+            titlePendingRef.current = false;
+            if (title) {
+                speakingTitleRef.current = true;
+                const utterance = ++utteranceRef.current;
+                const finishTitle = () => {
+                    if (utteranceRef.current !== utterance || !isSpeakingRef.current) return;
+                    speakingTitleRef.current = false;
+                    speakNextSentence(false);
+                };
+                ttsService.speak(title, ttsRateRef.current, finishTitle, finishTitle);
+                return;
+            }
+        }
         
         const nextIndex = replay ? currentIndexRef.current : currentIndexRef.current + 1;
         
@@ -463,6 +534,7 @@ export default function ReaderScreen() {
             
             const sentence = sentencesRef.current[nextIndex];
             const sentenceWithNewline = sentence + '\n';
+            const utterance = ++utteranceRef.current;
             
             console.log(`[Reader] Speaking sentence ${nextIndex + 1}/${sentencesRef.current.length}${replay ? ' (replay)' : ''}`);
             
@@ -472,12 +544,14 @@ export default function ReaderScreen() {
                 () => { // onDone
                     const delay = Platform.OS === 'android' ? 250 : 100;
                     setTimeout(() => {
+                        if (utteranceRef.current !== utterance) return;
                         speakNextSentence(false); // Move to next
                     }, delay);
                 },
                 (err) => { // onError
                     console.warn('[Reader] TTS Error, skipping to next sentence', err);
                     setTimeout(() => {
+                        if (utteranceRef.current !== utterance) return;
                         speakNextSentence(false);
                     }, 500);
                 }
@@ -527,6 +601,8 @@ export default function ReaderScreen() {
 
     const skipForward = () => {
         if (!isSpeaking) return;
+        utteranceRef.current++;
+        speakingTitleRef.current = false;
         ttsService.stop();
         speakNextSentence();
         setIsPaused(false);
@@ -534,6 +610,7 @@ export default function ReaderScreen() {
 
     const skipBackward = () => {
         if (!isSpeaking) return;
+        utteranceRef.current++;
         ttsService.stop();
         // Move back 2 because speakNextSentence increments by 1
         currentIndexRef.current = Math.max(-1, currentIndexRef.current - 2);
@@ -553,6 +630,8 @@ export default function ReaderScreen() {
             } else {
                 // Pause
                 console.log('[Reader] Pausing TTS');
+                utteranceRef.current++;
+                if (speakingTitleRef.current) titlePendingRef.current = true;
                 ttsService.stop();
                 setIsPaused(true);
                 isSpeakingRef.current = false;
@@ -567,6 +646,12 @@ export default function ReaderScreen() {
             sentencesRef.current = flatSentences.map(s => s.text);
             setCurrentSentenceIndex(-1);
             currentIndexRef.current = -1;
+            titlePendingRef.current = true;
+            const saved = cacheService.getObject<{ chapterIndex: number; sentenceIndex: number }>(`reader-progress-${id}`);
+            if (saved?.chapterIndex === Number(chapterId) && saved.sentenceIndex > 0 && saved.sentenceIndex < flatSentences.length) {
+                currentIndexRef.current = saved.sentenceIndex - 1;
+                titlePendingRef.current = false;
+            }
             
             setIsSpeaking(true);
             setIsPaused(false);
@@ -580,6 +665,9 @@ export default function ReaderScreen() {
     };
 
     const stopTTS = useCallback(() => {
+        utteranceRef.current++;
+        titlePendingRef.current = true;
+        speakingTitleRef.current = false;
         ttsService.stop();
         setIsSpeaking(false);
         setIsPaused(false);
@@ -622,24 +710,40 @@ export default function ReaderScreen() {
     // ─── Grammar correction ──────────────────────────────────────────────────────
     const handleGrammarCorrection = async () => {
         if (isOffline) { alert('Grammar correction requires an internet connection.'); return; }
+        if (aiModel === 'OFF') return;
+        resumeAfterGrammar.current = isSpeaking && !isPaused;
+        if (resumeAfterGrammar.current) { utteranceRef.current++; isSpeakingRef.current = false; ttsService.stop(); setIsPaused(true); }
         setIsCorrecting(true);
         try {
-            if (aiModel === 'OFF') return;
             const res = await bookService.proposeGrammarCorrection(id as string, chapterId, aiModel);
-            if (res.correctedChapter) {
-                requestAnimationFrame(() => {
-                    alert('Grammar correction generated successfully! Applying now...');
-                    setRawContent(res.correctedChapter);
-                    bookService.updateChapterContent(id as string, chapterId, res.correctedChapter)
-                        .catch(err => console.error('Failed to save grammar on backend', err));
-                });
-            }
+            if (!Array.isArray(res.correctedContent)) throw new Error('No corrected paragraphs were returned.');
+            setGrammarProposal({ bookId: String(id), chapterId, content: res.correctedContent.map(String), original: String(rawContent) });
         } catch (error: any) {
             console.error(error);
             alert(error.message || 'Grammar correction failed.');
+            resumeGrammarPlayback();
         } finally {
             setIsCorrecting(false);
         }
+    };
+    const resumeGrammarPlayback = () => {
+        if (!resumeAfterGrammar.current) return;
+        resumeAfterGrammar.current = false;
+        isSpeakingRef.current = true; setIsPaused(false); speakNextSentence(true);
+    };
+    const applyGrammarProposal = async () => {
+        if (!grammarProposal) return;
+        setIsCorrecting(true);
+        try {
+            await bookService.updateChapterContent(grammarProposal.bookId, grammarProposal.chapterId, grammarProposal.content);
+            const text = grammarProposal.content.join('\n\n');
+            await offlineService.saveChapter(grammarProposal.bookId, grammarProposal.chapterId, text);
+            setRawContent(text); setGrammarProposal(null);
+            if (resumeAfterGrammar.current) {
+                resumeAfterGrammar.current = false; shouldAutoStartTTSRef.current = true; setIsSpeaking(false); setIsPaused(false);
+            }
+        } catch (error: any) { Alert.alert('Unable to save changes', error.message || 'Please try again.'); }
+        finally { setIsCorrecting(false); }
     };
 
     
@@ -945,7 +1049,7 @@ export default function ReaderScreen() {
             {/* ── Settings Modal ──────────────────────────────────────────────── */}
             <Modal visible={isSettingsOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/60">
-                    <View className={`${th.surface} rounded-t-3xl p-6 min-h-[40%] border-t ${th.border}`}>
+                    <ScrollView className={`${th.surface} rounded-t-3xl p-6 max-h-[90%] border-t ${th.border}`} contentContainerStyle={{ paddingBottom: 40 }}>
                         <View className="flex-row justify-between items-center mb-6">
                             <Text className={`text-2xl font-bold ${th.text} font-serif`}>Reader Settings</Text>
                             <Pressable onPress={() => setIsSettingsOpen(false)}>
@@ -980,6 +1084,14 @@ export default function ReaderScreen() {
                         
                         {replacementsEnabled && (
                             <View className="mb-6">
+                                <View className="flex-row items-center justify-between mb-2">
+                                    <Text className={th.textSec}>Use regular expression</Text>
+                                    <Switch value={isRegexRule} onValueChange={setIsRegexRule} />
+                                </View>
+                                <View className="flex-row items-center justify-between mb-2">
+                                    <Text className={th.textSec}>Apply to all books</Text>
+                                    <Switch value={isGlobalRule} onValueChange={setIsGlobalRule} />
+                                </View>
                                 <View className={`flex-row items-center gap-2 mb-3 ${th.bg} p-2 rounded-lg border ${th.border}`}>
                                     <TextInput 
                                         className={`flex-1 ${th.text} p-2`}
@@ -1003,6 +1115,7 @@ export default function ReaderScreen() {
                                     <View key={rule._id || rule.id} className={`flex-row justify-between items-center p-3 mb-2 rounded-lg border ${th.border}`}>
                                         <View className="flex-1">
                                             <Text className={`${th.text} font-bold`} numberOfLines={1}>{rule.search} <Text className="text-accent">→</Text> {rule.replace}</Text>
+                                            <Text className={`${th.textMuted} text-xs`}>{rule.isRegex ? 'Regex · ' : ''}{rule.bookId ? 'This book' : 'All books'}</Text>
                                         </View>
                                         <TouchableOpacity onPress={() => handleRemoveReplacement(rule._id || rule.id)} className="p-2">
                                             <Trash2 size={18} color="#ef4444" />
@@ -1015,7 +1128,7 @@ export default function ReaderScreen() {
                         <View className="border-t border-border/30 pt-4 mb-6">
                             <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>AI Model</Text>
                             <View className="flex-row flex-wrap gap-2">
-                                {['OFF', 'gemini-2.5-flash', 'gpt-4o-mini', 'ollama'].map(m => (
+                                {['OFF', 'gemini-2.5-flash', 'gpt-4o-mini', 'pollinations', 'ollama'].map(m => (
                                     <TouchableOpacity 
                                         key={m}
                                         onPress={() => changeAiModel(m)}
@@ -1030,6 +1143,15 @@ export default function ReaderScreen() {
 
                         <View className="border-t border-border/30 pt-4">
                             <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>Speech Settings</Text>
+                            <Text className={`${th.textSec} font-bold mb-3`}>Device voice</Text>
+                            <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled className="mb-4">
+                                {[{ identifier: '', name: 'System default', language: '' }, ...speechVoices].map(voice => (
+                                    <Pressable key={voice.identifier || 'default'} accessibilityLabel={`Use ${voice.name}`}
+                                        onPress={() => setSelectedVoice(voice.identifier)} className={`p-3 mb-2 rounded-lg border ${selectedVoice === voice.identifier ? 'border-accent bg-accent/20' : th.border}`}>
+                                        <Text className={th.textSec}>{voice.name} {voice.language}</Text>
+                                    </Pressable>
+                                ))}
+                            </ScrollView>
                             
                             <Text className={`${th.textSec} font-bold mb-3`}>Speech Rate</Text>
                             <View className="flex-row flex-wrap gap-2 mb-6">
@@ -1082,6 +1204,21 @@ export default function ReaderScreen() {
                                 <Text className="text-white font-bold text-lg">Close Settings</Text>
                             </TouchableOpacity>
                         </View>
+                    </ScrollView>
+                </View>
+            </Modal>
+            <Modal visible={!!grammarProposal} animationType="slide" onRequestClose={() => { setGrammarProposal(null); resumeGrammarPlayback(); }}>
+                <View className={`flex-1 p-5 ${th.bg}`} style={{ paddingTop: 45 }}>
+                    <Text className={`text-xl font-bold mb-4 ${th.text}`}>Review grammar changes</Text>
+                    <ScrollView className="flex-1">
+                        <Text className={`font-bold mb-2 ${th.text}`}>Original</Text>
+                        <Text className={`mb-6 leading-7 ${th.textSec}`}>{grammarProposal?.original}</Text>
+                        <Text className={`font-bold mb-2 ${th.text}`}>Revised</Text>
+                        <Text className={`mb-6 leading-7 ${th.textSec}`}>{grammarProposal?.content.join('\n\n')}</Text>
+                    </ScrollView>
+                    <View className="flex-row gap-4 py-4">
+                        <Pressable disabled={isCorrecting} onPress={() => { setGrammarProposal(null); resumeGrammarPlayback(); }} className={`flex-1 p-4 rounded-lg border ${th.border}`}><Text className={`text-center font-bold ${th.text}`}>Cancel</Text></Pressable>
+                        <Pressable disabled={isCorrecting} onPress={applyGrammarProposal} className="flex-1 p-4 rounded-lg bg-accent"><Text className="text-center font-bold text-white">{isCorrecting ? 'Saving...' : 'Apply changes'}</Text></Pressable>
                     </View>
                 </View>
             </Modal>

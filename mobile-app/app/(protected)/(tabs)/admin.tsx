@@ -4,7 +4,6 @@ import { ShieldCheck, User as UserIcon, LogOut, Settings, Users, LayoutGrid } fr
 import { authService, User } from '@/src/services/auth.service';
 import { Card } from '@/src/components/ui/Card';
 import { useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 
 export default function AdminScreen() {
@@ -29,8 +28,6 @@ export default function AdminScreen() {
     const handleLogout = async () => {
         try {
             await authService.logout();
-            await SecureStore.deleteItemAsync('accessToken');
-            await SecureStore.deleteItemAsync('refreshToken');
             router.replace('/(auth)/login' as any);
         } catch (error) {
             console.error('Logout failed:', error);
@@ -93,11 +90,17 @@ export default function AdminScreen() {
 
                 <TouchableOpacity
                     className="bg-[#1a110d] p-4 rounded-xl border border-[#5c4033] mb-3 flex-row items-center"
-                    onPress={() => { }}
+                    onPress={() => router.push('/(protected)/settings' as any)}
                 >
                     <Settings size={20} color="#8b4513" />
                     <Text className="text-white font-bold ml-3">System Settings</Text>
                 </TouchableOpacity>
+
+                {user?.role === 'SUPERUSER' && <TouchableOpacity
+                    className="bg-[#1a110d] p-4 rounded-xl border border-[#5c4033] mb-3"
+                    onPress={() => router.push('/(protected)/data-sync' as any)}>
+                    <Text className="font-bold text-white">Data sync and backups</Text>
+                </TouchableOpacity>}
 
                 <TouchableOpacity
                     className="bg-[#1a110d] p-4 rounded-xl border border-[#ef4444]/20 mb-3 flex-row items-center"
@@ -109,7 +112,7 @@ export default function AdminScreen() {
 
                 <View className="mt-8 p-4 bg-[#8b4513]/5 rounded-xl border border-[#8b4513]/10">
                     <Text className="text-[#d4c5b0]/40 text-xs text-center font-serif">
-                        Ultimate App Mobile v1.0.0
+                        Ultimate App Mobile v1.1.1
                     </Text>
                 </View>
             </View>

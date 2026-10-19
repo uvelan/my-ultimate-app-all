@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, Animated, Pressable, Dimensions, Platform, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, Pressable, Dimensions, Platform, ScrollView, Linking, Alert } from 'react-native';
 import { Home, ShieldCheck, LogOut, Menu, X, ChevronLeft, Library, PieChart, CloudDownload, MessageSquare } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { authService } from '@/src/services/auth.service';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = 260;
@@ -50,15 +50,22 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
     const handleLogout = async () => {
         close();
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('refreshToken');
+        await authService.logout().catch(() => {});
         router.replace('/(auth)/login' as any);
     };
 
     const navItems = [
         { label: 'Dashboard', icon: Home, route: '/(protected)/(tabs)/dashboard' },
         { label: 'Library', icon: Library, route: '/(protected)/(tabs)/library' },
+        { label: 'Transactions', icon: PieChart, route: '/(protected)/transactions' },
+        { label: 'Categories', icon: PieChart, route: '/(protected)/categories' },
         { label: 'Expenses', icon: PieChart, route: '/(protected)/(tabs)/expenses' },
+        { label: 'Budgets & Reports', icon: PieChart, route: '/(protected)/finance' },
+        { label: 'Tasks', icon: Home, route: '/(protected)/tasks' },
+        { label: 'Interview', icon: MessageSquare, route: '/(protected)/interview' },
+        { label: 'Resume builder', icon: Library, route: '/(protected)/resumes' },
+        { label: 'Settings', icon: ShieldCheck, route: '/(protected)/settings' },
+        { label: 'Data sync', icon: CloudDownload, route: '/(protected)/data-sync' },
         { label: 'Spent Sync', icon: MessageSquare, route: '/(protected)/spentsync' },
         { label: 'Scraper', icon: CloudDownload, route: '/(protected)/(tabs)/scraper' },
         { label: 'Admin', icon: ShieldCheck, route: '/(protected)/(tabs)/admin' },
@@ -108,7 +115,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
                                     key={item.label}
                                     onPress={() => {
                                         close();
-                                        router.push(item.route as any);
+                                        if (/^https?:\/\//.test(item.route)) {
+                                            Linking.openURL(item.route).catch(() => Alert.alert('Unable to open module', 'Please try again.'));
+                                        } else router.push(item.route as any);
                                     }}
                                     className="flex-row items-center px-4 py-4 my-1 gap-4 rounded-xl active:bg-white/5"
                                     activeOpacity={0.6}

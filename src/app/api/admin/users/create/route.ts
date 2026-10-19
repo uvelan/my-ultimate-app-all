@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { hashPassword, verifyAccessToken } from '@/lib/auth-node';
-import { cookies } from 'next/headers';
+import { hashPassword } from '@/lib/auth-node';
+import { verifyAuth } from '@/lib/auth-server';
 import { z } from 'zod';
 
 const CreateUserSchema = z.object({
@@ -14,14 +14,12 @@ const CreateUserSchema = z.object({
 
 export async function POST(request: Request) {
     try {
-        const cookieStore = await cookies();
-        const accessToken = cookieStore.get('accessToken')?.value;
-
-        if (!accessToken) {
+        const auth = await verifyAuth();
+        if (!auth.isAuthenticated || !auth.user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const payload = verifyAccessToken(accessToken) as { role: string } | null;
+        const payload = auth.user;
 
         if (!payload || !['ADMIN', 'SUPERUSER'].includes(payload.role)) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

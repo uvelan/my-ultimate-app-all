@@ -17,13 +17,17 @@ export default function AdminAppsScreen() {
     const [appLink, setAppLink] = useState('');
     const [isNative, setIsNative] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [loadError, setLoadError] = useState('');
 
     const fetchApps = async () => {
+        setLoadError('');
         try {
             const res = await adminService.getApps();
             setApps(res);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to fetch apps', error);
+            setLoadError(error.response?.data?.error || 'Unable to load apps.');
         } finally {
             setLoading(false);
         }
@@ -53,13 +57,16 @@ export default function AdminAppsScreen() {
         if (!name || !description || !imageLink || !appLink) return;
         setSubmitting(true);
         try {
-            await adminService.addApp({ name, description, imageLink, appLink, isNative });
+            const data = { name, description, imageLink, appLink, isNative };
+            if (editingId) await adminService.updateApp(editingId, data);
+            else await adminService.addApp(data);
             setIsAddModalOpen(false);
             setName('');
             setDescription('');
             setImageLink('');
             setAppLink('');
             setIsNative(false);
+            setEditingId(null);
             fetchApps();
         } catch (error) {
             Alert.alert('Error', 'Failed to add app');
@@ -77,11 +84,12 @@ export default function AdminAppsScreen() {
                     </TouchableOpacity>
                     <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Manage Apps</Text>
                 </View>
-                <TouchableOpacity onPress={() => setIsAddModalOpen(true)} className="bg-[#8b4513] p-2 rounded-full shadow-lg">
+                <TouchableOpacity onPress={() => { setEditingId(null); setName(''); setDescription(''); setImageLink(''); setAppLink(''); setIsNative(false); setIsAddModalOpen(true); }} className="bg-[#8b4513] p-2 rounded-full shadow-lg">
                     <Plus size={20} color="#e6dccf" />
                 </TouchableOpacity>
             </View>
 
+            {!!loadError && <Text className="text-red-400 px-5 py-3">{loadError}</Text>}
             {loading ? (
                 <ActivityIndicator color="#8b4513" className="mt-10" />
             ) : (
@@ -108,6 +116,7 @@ export default function AdminAppsScreen() {
                                     </Text>
                                 </View>
                             </View>
+                            <TouchableOpacity onPress={() => { setEditingId(item.id); setName(item.name); setDescription(item.description); setImageLink(item.imageLink); setAppLink(item.appLink); setIsNative(item.isNative); setIsAddModalOpen(true); }} className="p-3 bg-accent rounded-xl ml-2"><Text className="text-white">Edit</Text></TouchableOpacity>
                             <TouchableOpacity onPress={() => handleDelete(item.id)} className="p-3 bg-[#ef4444]/10 rounded-xl ml-2 border border-[#ef4444]/20">
                                 <Trash2 size={20} color="#ef4444" />
                             </TouchableOpacity>
@@ -117,11 +126,11 @@ export default function AdminAppsScreen() {
             )}
 
             {/* Add App Modal */}
-            <Modal visible={isAddModalOpen} animationType="slide" transparent={true}>
+            <Modal visible={isAddModalOpen} animationType="slide" transparent={true} onRequestClose={() => setIsAddModalOpen(false)}>
                 <View className="flex-1 justify-end bg-black/50">
                     <View className="bg-[#2e1d15] rounded-t-3xl p-6 min-h-[70%] border-t border-[#5c4033]">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">Add Embedded App</Text>
+                            <Text className="text-2xl font-bold text-[#e6dccf] font-serif">{editingId ? 'Edit Embedded App' : 'Add Embedded App'}</Text>
                             <TouchableOpacity onPress={() => setIsAddModalOpen(false)}>
                                 <X size={24} color="#d4c5b0" />
                             </TouchableOpacity>
@@ -185,7 +194,7 @@ export default function AdminAppsScreen() {
                             {submitting ? (
                                 <ActivityIndicator color="#e6dccf" className="mr-2" />
                             ) : null}
-                            <Text className="text-[#e6dccf] font-bold text-lg">Deploy App</Text>
+                            <Text className="text-[#e6dccf] font-bold text-lg">{editingId ? 'Save changes' : 'Deploy App'}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

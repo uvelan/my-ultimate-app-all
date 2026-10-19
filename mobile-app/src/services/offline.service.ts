@@ -55,8 +55,12 @@ export const offlineService = {
         const fileInfo = await FileSystem.getInfoAsync(filePath);
 
         if (fileInfo.exists) {
-            const content = await FileSystem.readAsStringAsync(filePath);
-            return JSON.parse(content).content;
+            try {
+                const content = await FileSystem.readAsStringAsync(filePath);
+                const parsed = JSON.parse(content);
+                if (typeof parsed?.content === 'string') return parsed.content;
+            } catch { /* A damaged local chapter is a cache miss; the reader can fetch it again. */ }
+            await FileSystem.deleteAsync(filePath, { idempotent: true }).catch(() => {});
         }
         return null;
     },

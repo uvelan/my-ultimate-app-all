@@ -715,7 +715,7 @@ export async function getAiModels() {
     });
 
     // Auto-seed default models if the table is empty
-    if (models.length === 0) {
+    if (models.length === 0 && ['ADMIN', 'SUPERUSER'].includes(user.role)) {
       await prisma.aiModel.createMany({
         data: DEFAULT_MODELS.map(m => ({
           modelId: m.modelId,
@@ -738,6 +738,7 @@ export async function getAiModels() {
 export async function addAiModel(modelId: string, name: string) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  if (!['ADMIN', 'SUPERUSER'].includes(user.role)) return { success: false, error: 'Administrator access required' };
   try {
     const existing = await prisma.aiModel.findUnique({ where: { modelId } });
     if (existing) {
@@ -756,6 +757,7 @@ export async function addAiModel(modelId: string, name: string) {
 export async function updateAiModel(id: string, data: { modelId: string, name: string, isActive: boolean }) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  if (!['ADMIN', 'SUPERUSER'].includes(user.role)) return { success: false, error: 'Administrator access required' };
   try {
     // Check if updating modelId conflicts with another record
     const existing = await prisma.aiModel.findUnique({ where: { modelId: data.modelId } });
@@ -781,6 +783,7 @@ export async function updateAiModel(id: string, data: { modelId: string, name: s
 export async function deleteAiModel(id: string) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
+  if (!['ADMIN', 'SUPERUSER'].includes(user.role)) return { success: false, error: 'Administrator access required' };
   try {
     await prisma.aiModel.delete({ where: { id } });
     return { success: true };

@@ -7,10 +7,14 @@ import { TrendingDown, Wallet, PieChart as PieIcon, LineChart, History as Histor
 import { Card } from '@/src/components/ui/Card';
 import { expenseService, incomeService, categoryService } from '@/src/services/features.service';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
+import { useRouter } from 'expo-router';
+import { PAYMENT_METHODS } from '@/src/lib/payment-methods';
 
 type Segment = 'overview' | 'history' | 'income' | 'categories' | 'calendar';
 
 export default function ExpensesScreen() {
+    const router = useRouter();
+    const [loadError, setLoadError] = useState('');
     const [activeSegment, setActiveSegment] = useState<Segment>('overview');
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -85,6 +89,7 @@ export default function ExpensesScreen() {
     const goToday = () => setCurrentMonth(new Date());
 
     const fetchData = async () => {
+        setLoadError('');
         try {
             const year = currentMonth.getFullYear();
             const month = currentMonth.getMonth();
@@ -92,11 +97,11 @@ export default function ExpensesScreen() {
             const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
 
             const [statsRes, trendRes, listRes, listInc, listCat] = await Promise.all([
-                expenseService.getStats(startDate, endDate).catch(() => null),
-                expenseService.getHistorical('month', groupingMode).catch(() => null),
-                expenseService.getExpenses(startDate, endDate).catch(() => []),
-                incomeService.getIncomes().catch(() => []), // Assuming APIs exist for these
-                categoryService.getCategories().catch(() => [])
+                expenseService.getStats(startDate, endDate),
+                expenseService.getHistorical('month', groupingMode),
+                expenseService.getExpenses(startDate, endDate),
+                incomeService.getIncomes(startDate, endDate),
+                categoryService.getCategories()
             ]);
 
             if (statsRes) {
@@ -119,6 +124,7 @@ export default function ExpensesScreen() {
 
         } catch (error: any) {
             console.error('Expense Fetch Error:', error.message);
+            setLoadError(error.response?.data?.error || 'Unable to load finance. Pull down to retry.');
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -137,7 +143,7 @@ export default function ExpensesScreen() {
     const [selectedCategory, setSelectedCategory] = useState<string>('');
 
     const handleAddExpense = async () => {
-        if (!amount || !selectedCategory || !expenseDate) {
+        if (!Number.isFinite(Number(amount)) || Number(amount) <= 0 || !selectedCategory || Number.isNaN(Date.parse(expenseDate))) {
             alert("Please enter amount, category, and date");
             return;
         }
@@ -183,7 +189,7 @@ export default function ExpensesScreen() {
     };
 
     const handleAddIncome = async () => {
-        if (!amount || !incomeSource || !expenseDate) {
+        if (!Number.isFinite(Number(amount)) || Number(amount) <= 0 || !incomeSource.trim() || Number.isNaN(Date.parse(expenseDate))) {
             alert("Please enter amount, source, and date");
             return;
         }
@@ -281,6 +287,8 @@ export default function ExpensesScreen() {
                 </View>
 
                 {/* Segment Switcher */}
+                <TouchableOpacity onPress={() => router.push('/(protected)/finance' as any)} className="mt-4 py-3 rounded-lg bg-accent/20"><Text className="text-white text-center font-bold">Budgets · Recurring · Reports</Text></TouchableOpacity>
+                {!!loadError && <Text className="text-red-400 mt-3">{loadError}</Text>}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-6">
                     <View className="flex-row bg-background rounded-xl p-1 border border-border min-w-full">
                         <TouchableOpacity
@@ -436,7 +444,7 @@ export default function ExpensesScreen() {
                             <TouchableOpacity onPress={() => setHistoryFilterMethod('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
                                 <Text className={`text-xs font-bold ${historyFilterMethod === 'All' ? 'text-text-primary' : 'text-text-secondary'}`}>All Methods</Text>
                             </TouchableOpacity>
-                            {['Cash', 'Card', 'UPI', 'Bank Transfer'].map(m => (
+                            {[...new Set([...PAYMENT_METHODS, ...expenses.map(item => item.paymentMethod).filter(Boolean)])].map(m => (
                                 <TouchableOpacity key={m} onPress={() => setHistoryFilterMethod(m)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === m ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
                                     <Text className={`text-xs font-bold ${historyFilterMethod === m ? 'text-text-primary' : 'text-text-secondary'}`}>{m}</Text>
                                 </TouchableOpacity>
@@ -682,7 +690,7 @@ export default function ExpensesScreen() {
 
                         <Text className="text-text-secondary font-bold mb-2">Payment Method</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
-                            {['Cash', 'Card', 'UPI', 'Bank Transfer'].map(method => (
+                            {[...PAYMENT_METHODS, ...(PAYMENT_METHODS.includes(paymentMethod) ? [] : [paymentMethod])].map(method => (
                                 <TouchableOpacity 
                                     key={method} 
                                     onPress={() => setPaymentMethod(method)}

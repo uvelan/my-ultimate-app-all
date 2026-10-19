@@ -4,11 +4,13 @@ import { Plus, Trash2, Settings, X, Tag } from 'lucide-react-native';
 import { Input } from '@/src/components/ui/Input';
 import { Button } from '@/src/components/ui/Button';
 import { scraperService } from '@/src/services/features.service';
+import { SidebarToggle } from '@/src/components/ui/Sidebar';
 
 export default function ScraperScreen() {
     const [url, setUrl] = useState('');
     const [scraping, setScraping] = useState(false);
     const [sources, setSources] = useState<any[]>([]);
+    const [scrapeSourceId, setScrapeSourceId] = useState('');
     const [scrapedNovels, setScrapedNovels] = useState<any[]>([]);
     const [settings, setSettings] = useState<Record<string, any>>({});
     const [loading, setLoading] = useState(true);
@@ -32,6 +34,7 @@ export default function ScraperScreen() {
                 scraperService.getScraperSettings()
             ]);
             setSources(sourcesData);
+            setScrapeSourceId(current => current || sourcesData[0]?.id || '');
             setScrapedNovels(novelsData);
             setSettings(settingsData);
         } catch (error) {
@@ -42,15 +45,19 @@ export default function ScraperScreen() {
     };
 
     const handleScrape = async () => {
-        if (!url) return;
+        if (!url.trim() || !scrapeSourceId) {
+            Alert.alert('Choose a source', 'Select the website and enter its novel link.');
+            return;
+        }
         setScraping(true);
         try {
-            await scraperService.scrapeNovel(url);
-            alert('Scrape initiated successfully!');
+            await scraperService.scrapeNovel(url.trim(), scrapeSourceId);
+            Alert.alert('Novel added', 'The novel is in the queue. Use Sync to fetch its chapter content.');
             setUrl('');
-        } catch (error) {
+            await fetchData();
+        } catch (error: any) {
             console.error('Scrape Error:', error);
-            alert('Failed to initiate scrape.');
+            Alert.alert('Scrape failed', error.response?.data?.error || error.message || 'Failed to initiate scrape.');
         } finally {
             setScraping(false);
         }
@@ -132,12 +139,20 @@ export default function ScraperScreen() {
     return (
         <ScrollView className="flex-1 bg-[#2e1d15]">
             <View className="px-6 pt-12 pb-4 border-b border-[#5c4033] bg-[#1a110d]/50">
+                <SidebarToggle />
                 <Text className="text-3xl font-bold text-[#e6dccf] font-serif">Novel Scraper</Text>
                 <Text className="text-[#d4c5b0]/60 text-sm mt-1">Acquire new artifacts from the web</Text>
             </View>
 
             <View className="p-6">
                 <Text className="text-[#e6dccf] font-bold text-lg mb-2">Quick Scrape</Text>
+                <ScrollView horizontal className="mb-4" showsHorizontalScrollIndicator={false}>
+                    {sources.map(source => (
+                        <TouchableOpacity key={source.id} onPress={() => setScrapeSourceId(source.id)} className={`p-3 mr-2 rounded-lg border ${scrapeSourceId === source.id ? 'bg-accent border-accent' : 'border-[#5c4033]'}`}>
+                            <Text className="text-white">{source.name}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
                 <Input
                     placeholder="Enter novel URL..."
                     value={url}

@@ -16,7 +16,7 @@ function load({ count = 1, fetch, timers = false } = {}) {
     setTimeout: timers ? (fn) => setTimeout(fn, 0) : setTimeout, clearTimeout,
     fetch, require: (name) => {
       assert.equal(name, 'google-tts-api');
-      return { getAllAudioUrls: () => Array.from({ length: count }, (_, i) => ({ url: String(i) })) };
+      return { getAllAudioUrls: () => Array.from({ length: count }, (_, i) => ({ url: String(i), shortText: `Sentence ${i}.` })) };
     },
   });
   return module.exports;
@@ -76,4 +76,38 @@ test('Google terminal failure aborts sibling workers', async () => {
   await assert.rejects(helper.generateGoogleAudio('chapter', 'en'));
   assert.equal(signals.length, 4);
   assert.ok(signals.every(signal => signal.aborted));
+});
+
+function mp3Frame({ lowRate = false, bitrateIndex = 9, padding = 0 } = {}) {
+  const bitrate = lowRate ? [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160][bitrateIndex] : [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320][bitrateIndex];
+  const frame = Buffer.alloc(Math.floor((lowRate ? 72000 : 144000) * bitrate / (lowRate ? 22050 : 44100)) + padding);
+  frame.set([0xff, lowRate ? 0xf3 : 0xfb, (bitrateIndex << 4) | (padding << 1), 0]);
+  return frame;
+}
+
+test('Google reports ordered measured MP3 durations across bitrate changes and ID3 tags', async () => {
+  const id3 = Buffer.from([73,68,51,4,0,0,0,0,0,3,0,0,0]);
+  const first = Buffer.concat([id3, mp3Frame(), mp3Frame({ bitrateIndex: 10, padding: 1 })]);
+  const second = mp3Frame({ lowRate: true });
+  let segments;
+  const helper = load({ count: 2, fetch: async url => {
+    if (url === '0') await new Promise(resolve => setTimeout(resolve, 10));
+    return new Response(url === '0' ? first : second);
+  } });
+  const output = await helper.generateGoogleAudio('chapter', 'en', undefined, value => { segments = value; });
+  assert.deepEqual(output, Buffer.concat([first, second]));
+  assert.deepEqual(Array.from(segments, segment => segment.text), ['Sentence 0.', 'Sentence 1.']);
+  assert.equal(segments[0].start, 0);
+  assert.ok(Math.abs(segments[0].end - 2304 / 44100) < 1e-10);
+  assert.equal(segments[1].start, segments[0].end);
+  assert.ok(Math.abs(segments[1].end - (2304 / 44100 + 576 / 22050)) < 1e-10);
+});
+
+test('Google unknown or truncated framing omits measured sync without losing playable bytes', async () => {
+  for (const bytes of [Buffer.from('unknown framing'), mp3Frame().subarray(0, 10)]) {
+    let segments;
+    const helper = load({ fetch: async () => new Response(bytes) });
+    assert.deepEqual(await helper.generateGoogleAudio('chapter', 'en', undefined, value => { segments = value; }), bytes);
+    assert.equal(segments.length, 0);
+  }
 });

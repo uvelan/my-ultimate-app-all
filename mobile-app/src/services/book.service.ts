@@ -40,15 +40,22 @@ export const bookService = {
         return res.data;
     },
 
-    updateChapterContent: async (bookId: string, chapterIndex: string, content: string) => {
+    updateChapterContent: async (bookId: string, chapterIndex: string, content: string | string[]) => {
         const res = await api.patch(`/books/${bookId}/chapters/${chapterIndex}`, { content });
         return res.data;
     },
 
     proposeGrammarCorrection: async (bookId: string, chapterId: string, aiModel: string = 'gemini-2.5-flash') => {
-        const res = await api.post(`/grammar-correct`, { bookId, chapterId, aiModel });
+        const actualId = /^[a-f\d]{24}$/i.test(chapterId)
+            ? chapterId : (await bookService.getChapterContent(bookId, chapterId)).id;
+        const res = await api.post(`/grammar-correct`, { chapterId: actualId, modelId: aiModel });
         return res.data;
     },
+
+    getReplacementRules: async (bookId: string) => (await api.get('/replacements', { params: { bookId } })).data,
+    addReplacementRule: async (data: { bookId?: string; search: string; replace: string; isRegex: boolean }) =>
+        (await api.post('/replacements', data)).data,
+    deleteReplacementRule: async (id: string) => { await api.delete('/replacements', { params: { id } }); },
 
     uploadBook: async (file: { uri: string, name: string, type: string }) => {
         const formData = new FormData();

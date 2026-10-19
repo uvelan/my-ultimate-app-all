@@ -38,10 +38,11 @@ function splitNarration(text: string): string[] {
 
 // Each upstream response is a complete WAV file. Concatenating WAV containers
 // directly loses later chunks in browsers, so join their PCM data under one header.
-function combineWav(parts: Buffer[]): Buffer {
+function combineWav(parts: Buffer[], durations?: number[]): Buffer {
     let format: Buffer | undefined;
     const audio: Buffer[] = [];
     for (const part of parts) {
+        let pcmBytes = 0;
         if (part.length < 12 || part.toString('ascii', 0, 4) !== 'RIFF' || part.toString('ascii', 8, 12) !== 'WAVE') {
             throw new TtsProviderError('Xiaomi MiMo returned invalid WAV audio.', 502);
         }
@@ -66,6 +67,7 @@ function combineWav(parts: Buffer[]): Buffer {
                 foundFormat = true;
             } else if (id === 'data' && length > 0) {
                 audio.push(part.subarray(start, start + length));
+                pcmBytes += length;
                 foundData = true;
             }
             offset = start + length + (length % 2);
@@ -73,6 +75,8 @@ function combineWav(parts: Buffer[]): Buffer {
         if (!foundFormat || !foundData) {
             throw new TtsProviderError('Xiaomi MiMo returned empty or invalid audio.', 502);
         }
+        const byteRate = format!.readUInt32LE(8);
+        durations?.push(byteRate > 0 ? pcmBytes / byteRate : 0);
     }
     if (!format || !audio.length) {
         throw new TtsProviderError('Xiaomi MiMo returned no audio.', 502);
@@ -90,7 +94,7 @@ function combineWav(parts: Buffer[]): Buffer {
     return Buffer.concat([header, pcm, Buffer.alloc(pcm.length % 2)]);
 }
 
-export async function generateMimoAudio(text: string, voice: string, signal?: AbortSignal): Promise<Buffer> {
+export async function generateMimoAudio(text: string, voice: string, signal?: AbortSignal, onSegments?: (segments: { text: string; start: number; end: number }[]) => void): Promise<Buffer> {
     const apiKey = process.env.MIMO_API_KEY;
     if (!apiKey) {
         throw new TtsProviderError('Xiaomi MiMo is not configured. Set MIMO_API_KEY on the server.', 503);
@@ -149,7 +153,18 @@ export async function generateMimoAudio(text: string, voice: string, signal?: Ab
                 results[index] = Buffer.from(encoded, 'base64');
             }
         }));
-        return combineWav(results);
+        const durations: number[] = [];
+        const audio = combineWav(results, durations);
+        if (onSegments) {
+            let elapsed = 0;
+            const segments = chunks.map((text, index) => {
+                const start = elapsed;
+                elapsed += durations[index];
+                return { text, start, end: elapsed };
+            });
+            try { onSegments(durations.every(duration => duration > 0) ? segments : []); } catch {}
+        }
+        return audio;
     } catch (error) {
         controller.abort();
         if (error instanceof TtsProviderError) throw error;

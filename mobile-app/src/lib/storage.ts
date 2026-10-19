@@ -1,51 +1,21 @@
 let storageInstance: any;
-
 try {
-    const { MMKV } = require('react-native-mmkv');
-    if (MMKV) {
-        storageInstance = new MMKV();
-    } else {
-        throw new Error('MMKV class not found in react-native-mmkv');
-    }
-} catch (e) {
-    console.warn('MMKV initialization failed, using memory fallback:', e);
-    // Simple memory fallback
-    const fallback = new Map<string, any>();
-    storageInstance = {
-        set: (key: string, value: any) => fallback.set(key, String(value)),
-        getString: (key: string) => fallback.get(key) || null,
-        delete: (key: string) => fallback.delete(key),
-        clearAll: () => fallback.clear(),
-    };
+    const mmkv = require('react-native-mmkv');
+    storageInstance = mmkv.createMMKV ? mmkv.createMMKV() : new mmkv.MMKV();
+} catch {
+    // Expo Go/web can lack the native module; a development fallback is optional.
+    const fallback = new Map<string, string>();
+    storageInstance = { set: (key: string, value: unknown) => fallback.set(key, String(value)),
+        getString: (key: string) => fallback.get(key), remove: (key: string) => fallback.delete(key), clearAll: () => fallback.clear() };
 }
-
 export const storage = storageInstance;
-
 export const cacheService = {
-    // Simple Key-Value storage
-    set: (key: string, value: string | number | boolean) => {
-        storage.set(key, value);
-    },
-
-    get: (key: string) => {
-        return storage.getString(key);
-    },
-
-    // JSON Object storage
-    setObject: (key: string, value: object) => {
-        storage.set(key, JSON.stringify(value));
-    },
-
+    set: (key: string, value: string | number | boolean) => storage.set(key, String(value)),
+    get: (key: string): string | undefined => storage.getString(key),
+    setObject: (key: string, value: object) => storage.set(key, JSON.stringify(value)),
     getObject: <T>(key: string): T | null => {
-        const value = storage.getString(key);
-        return value ? JSON.parse(value) : null;
+        try { const value = storage.getString(key); return value ? JSON.parse(value) : null; } catch { return null; }
     },
-
-    delete: (key: string) => {
-        storage.delete(key);
-    },
-
-    clearAll: () => {
-        storage.clearAll();
-    }
+    delete: (key: string) => storage.remove ? storage.remove(key) : storage.delete(key),
+    clearAll: () => storage.clearAll(),
 };

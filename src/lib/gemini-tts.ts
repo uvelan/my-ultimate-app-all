@@ -71,7 +71,7 @@ function wrapWav(pcm: Buffer, rate: number): Buffer {
     return Buffer.concat([header, pcm]);
 }
 
-export async function generateGeminiAudio(text: string, voice: string, signal?: AbortSignal): Promise<Buffer> {
+export async function generateGeminiAudio(text: string, voice: string, signal?: AbortSignal, onSegments?: (segments: { text: string; start: number; end: number }[]) => void): Promise<Buffer> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new GeminiTtsError('GEMINI_API_KEY is not configured.', 503);
     if (!(GEMINI_VOICES as readonly string[]).includes(voice)) throw new GeminiTtsError('Unsupported Gemini voice.', 400);
@@ -121,6 +121,15 @@ export async function generateGeminiAudio(text: string, voice: string, signal?: 
         }));
         const rate = results[0].rate;
         if (results.some(result => result.rate !== rate)) throw new GeminiTtsError('Gemini returned inconsistent audio sample rates.', 502);
+        if (onSegments) {
+            let elapsed = 0;
+            const segments = results.map((result, index) => {
+                const start = elapsed;
+                elapsed += result.pcm.length / (rate * 2);
+                return { text: chunks[index], start, end: elapsed };
+            });
+            try { onSegments(segments); } catch {}
+        }
         return wrapWav(Buffer.concat(results.map(result => result.pcm)), rate);
     } catch (error) {
         controller.abort();

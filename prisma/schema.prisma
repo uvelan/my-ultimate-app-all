@@ -42,6 +42,20 @@ enum SourceModel {
   INCOME
   EXPENSE
   RECURRING
+  SMS
+}
+
+// A separate unique receipt keeps SMS retries idempotent without restricting
+// ordinary transactions that have no SMS fingerprint. Never stores SMS bodies.
+model SmsImport {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  fingerprint   String
+  transactionId String   @db.ObjectId
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, fingerprint])
+  @@index([userId, createdAt])
 }
 
 model MyApp {

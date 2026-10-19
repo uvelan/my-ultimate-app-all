@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useRouter } from 'expo-router';
 import { authService } from '@/src/services/auth.service';
+import { cacheService } from '@/src/lib/storage';
 import * as SecureStore from 'expo-secure-store';
 
 // Re-using validation logic if possible, or defining mobile-specific ones
@@ -52,6 +53,7 @@ export default function AuthForm({ type }: AuthFormProps) {
                 if (response.accessToken && response.refreshToken) {
                     await SecureStore.setItemAsync('accessToken', String(response.accessToken));
                     await SecureStore.setItemAsync('refreshToken', String(response.refreshToken));
+                    if (response.user) cacheService.setObject('session-profile', response.user);
                     router.replace('/(protected)/(tabs)/dashboard' as any);
                 } else {
                     console.error('Auth Error: Tokens missing in response body. Received keys:', Object.keys(response));
@@ -61,8 +63,7 @@ export default function AuthForm({ type }: AuthFormProps) {
                 router.push('/(auth)/login' as any);
             }
         } catch (error: any) {
-            console.error('Auth Full Error:', JSON.stringify(error, null, 2));
-            console.error('Auth Error Message:', error.response?.data?.error || error.response?.data?.message || error.message);
+            Alert.alert(type === 'login' ? 'Unable to sign in' : 'Unable to register', error.response?.data?.error || 'Check your details and connection, then retry.');
         } finally {
             setLoading(false);
         }

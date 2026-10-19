@@ -84,6 +84,59 @@ function audio(bytes = Buffer.from('audio'), overrides = {}) {
 }
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 
+const narrationSync = { version: 1, title: 'Chapter One', paragraphs: ['Corrected body.'], segments: [{ text: 'Chapter One. Corrected body.', start: 0, end: 4 }] };
+const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+
+test('metadata-only sync reads preserve aliases and exact audio hash without chunk reads or compression', async () => {
+  const cache = harness();
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  const bytes = Buffer.from('mp3 bytes');
+  await cache.writeServerAudio(window, 'book-a-0', 'requested', 'actual', audio(bytes, { contentType: 'audio/mpeg', narrationSync, narrationAudioHash: 'untrusted' }));
+  const before = structuredClone(cache.memory.state);
+  cache.memory.chunks.clear(); // Metadata lookup must not fetch or rebuild the media.
+  for (const key of ['requested', 'actual']) {
+    const metadata = await cache.readServerNarrationSync('book-a', 'book-a-0', key);
+    assert.deepEqual(JSON.parse(JSON.stringify(metadata)), { sync: narrationSync, audioId: digest(bytes) });
+  }
+  for (const [book, chapter, key] of [['book-b', 'book-a-0', 'actual'], ['book-a', 'book-a-1', 'actual'], ['book-a', 'book-a-0', 'changed-content-or-settings']]) {
+    assert.deepEqual(JSON.parse(JSON.stringify(await cache.readServerNarrationSync(book, chapter, key))), { sync: null, audioId: null });
+  }
+  assert.deepEqual(cache.memory.state, before);
+  assert.equal(cache.memory.compression.length, 0);
+});
+
+test('legacy metadata without an audio digest cannot supply synchronization', async () => {
+  const cache = harness();
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'key', 'key', audio(undefined, { narrationSync }));
+  delete cache.memory.state.entries[0].narrationAudioHash;
+  assert.deepEqual(JSON.parse(JSON.stringify(await cache.readServerNarrationSync('book-a', 'book-a-0', 'key'))), { sync: null, audioId: null });
+});
+
+test('WAV conversion preserves timing and replaces its digest with the exact compressed bytes', async () => {
+  const compressed = Buffer.from('converted mp3');
+  const cache = harness({ compress: async () => ({ audio: compressed, contentType: 'audio/mpeg' }) });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'requested', 'actual', audio(Buffer.from('original WAV'), { narrationSync }));
+  await cache.readServerAudio(window, 'book-a-0', 'requested');
+  const metadata = await cache.readServerNarrationSync('book-a', 'book-a-0', 'actual');
+  assert.deepEqual(JSON.parse(JSON.stringify(metadata)), { sync: narrationSync, audioId: digest(compressed) });
+});
+
+test('failed conversion persistence keeps old metadata digest distinct from newly served bytes', async () => {
+  const compressed = Buffer.from('converted mp3');
+  const original = Buffer.from('original WAV');
+  const cache = harness({ compress: async () => ({ audio: compressed, contentType: 'audio/mpeg' }) });
+  const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);
+  await cache.writeServerAudio(window, 'book-a-0', 'key', 'key', audio(original, { narrationSync }));
+  cache.memory.failChunk = 0;
+  const served = await cache.readServerAudio(window, 'book-a-0', 'key');
+  const metadata = await cache.readServerNarrationSync('book-a', 'book-a-0', 'key');
+  assert.equal(served.narrationAudioHash, digest(compressed));
+  assert.equal(metadata.audioId, digest(original));
+  assert.notEqual(served.narrationAudioHash, metadata.audioId);
+});
+
 test('the server keeps only the current chapter and four successors, dropping previous audio on advance', async () => {
   const cache = harness();
   const window = await cache.activateAudioCacheWindow('book-a', 'book-a-0', 0);

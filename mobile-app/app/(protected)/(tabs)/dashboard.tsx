@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, Linking, Alert } from 'react-native';
 import { AppCard } from '@/src/components/ui/AppCard';
 import { useRouter } from 'expo-router';
 import { api } from '@/src/lib/api-client';
@@ -30,14 +30,35 @@ export default function DashboardScreen() {
                 }
 
                 // Map legacy/web links to mobile routes
-                let link = app.appLink || 'expenses';
+                let link = app.appLink || '/finance';
 
                 // Transformation mapping
                 const routeMap: Record<string, string> = {
                     '/myexpence': 'expenses',
+                    '/finance': 'expenses',
+                    '/finance/dashboard': 'expenses',
+                    '/finance/transactions': '../transactions',
+                    '/finance/categories': '../categories',
+                    '/finance/calendar': 'expenses',
+                    '/finance/budgets': '../finance',
+                    '/finance/recurring': '../finance',
+                    '/finance/reports': '../finance',
                     '/books': 'library',
                     '/novelscraper': 'scraper',
-                    '/admin': 'admin'
+                    '/admin': 'admin',
+                    '/settings': '../settings',
+                    '/interview': '../interview',
+                    '/interview/explore': '../interview',
+                    '/interview/manage': '../interview',
+                    '/interview/goals': '../interview',
+                    '/interview/flashcards': '../interview',
+                    '/interview/mock': '../interview',
+                    '/interview/ai-jobs': '../interview',
+                    '/resume-builder': '../resumes',
+                    '/admin/data-sync': '../data-sync',
+                    '/admin/users': '../admin/users',
+                    '/admin/my-apps': '../admin/apps'
+                    ,'/tasks': '../tasks'
                 };
 
                 const mappedRoute = routeMap[link] || link;
@@ -45,14 +66,20 @@ export default function DashboardScreen() {
                 // Explicitly use the full path with groups for navigation
                 let finalLink = mappedRoute;
                 if (!finalLink.startsWith('http')) {
+                    if (!routeMap[link] && !['dashboard', 'expenses', 'library', 'scraper', 'admin'].includes(link)) {
+                        finalLink = `${baseUrl}${link.startsWith('/') ? link : `/${link}`}`;
+                    } else if (mappedRoute.startsWith('../')) {
+                        finalLink = `/(protected)/${mappedRoute.slice(3)}`;
+                    } else {
                     const segment = finalLink.startsWith('/') ? finalLink.substring(1) : finalLink;
                     finalLink = segment.includes('(') ? (segment.startsWith('/') ? segment : `/${segment}`) : `/(protected)/(tabs)/${segment}`;
+                    }
                 }
 
                 return {
                     id: app.id,
                     name: app.name,
-                    description: app.description,
+                    description: /^https?:\/\//.test(finalLink) ? `${app.description || ''}${app.description ? '\n' : ''}Open web` : app.description,
                     imageLink: imageUrl,
                     appLink: finalLink,
                 };
@@ -100,7 +127,11 @@ export default function DashboardScreen() {
                             name={item.name}
                             description={item.description}
                             image={item.imageLink}
-                            onPress={() => router.push(item.appLink)}
+                            onPress={() => {
+                                if (/^https?:\/\//.test(item.appLink)) {
+                                    Linking.openURL(item.appLink).catch(() => Alert.alert('Unable to open module', 'Please try again.'));
+                                } else router.push(item.appLink);
+                            }}
                         />
                     </View>
                 )}

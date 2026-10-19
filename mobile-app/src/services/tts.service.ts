@@ -1,6 +1,9 @@
 import * as Speech from 'expo-speech';
+let selectedVoice: string | undefined;
 
 export const ttsService = {
+    voices: () => Speech.getAvailableVoicesAsync(),
+    selectVoice: (voice?: string) => { selectedVoice = voice || undefined; },
     speak: (text: any, rate: number = 1.0, onDone?: () => void, onError?: (error: any) => void, onStopped?: () => void) => {
         if (!text) return;
         const textStr = Array.isArray(text) ? text.join('\n') : String(text);
@@ -10,6 +13,7 @@ export const ttsService = {
         
         Speech.speak(cleanText, {
             language: 'en',
+            voice: selectedVoice,
             pitch: 1.0,
             rate: rate,
             onDone: () => {

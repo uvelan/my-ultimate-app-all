@@ -1,21 +1,18 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { cookies } from 'next/headers';
-import { verifyAccessToken } from '@/lib/auth-node';
+import { verifyAuth } from '@/lib/auth-server';
 import bcrypt from 'bcryptjs';
 
 export async function DELETE(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
-
-    if (!accessToken) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated || !auth.user) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const payload = verifyAccessToken(accessToken) as { role: string } | null;
+    const payload = auth.user;
 
     if (!payload || payload.role !== 'SUPERUSER') {
         return NextResponse.json({ error: 'Forbidden. Only Superusers can delete accounts.' }, { status: 403 });
@@ -40,14 +37,12 @@ export async function PATCH(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
-
-    if (!accessToken) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated || !auth.user) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const payload = verifyAccessToken(accessToken) as { role: string } | null;
+    const payload = auth.user;
 
     if (!payload || !['ADMIN', 'SUPERUSER'].includes(payload.role)) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -123,6 +118,7 @@ export async function PATCH(
         const user = await prisma.user.update({
             where: { id },
             data: updateData,
+            select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
         });
         return NextResponse.json(user);
     } catch (error) {

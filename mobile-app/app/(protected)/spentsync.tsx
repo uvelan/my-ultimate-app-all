@@ -1,485 +1,221 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-    View, Text, TouchableOpacity, FlatList, ActivityIndicator,
-    TextInput, PermissionsAndroid, Modal, Alert, ScrollView, NativeModules, Platform,
-    KeyboardAvoidingView
-} from 'react-native';
-import { MessageSquare, Calendar, CreditCard, Save, CheckCircle, ChevronLeft, X } from 'lucide-react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, TextInput, PermissionsAndroid, Modal, Alert, NativeModules, Platform, Linking, ScrollView } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useRouter } from 'expo-router';
-import { expenseService, categoryService } from '@/src/services/features.service';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { ChevronLeft, X } from 'lucide-react-native';
+import { api } from '@/src/lib/api-client';
+import { smsPeriodDates, smsBookingTimestamp, type SmsPeriod } from '@/src/lib/sms-date-range';
+import { parseSmsTransaction, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
 
-const { SmsReader } = NativeModules;
-
-interface ParsedTransaction {
-    id: string;
-    amount: number;
-    source: string;
-    notes: string;
-    date: string;
-    rawDateMillis: number;
-    rawBody: string;
-    synced: boolean;
-}
-
-// Memoized Item Component for performance
-const TransactionItem = React.memo(({ 
-    item, 
-    onNoteChange, 
-    onOpenCategorySelect 
-}: { 
-    item: ParsedTransaction, 
-    onNoteChange: (id: string, text: string) => void,
-    onOpenCategorySelect: (id: string) => void
-}) => {
-    return (
-        <View className={`p-4 bg-background-surface mb-3 rounded-xl border border-border shadow-md ${item.synced ? 'opacity-50' : ''}`}>
-            <View className="flex-row justify-between items-start mb-2">
-                <View className="flex-1 pr-4">
-                    <Text className="text-text-primary font-bold text-lg mb-1" numberOfLines={1}>
-                        ₹{item.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </Text>
-                    <TextInput
-                        value={item.notes}
-                        onChangeText={(text) => onNoteChange(item.id, text)}
-                        className="text-text-secondary text-sm p-0 m-0"
-                        placeholder="Add notes..."
-                        placeholderTextColor="#555"
-                    />
-                </View>
-
-                <View className="items-end bg-background px-3 py-1 rounded-full border border-border flex-row">
-                    <CreditCard size={14} color="#888" />
-                    <Text className="text-text-secondary text-xs font-semibold ml-1">{item.source}</Text>
-                </View>
-            </View>
-
-            <Text className="text-text-muted text-xs mb-3">
-                {item.date}
-            </Text>
-
-            <TouchableOpacity
-                disabled={item.synced}
-                onPress={() => onOpenCategorySelect(item.id)}
-                className={`py-3 rounded-lg flex-row items-center justify-center ${item.synced ? 'bg-green-500/10 border border-green-500/20' : 'bg-background border border-accent'}`}
-            >
-                {item.synced ? (
-                    <>
-                        <CheckCircle size={16} color="#10b981" />
-                        <Text className="text-green-500 font-bold ml-2">Already Synced</Text>
-                    </>
-                ) : (
-                    <>
-                        <Save size={16} color="#8b5cf6" />
-                        <Text className="text-accent font-bold ml-2">Save to Expenses</Text>
-                    </>
-                )}
-            </TouchableOpacity>
-        </View>
-    );
-});
+type Transaction = ParsedSmsTransaction;
+type Cursor = { date: number; id: string } | null;
+const rupee = '\u20b9';
+const button = 'rounded-xl bg-accent px-4 py-3 items-center';
+const field = 'rounded-xl border border-border bg-background p-3 text-text-primary';
 
 export default function SpentSyncScreen() {
     const router = useRouter();
-    
-    const [loading, setLoading] = useState(false);
-    const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
-    const [existingExpenses, setExistingExpenses] = useState<any[]>([]);
-
-    const [startDateObj, setStartDateObj] = useState(() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 7);
-        return d;
-    });
-    const [endDateObj, setEndDateObj] = useState(() => new Date());
-    const [showStartPicker, setShowStartPicker] = useState(false);
-    const [showEndPicker, setShowEndPicker] = useState(false);
-
-    const startDate = startDateObj.toISOString().split('T')[0];
-    const endDate = endDateObj.toISOString().split('T')[0];
-
-    const formatDisplayDate = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-
+    const [startDate, setStartDate] = useState(() => { const date = new Date(); date.setDate(date.getDate() - 7); return date; });
+    const [endDate, setEndDate] = useState(new Date());
+    const [picker, setPicker] = useState<'start' | 'end' | 'period' | null>(null);
+    const [period, setPeriod] = useState<SmsPeriod>('RANGE');
+    const [periodDate, setPeriodDate] = useState(new Date());
+    const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [categories, setCategories] = useState<any[]>([]);
-    const [activeTransactionId, setActiveTransactionId] = useState<string | null>(null);
-    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [scanned, setScanned] = useState(0);
+    const [hasMore, setHasMore] = useState(false);
+    const [notice, setNotice] = useState('');
+    const [filter, setFilter] = useState<'ALL' | 'EXPENSE' | 'INCOME'>('ALL');
+    const [editing, setEditing] = useState<Transaction | null>(null);
+    const [amount, setAmount] = useState('');
+    const [description, setDescription] = useState('');
+    const [bookingDate, setBookingDate] = useState('');
+    const [categoryId, setCategoryId] = useState('');
+    const [saving, setSaving] = useState(false);
+    const cursor = useRef<Cursor>(null);
+    const generation = useRef(0);
+    const scanBusy = useRef(false);
+    const saveBusy = useRef(false);
 
-    useEffect(() => {
-        fetchCategories();
-        fetchExistingExpenses();
-    }, [startDate, endDate]);
+    useFocusEffect(useCallback(() => {
+        let active = true;
+        api.get('/mobile/finance', { params: { resource: 'categories' } })
+            .then(response => { if (active) setCategories(response.data); })
+            .catch((error: any) => { if (active) setNotice(error.response?.data?.error || 'Unable to load categories. Open Finance to create categories, then retry.'); });
+        return () => { active = false; generation.current++; };
+    }, []));
 
-    const fetchCategories = async () => {
-        try {
-            const data = await categoryService.getCategories();
-            // Remove the type filter as it might be blocking categories
-            setCategories(data || []);
-        } catch (error) {
-            console.error('Failed to load categories', error);
+    const resetScan = () => {
+        generation.current++; cursor.current = null;
+        setHasMore(false); setTransactions([]); setScanned(0); setNotice('');
+    };
+    const choosePeriod = (value: SmsPeriod, selected = periodDate) => {
+        resetScan(); setPeriod(value);
+        if (value !== 'RANGE') {
+            const dates = smsPeriodDates(value, selected);
+            setStartDate(dates.start); setEndDate(dates.end); setPeriodDate(selected);
         }
     };
-
-    const fetchExistingExpenses = async () => {
-        try {
-            const exp = await expenseService.getExpenses(startDate, endDate);
-            setExistingExpenses(exp || []);
-        } catch (error) {
-            console.error(error);
-        }
+    const updateDate = (value: Date) => {
+        if (picker === 'period' && period !== 'RANGE') { choosePeriod(period, value); return; }
+        resetScan();
+        if (picker === 'start') setStartDate(value); else setEndDate(value);
     };
 
-    const requestSmsPermission = async (): Promise<boolean> => {
-        if (Platform.OS !== 'android') {
-            Alert.alert("Not Supported", "SMS reading is only available on Android.");
-            return false;
+    const permission = async () => {
+        if (Platform.OS !== 'android') { Alert.alert('Android only', 'Inbox scanning is available in the Android app.'); return false; }
+        if (!NativeModules.SmsReader?.readSmsPage) {
+            Alert.alert('App update required', 'Install the updated Android build to use SMS sync.'); return false;
         }
-        try {
-            const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.READ_SMS,
-                {
-                    title: "SMS Read Permission",
-                    message: "SpentSync needs to read your SMS messages to find transaction alerts.",
-                    buttonNeutral: "Ask Me Later",
-                    buttonNegative: "Cancel",
-                    buttonPositive: "OK"
-                }
-            );
-            return granted === PermissionsAndroid.RESULTS.GRANTED;
-        } catch (err) {
-            return false;
+        if (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS)) return true;
+        const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS, {
+            title: 'Read transaction alerts', message: 'Scan your selected inbox dates on this device. Only transactions you review and save are synced.',
+            buttonPositive: 'Allow', buttonNegative: 'Cancel',
+        });
+        if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+            Alert.alert('SMS permission disabled', 'Enable SMS access in app settings to scan transaction alerts.', [
+                { text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: () => { void Linking.openSettings(); } },
+            ]);
         }
+        return result === PermissionsAndroid.RESULTS.GRANTED;
     };
 
-    const parseMessage = (msg: any): ParsedTransaction | null => {
-        const body: string = msg.body || '';
-        const lower = body.toLowerCase();
-        
-        // Only target debit/spend messages
-        const isDebitKeyword = /(debited|spent|sent|paid|withdrawn|purchase|txn)/.test(lower);
-        const isExcludedKeyword = /(received|refund|cashback|requested|will be)/.test(lower);
-        
-        // If it contains "credited" but NOT "debited", it's a credit alert, skip it.
-        // If it contains "debited", we treat it as a debit alert even if "credited" exists (common for transfers).
-        if (!isDebitKeyword) return null;
-        if (isExcludedKeyword) return null;
-        if (lower.includes('credited') && !lower.includes('debited')) return null;
-
-        // Extract amount — try multiple common Indian banking formats
-        const amountPatterns = [
-            /(?:rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/i,
-            /(?:debited|spent|paid|sent|txn)\s+(?:by\s+|for\s+|of\s+)?(?:rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/i,
-            /([\d,]+(?:\.\d{1,2})?)\s*(?:has been|is|was)\s+(?:debited|spent)/i,
-        ];
-
-        let amount = 0;
-        for (const pattern of amountPatterns) {
-            const match = body.match(pattern);
-            if (match) {
-                amount = parseFloat(match[1].replace(/,/g, ''));
-                break;
-            }
-        }
-        
-        if (!amount || amount <= 0 || amount > 100000000) return null;
-
-        // Classify source type
-        let sourceType = "Bank";
-        if (/credit card|debit card|card/i.test(lower)) sourceType = 'Card';
-        else if (/upi/i.test(lower)) sourceType = 'UPI';
-        else if (/neft|rtgs|imps/i.test(lower)) sourceType = 'Transfer';
-
-        // Find bank name
-        const bankMatch = body.match(/(?:HDFC|SBI|ICICI|AXIS|KOTAK|PNB|CITI|BOB|IDFC|YES|UNION|CANARA|INDUS|FEDERAL|PAYTM|PHONEPE|GPAY)/i);
-        const bankName = bankMatch ? bankMatch[0].toUpperCase() : '';
-
-        // Extract merchant/notes
-        let merchant = 'Transaction';
-        const merchantPatterns = [
-            /(?:to|at|info:)\s+([a-zA-Z0-9\s.*]+?)(?=\s+(?:on|via|ref|bal|avbl|a\/c)|[.]|$)/i,
-            /(?:vpa|upi)\b.*?(?:\/|@|to\s+)([a-zA-Z0-9.@\- ]+)/i,
-            /(?:txn|transaction)\s+(?:at|to|for)\s+([a-zA-Z0-9\s]+?)(?=\s+|$)/i,
-        ];
-        for (const pattern of merchantPatterns) {
-            const match = body.match(pattern);
-            if (match && match[1].trim().length > 1) {
-                merchant = match[1].trim().substring(0, 50);
-                break;
-            }
-        }
-
-        // Notes includes full context: "HDFC UPI - Merchant"
-        const notes = `${bankName}${bankName ? ' ' : ''}${sourceType} - ${merchant}`;
-        
-        const txnDateObj = new Date(msg.date);
-        const txnDateStr = txnDateObj.toISOString().split('T')[0];
-
-        return {
-            id: msg._id?.toString() || `sms-${Math.random().toString(36).substring(7)}`,
-            amount,
-            source: sourceType, // Only show "UPI", "Card", etc in badge
-            notes,
-            date: txnDateStr,
-            rawDateMillis: msg.date,
-            rawBody: body,
-            synced: false
-        };
-    };
-
-    const scanInbox = async () => {
+    const scanInbox = async (append = false) => {
+        if (scanBusy.current || saveBusy.current) return;
+        scanBusy.current = true;
         setLoading(true);
-        const hasPermission = await requestSmsPermission();
-        if (!hasPermission) {
-            Alert.alert("Permission Required", "Unable to read SMS messages without permission.");
-            setLoading(false);
-            return;
-        }
-
+        const run = ++generation.current;
         try {
-            const minDate = startDateObj.getTime();
-            const maxDate = endDateObj.getTime() + 86400000; // end of day
-
-            const smsList = await SmsReader.readSms(minDate, maxDate);
-            
-            const parsed: ParsedTransaction[] = [];
-            for (const sms of smsList) {
-                const txn = parseMessage(sms);
-                if (txn) {
-                    // Check for duplicates in existing expenses
-                    const isDuplicate = existingExpenses.some(e => 
-                        Math.abs(e.amount - txn.amount) < 0.01 && 
-                        e.date?.startsWith(txn.date)
-                    );
-                    txn.synced = isDuplicate;
-                    parsed.push(txn);
+            if (!await permission() || run !== generation.current) return;
+            const from = new Date(startDate); from.setHours(0, 0, 0, 0);
+            const until = new Date(endDate); until.setHours(0, 0, 0, 0); until.setDate(until.getDate() + 1);
+            if (from.getTime() >= until.getTime()) throw new Error('Choose a start date before the end date.');
+            let next = append ? cursor.current : null;
+            let count = append ? scanned : 0;
+            const parsed = new Map<string, Transaction>((append ? transactions : []).map(item => [item.fingerprint, item]));
+            let more = false;
+            let pageCount = 0;
+            do {
+                const page = await NativeModules.SmsReader.readSmsPage(from.getTime(), until.getTime() - 1,
+                    next?.date ?? -1, next?.id ?? '', 250);
+                if (run !== generation.current) return;
+                const messages: any[] = page.messages || [];
+                count += messages.length;
+                for (const message of messages) {
+                    const item = parseSmsTransaction(message);
+                    if (item && !parsed.has(item.fingerprint)) parsed.set(item.fingerprint, item);
                 }
-            }
-            
-            parsed.sort((a, b) => b.rawDateMillis - a.rawDateMillis);
-            setTransactions(parsed);
-            
-            if (parsed.length === 0) {
-                Alert.alert("No Transactions", "No debit/spend SMS found in the selected date range.");
-            }
+                more = !!page.hasMore;
+                const updatedCursor: Cursor = page.nextCursor || null;
+                if (more && (!updatedCursor || (next?.date === updatedCursor.date && next?.id === updatedCursor.id))) {
+                    throw new Error('Scanning stopped safely. Narrow the date range and retry.');
+                }
+                next = updatedCursor;
+                pageCount++;
+                setScanned(count);
+                await new Promise(resolve => setTimeout(resolve, 0));
+            } while (more && pageCount < 40);
+            const items = Array.from(parsed.values()).sort((a, b) => b.rawDateMillis - a.rawDateMillis);
+            let statusWarning = '';
+            try {
+                for (let offset = 0; offset < items.length; offset += 500) {
+                    const batch = items.slice(offset, offset + 500);
+                    const response = await api.post('/mobile/sms', { action: 'lookup', fingerprints: batch.map(item => item.fingerprint) });
+                    const existing = new Set((response.data.imports || []).map((item: any) => item.fingerprint));
+                    for (const item of batch) item.synced = existing.has(item.fingerprint);
+                }
+            } catch { statusWarning = 'Previous imports could not be checked. Saving will check again.'; }
+            if (run !== generation.current) return;
+            cursor.current = next;
+            setHasMore(more);
+            setTransactions(items);
+            setNotice(statusWarning || (items.length ? 'Review each transaction before saving. Full SMS messages stay on this device.' : 'No supported transaction alerts found in these dates.'));
         } catch (error: any) {
-            Alert.alert("Error", error.message || "Failed to read SMS");
+            if (run === generation.current) setNotice(error.message || 'Unable to scan the inbox.');
+        } finally {
+            scanBusy.current = false;
+            setLoading(false);
         }
-        setLoading(false);
     };
 
-    const handleSaveTransaction = async (categoryId: string) => {
-        if (!activeTransactionId) return;
-        const txn = transactions.find(t => t.id === activeTransactionId);
-        if (!txn) return;
-        
-        setIsCategoryModalOpen(false);
-
+    const openReview = (item: Transaction) => {
+        if (item.synced) return;
+        setEditing(item); setBookingDate(item.date); setAmount(item.amount.toFixed(2)); setDescription(item.notes); setCategoryId('');
+    };
+    const saveTransaction = async () => {
+        if (!editing || saveBusy.current) return;
+        const numericAmount = Number(amount);
+        const amountPaise = Math.round(numericAmount * 100);
+        if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isSafeInteger(amountPaise) || amountPaise > 2147483647) {
+            Alert.alert('Check amount', 'Enter a valid positive amount.'); return;
+        }
+        if (!categoryId) { Alert.alert('Choose a category', 'Select the category for this transaction.'); return; }
+        let transactionDate: string;
+        try { transactionDate = smsBookingTimestamp(bookingDate); } catch (error: any) { Alert.alert('Check date', error.message); return; }
+        saveBusy.current = true; setSaving(true);
         try {
-            await expenseService.addExpense({
-                amount: txn.amount,
-                categoryId: categoryId,
-                date: new Date(txn.rawDateMillis).toISOString(),
-                notes: txn.notes,
-                paymentMethod: txn.source.includes('Card') ? 'Card' : txn.source.includes('UPI') ? 'UPI' : 'Bank Transfer'
+            const response = await api.post('/mobile/sms', {
+                action: 'import', fingerprint: editing.fingerprint, type: editing.type,
+                amountPaise, categoryId, transactionDate,
+                description: description.trim().slice(0, 500),
+                paymentMethod: editing.source === 'Card' ? (/credit card/i.test(editing.rawBody) ? 'Credit Card' : /debit card/i.test(editing.rawBody) ? 'Debit Card' : 'Other') : editing.source === 'UPI' ? 'UPI' : editing.source === 'ATM' ? 'Cash' : 'Net Banking',
             });
-            
-            setTransactions(prev => prev.map(t => 
-                t.id === activeTransactionId ? { ...t, synced: true } : t
-            ));
-            Alert.alert("Saved!", `₹${txn.amount.toLocaleString()} saved to expenses.`);
-            
-            fetchExistingExpenses();
-        } catch (error) {
-            Alert.alert("Save Failed", "Could not sync this transaction.");
-        }
+            setTransactions(previous => previous.map(item => item.fingerprint === editing.fingerprint ? { ...item, synced: true, ...(!response.data.duplicate ? { amount: numericAmount, amountPaise, date: bookingDate, type: editing.type, notes: description.trim() } : {}) } : item));
+            setEditing(null);
+            setNotice(response.data.duplicate ? 'This message was already imported. No new transaction was added.' : 'Transaction saved. It is available on Android and web.');
+        } catch (error: any) { Alert.alert('Could not save', error.response?.data?.error || 'Please retry. The same message will not be imported twice.'); }
+        finally { saveBusy.current = false; setSaving(false); }
     };
 
-    const handleNoteChange = useCallback((id: string, text: string) => {
-        setTransactions(prev => prev.map(t => t.id === id ? { ...t, notes: text } : t));
-    }, []);
-
-    const handleOpenCategorySelect = useCallback((id: string) => {
-        setActiveTransactionId(id);
-        setIsCategoryModalOpen(true);
-    }, []);
-
-    const renderItem = useCallback(({ item }: { item: ParsedTransaction }) => (
-        <TransactionItem 
-            item={item} 
-            onNoteChange={handleNoteChange} 
-            onOpenCategorySelect={handleOpenCategorySelect} 
-        />
-    ), [handleNoteChange, handleOpenCategorySelect]);
-
-    const totalAmount = useMemo(() => {
-        return transactions.reduce((sum, t) => sum + t.amount, 0);
-    }, [transactions]);
-
-    return (
-        <View className="flex-1 bg-background">
-            {/* Header - Keep it outside for easy back navigation */}
-            <View className="px-6 py-4 pt-12 border-b border-border bg-background-surface flex-row items-center justify-between">
-                <View className="flex-row items-center gap-3">
-                    <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2 rounded-full">
-                        <ChevronLeft size={24} color="#f5f5f0" />
-                    </TouchableOpacity>
-                    <MessageSquare size={24} color="#8b5cf6" />
-                    <View>
-                        <Text className="text-text-primary text-xl font-bold font-serif">Spent Sync</Text>
-                        {transactions.length > 0 && (
-                            <Text className="text-accent text-xs font-bold">Total: ₹{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
-                        )}
-                    </View>
-                </View>
-            </View>
-
-            {/* Transactions List */}
-            <FlatList
-                data={transactions}
-                keyExtractor={item => item.id}
-                contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 100 }}
-                initialNumToRender={10}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                removeClippedSubviews={true}
-                keyboardShouldPersistTaps="handled"
-                ListHeaderComponent={
-                    <>
-                        {/* Filters moved inside scrollable area */}
-                        <View className="p-4 bg-background-surface border border-border mt-4 mb-6 rounded-2xl shadow-xl">
-                            <Text className="text-text-secondary font-semibold mb-3">Sync Date Bracket</Text>
-                            
-                            <View className="flex-row items-center gap-4 mb-4">
-                                <View className="flex-1">
-                                    <Text className="text-text-secondary text-xs mb-1">Start Date</Text>
-                                    <TouchableOpacity
-                                        onPress={() => setShowStartPicker(true)}
-                                        className="flex-row items-center bg-background border border-border rounded-xl px-3 py-3"
-                                    >
-                                        <Calendar size={16} color="#8b5cf6" />
-                                        <Text className="flex-1 ml-2 text-text-primary font-semibold">{formatDisplayDate(startDateObj)}</Text>
-                                    </TouchableOpacity>
-                                </View>
-                                
-                                <View className="flex-1">
-                                    <Text className="text-text-secondary text-xs mb-1">End Date</Text>
-                                    <TouchableOpacity
-                                        onPress={() => setShowEndPicker(true)}
-                                        className="flex-row items-center bg-background border border-border rounded-xl px-3 py-3"
-                                    >
-                                        <Calendar size={16} color="#8b5cf6" />
-                                        <Text className="flex-1 ml-2 text-text-primary font-semibold">{formatDisplayDate(endDateObj)}</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-
-                            {showStartPicker && (
-                                <DateTimePicker
-                                    value={startDateObj}
-                                    mode="date"
-                                    display="calendar"
-                                    maximumDate={endDateObj}
-                                    onChange={(_, date) => {
-                                        setShowStartPicker(false);
-                                        if (date) setStartDateObj(date);
-                                    }}
-                                />
-                            )}
-                            {showEndPicker && (
-                                <DateTimePicker
-                                    value={endDateObj}
-                                    mode="date"
-                                    display="calendar"
-                                    minimumDate={startDateObj}
-                                    maximumDate={new Date()}
-                                    onChange={(_, date) => {
-                                        setShowEndPicker(false);
-                                        if (date) setEndDateObj(date);
-                                    }}
-                                />
-                            )}
-
-                            <TouchableOpacity 
-                                onPress={scanInbox}
-                                disabled={loading}
-                                className={`w-full py-4 rounded-xl flex-row items-center justify-center shadow-lg ${loading ? 'bg-accent/50' : 'bg-accent'}`}
-                            >
-                                {loading ? <ActivityIndicator color="#fff" /> : (
-                                    <>
-                                        <MessageSquare size={18} color="#fff" />
-                                        <Text className="text-white font-bold text-base ml-2">Scan Inbox for Transactions</Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Results Count moved inside scrollable area */}
-                        {transactions.length > 0 && (
-                            <View className="px-2 mb-4 flex-row items-center justify-between">
-                                <View>
-                                    <Text className="text-text-primary text-2xl font-bold tracking-tight">
-                                        ₹{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </Text>
-                                    <Text className="text-text-secondary text-xs uppercase font-bold tracking-widest opacity-60">
-                                        Found in {transactions.length} messages
-                                    </Text>
-                                </View>
-                                <View className="items-end">
-                                    <View className="bg-accent/20 px-3 py-1 rounded-full border border-accent/30">
-                                        <Text className="text-accent text-[10px] font-bold uppercase">
-                                            {transactions.filter(t => t.synced).length} SYNCED
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-                        )}
-                    </>
-                }
-                ListEmptyComponent={
-                    !loading ? (
-                        <View className="flex-1 items-center justify-center mt-20 opacity-50">
-                            <MessageSquare size={48} color="#a0aec0" />
-                            <Text className="text-text-secondary mt-4 font-semibold text-center">
-                                Tap "Scan Inbox" to find{'\n'}transaction SMS messages.
-                            </Text>
-                        </View>
-                    ) : null
-                }
-                renderItem={renderItem}
-            />
-
-            {/* Category Mapping Modal */}
-            <Modal visible={isCategoryModalOpen} animationType="slide" transparent={true}>
-                <View className="flex-1 justify-end bg-black/60">
-                    <View className="bg-background-surface rounded-t-3xl pt-6 pb-8 min-h-[50%] border-t border-border">
-                        <View className="px-6 pb-4 border-b border-border flex-row justify-between items-center">
-                            <Text className="text-xl font-bold text-text-primary font-serif">Select Category</Text>
-                            <TouchableOpacity onPress={() => setIsCategoryModalOpen(false)} className="p-1">
-                                <X size={24} color="#a0aec0" />
-                            </TouchableOpacity>
-                        </View>
-                        
-                        <ScrollView className="px-4 mt-2">
-                            <View className="flex-row flex-wrap gap-3 mt-4">
-                                {categories.map((cat: any) => (
-                                    <TouchableOpacity
-                                        key={cat.id}
-                                        onPress={() => handleSaveTransaction(cat.id)}
-                                        className="py-3 px-5 rounded-xl flex-row items-center border border-border bg-background shadow-sm"
-                                        style={{ borderLeftWidth: 4, borderLeftColor: cat.color || '#8b5cf6' }}
-                                    >
-                                        <Text className="text-text-primary font-bold">{cat.name}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                            {categories.length === 0 && (
-                                <Text className="text-center text-text-muted mt-8">
-                                    No expense categories found.{'\n'}Please create some in the Expenses screen first.
-                                </Text>
-                            )}
-                        </ScrollView>
-                    </View>
-                </View>
-            </Modal>
+    const visible = transactions.filter(item => filter === 'ALL' || item.type === filter);
+    return <View className="flex-1 bg-background">
+        <View className="flex-row items-center gap-3 border-b border-border px-5 pb-4 pt-12">
+            <TouchableOpacity accessibilityLabel="Go back" onPress={() => router.back()}><ChevronLeft color="#a78bfa" /></TouchableOpacity>
+            <View><Text className="text-xl font-bold text-text-primary">SMS sync</Text><Text className="text-xs text-text-secondary">Review bank alerts before importing</Text></View>
         </View>
-    );
+        <View className="gap-3 p-4">
+            <View className="flex-row gap-2">{(['DAY', 'WEEK', 'MONTH', 'RANGE'] as const).map(value =>
+                <TouchableOpacity key={value} accessibilityRole="button" accessibilityState={{ selected: period === value }}
+                    className={'flex-1 rounded-xl border px-2 py-3 items-center ' + (period === value ? 'border-accent bg-accent/20' : 'border-border')}
+                    onPress={() => choosePeriod(value)}><Text className="text-text-primary">{value === 'RANGE' ? 'Range' : value.charAt(0) + value.slice(1).toLowerCase()}</Text></TouchableOpacity>)}</View>
+            {period === 'RANGE' ? <View className="flex-row gap-2">
+                <TouchableOpacity className={field + ' flex-1'} onPress={() => setPicker('start')}><Text className="text-text-primary">From {startDate.toLocaleDateString()}</Text></TouchableOpacity>
+                <TouchableOpacity className={field + ' flex-1'} onPress={() => setPicker('end')}><Text className="text-text-primary">To {endDate.toLocaleDateString()}</Text></TouchableOpacity>
+            </View> : <TouchableOpacity className={field} onPress={() => setPicker('period')}>
+                <Text className="text-text-primary">{period === 'DAY' ? startDate.toLocaleDateString() : startDate.toLocaleDateString() + ' - ' + endDate.toLocaleDateString()}</Text>
+                <Text className="mt-1 text-xs text-text-secondary">Tap to choose a past {period.toLowerCase()}{period === 'WEEK' ? ' (Monday to Sunday)' : ''}</Text>
+            </TouchableOpacity>}
+            {picker && <DateTimePicker value={picker === 'period' ? periodDate : picker === 'start' ? startDate : endDate} mode="date" maximumDate={new Date()}
+                onChange={(event, date) => { if (event.type !== 'dismissed' && date) updateDate(date); setPicker(null); }} />}
+            <TouchableOpacity disabled={loading || saving} className={button} onPress={() => { void scanInbox(); }}>
+                {loading ? <ActivityIndicator color="white" /> : <Text className="font-bold text-white">Scan inbox</Text>}
+            </TouchableOpacity>
+            {loading && <TouchableOpacity onPress={() => { generation.current++; setLoading(false); }}><Text className="text-center text-text-secondary">Cancel scan ({scanned} messages checked)</Text></TouchableOpacity>}
+            {!!notice && <Text accessibilityLiveRegion="polite" className="text-sm text-text-secondary">{notice}</Text>}
+            <View className="flex-row gap-2">{(['ALL', 'EXPENSE', 'INCOME'] as const).map(value => <TouchableOpacity key={value} onPress={() => setFilter(value)} className={'rounded-full border px-3 py-2 ' + (filter === value ? 'border-accent bg-accent/20' : 'border-border')}><Text className="text-text-primary">{value === 'ALL' ? 'All' : value === 'EXPENSE' ? 'Expenses' : 'Income'}</Text></TouchableOpacity>)}</View>
+        </View>
+        <FlatList data={visible} keyExtractor={item => item.fingerprint} contentContainerStyle={{ padding: 16, paddingTop: 0 }}
+            ListEmptyComponent={!loading ? <Text className="py-8 text-center text-text-secondary">Scan a date range to review transaction alerts.</Text> : null}
+            renderItem={({ item }) => <TouchableOpacity disabled={item.synced} onPress={() => openReview(item)} className={'mb-3 rounded-xl border border-border bg-background-surface p-4 ' + (item.synced ? 'opacity-60' : '')}>
+                <View className="flex-row justify-between"><Text className="text-lg font-bold text-text-primary">{item.type === 'INCOME' ? '+' : '-'}{rupee}{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</Text><Text className="text-text-secondary">{item.source}</Text></View>
+                <Text className="mt-1 text-text-primary">{item.notes}</Text><Text className="mt-2 text-xs text-text-secondary">{item.date}{item.account ? ' - account ' + item.account : ''}</Text>
+                <Text className="mt-3 font-semibold text-accent">{item.synced ? 'Already imported' : 'Review and save'}</Text>
+            </TouchableOpacity>}
+            ListFooterComponent={hasMore && !loading ? <TouchableOpacity className={button} onPress={() => { void scanInbox(true); }}><Text className="text-white">Scan more messages</Text></TouchableOpacity> : null} />
+        <Modal visible={!!editing} animationType="slide" onRequestClose={() => { if (!saving) setEditing(null); }}>
+            <ScrollView className="flex-1 bg-background" contentContainerStyle={{ padding: 24, paddingTop: 48, gap: 16 }} keyboardShouldPersistTaps="handled">
+                <View className="flex-row justify-between"><Text className="text-xl font-bold text-text-primary">Review transaction</Text><TouchableOpacity disabled={saving} onPress={() => setEditing(null)}><X color="#a78bfa" /></TouchableOpacity></View>
+                <View className="flex-row gap-2">{(['EXPENSE', 'INCOME'] as const).map(type => <TouchableOpacity key={type} onPress={() => { setEditing(item => item ? { ...item, type } : item); setCategoryId(''); }} className={editing?.type === type ? button : field}><Text className="text-text-primary">{type === 'EXPENSE' ? 'Expense' : 'Income'}</Text></TouchableOpacity>)}</View>
+                <Text className="text-text-secondary">Amount ({rupee})</Text><TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" className={field} />
+                <Text className="text-text-secondary">Transaction date (YYYY-MM-DD)</Text><TextInput value={bookingDate} onChangeText={setBookingDate} className={field} maxLength={10} />
+                <Text className="text-text-secondary">Description</Text><TextInput value={description} onChangeText={setDescription} maxLength={500} className={field} />
+                <Text className="text-text-secondary">Category</Text>
+                {categories.filter(category => category.type === editing?.type && !category.isArchived).map(category => <TouchableOpacity key={category.id} className={categoryId === category.id ? button : field} onPress={() => setCategoryId(category.id)}><Text className="text-text-primary">{category.name}</Text></TouchableOpacity>)}
+                {!categories.some(category => category.type === editing?.type && !category.isArchived) && <Text className="text-text-secondary">Create a matching category in Finance before importing.</Text>}
+                <Text className="text-text-secondary">Original message (stays on this device)</Text><Text selectable className="rounded-xl bg-background-surface p-4 text-text-secondary">{editing?.rawBody}</Text>
+                <TouchableOpacity disabled={saving} className={button} onPress={() => { void saveTransaction(); }}>{saving ? <ActivityIndicator color="white" /> : <Text className="font-bold text-white">Save transaction</Text>}</TouchableOpacity>
+            </ScrollView>
+        </Modal>
+    </View>;
 }

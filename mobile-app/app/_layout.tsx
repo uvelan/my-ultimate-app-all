@@ -1,4 +1,5 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
+import { onSessionExpired } from '@/src/lib/api-client';
 import { ThemeProvider, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useEffect } from 'react';
@@ -27,6 +28,8 @@ async function requestAndroidPermissions() {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
+  useEffect(() => onSessionExpired(() => router.replace('/(auth)/login' as any)), [router]);
   useEffect(() => {
     requestAndroidPermissions();
     playbackNotificationService.initialize().catch(console.error);

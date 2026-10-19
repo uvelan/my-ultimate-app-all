@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import toast from 'react-hot-toast';
@@ -11,6 +11,8 @@ import { preparedAudioEvictions } from '@/lib/listen-audio-buffer';
 import { nextAudioWindowStart } from '@/lib/listen-audio-window';
 import { handoffPreparedAudio, isAudioAtEnd } from '@/lib/listen-playback';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
+import { activeNarrationCue, buildNarrationCues, validNarrationSync, type NarrationSync } from '@/lib/narration-sync';
+import { narrationCacheIdentity, readNarrationCache, writeNarrationCache } from '@/lib/listen-narration-cache';
 import { geminiVoices, mimoVoices, migrateLegacyTtsSelection, readTtsAudioMetadata,
     ttsProviderLabels, type TtsProvider, type TtsAudioMetadata } from '@/lib/tts-provider';
 
@@ -30,7 +32,7 @@ interface Book {
 type MimoVoice = typeof mimoVoices[number];
 type GeminiVoice = typeof geminiVoices[number];
 type AudioSource = 'device' | 'database' | 'generated';
-interface LoadedAudio extends TtsAudioMetadata { audio: Blob; source: AudioSource }
+interface LoadedAudio extends TtsAudioMetadata { audio: Blob; source: AudioSource; audioId?: string }
 interface AudioTask {
     identity: AudioCacheIdentity;
     controller: AbortController;
@@ -78,6 +80,9 @@ export default function ListenPage() {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
+    const [narration, setNarration] = useState<{ source: string; sync: NarrationSync | null } | null>(null);
+    const [followAudio, setFollowAudio] = useState(true);
+    const narrationCueRefs = useRef<(HTMLParagraphElement | null)[]>([]);
 
     // Timer State
     const [sleepTimer, setSleepTimer] = useState<number | 'EOC' | null>(null);
@@ -90,6 +95,7 @@ export default function ListenPage() {
     const switchingAudioRef = useRef(false);
     const promotedAudioKeyRef = useRef<string | null>(null);
     const activeAudioKeyRef = useRef<string | null>(null);
+    const desiredAudioKeyRef = useRef<string | null>(null);
     const bypassCacheKeysRef = useRef(new Set<string>());
     const lastResumeAttemptRef = useRef(0);
     const mediaStalledRef = useRef(false);
@@ -103,6 +109,8 @@ export default function ListenPage() {
     const selectedVoice = ttsProvider === 'gemini' ? geminiVoice : ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
     const chapterContent = currentChapter?.content;
     const chapterTitle = currentChapter?.title;
+    desiredAudioKeyRef.current = chapterId ? audioIdentityKey({ userId: cacheUserId, chapterId,
+        title: chapterTitle, content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel }) : null;
 
     const updateAudioWindow = (index: number) => {
         const previous = audioWindowRef.current;
@@ -115,7 +123,66 @@ export default function ListenPage() {
 
     useEffect(() => {
         if (chapterTextRef.current) chapterTextRef.current.scrollTop = 0;
+        setFollowAudio(true);
     }, [chapterId]);
+
+    // Narration metadata is optional and never delays loading or playing audio.
+    // Bind every async completion to the exact selected object URL and audio bytes.
+    useEffect(() => {
+        const key = activeAudioKeyRef.current;
+        const task = key ? audioTasksRef.current.get(key) : null;
+        if (!audioUrl || !task?.loaded || task.objectUrl !== audioUrl || task.identity.chapterId !== chapterId) return;
+        const source = audioUrl;
+        const identity = { ...task.identity };
+        const loaded = task.loaded;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const current = () => !controller.signal.aborted && activeAudioKeyRef.current === key && audioRef.current?.src === source;
+        setNarration({ source, sync: null });
+        void (async () => {
+            const cachedIdentity = await narrationCacheIdentity(identity, loaded.audio, loaded.audioId);
+            if (!current()) return;
+            if (cachedIdentity && loaded.source !== 'generated') {
+                const cached = await readNarrationCache(cachedIdentity.key);
+                if (!current()) return;
+                if (cached) { setNarration({ source, sync: cached.sync }); return; }
+            }
+            const query = new URLSearchParams({ chapterId: identity.chapterId, provider: identity.provider,
+                voice: identity.voice, grammarModel: identity.grammarModel, sync: '1' });
+            const response = await authenticatedFetch(`/api/tts?${query}`, { signal: controller.signal });
+            if (!response.ok || !current()) return;
+            const payload = await response.json();
+            if (!current()) return;
+            const sync = cachedIdentity && payload.audioId === cachedIdentity.audioId && validNarrationSync(payload.sync) ? payload.sync : null;
+            setNarration({ source, sync });
+            // Do not persist a mismatch: the server may retain a different regeneration.
+            if (cachedIdentity && (sync || payload.sync === null)) void writeNarrationCache(cachedIdentity.key, sync);
+        })().catch(() => { /* Legacy or unavailable metadata uses the weighted text fallback. */ })
+            .finally(() => clearTimeout(timeout));
+        return () => { controller.abort(); clearTimeout(timeout); };
+    }, [audioUrl, chapterId, grammarModel, ttsProvider, selectedVoice, retryCount, cacheUserId]);
+
+    const activeTask = activeAudioKeyRef.current ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
+    const playbackMatchesChapter = !!audioUrl && activeTask?.objectUrl === audioUrl && !!chapterId
+        && audioIdentityKey(activeTask.identity) === audioIdentityKey({ userId: cacheUserId, chapterId,
+            title: chapterTitle, content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel });
+    const currentSync = playbackMatchesChapter && narration?.source === audioUrl ? narration.sync : null;
+    const narrationCues = useMemo(() => buildNarrationCues(chapterContent, chapterTitle, currentSync), [chapterContent, chapterTitle, currentSync]);
+    const activeCue = activeNarrationCue(narrationCues, currentTime, playbackMatchesChapter ? duration : 0);
+
+    useEffect(() => {
+        if (!followAudio || activeCue < 0) return;
+        const frame = requestAnimationFrame(() => {
+            const pane = chapterTextRef.current;
+            const line = narrationCueRefs.current[activeCue];
+            if (!pane || !line) return;
+            const target = pane.scrollTop + line.getBoundingClientRect().top - pane.getBoundingClientRect().top
+                - pane.clientHeight / 2 + line.getBoundingClientRect().height / 2;
+            const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+            pane.scrollTo({ top: Math.max(0, Math.min(target, pane.scrollHeight - pane.clientHeight)), behavior: reducedMotion ? 'auto' : 'smooth' });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [activeCue, followAudio, narrationCues, audioUrl]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -382,7 +449,8 @@ export default function ListenPage() {
                     void cacheChapterAudio(identity, audio);
                 }
                 // A prefetched fallback stays in memory until it becomes current.
-                return { audio, source: response.headers.get('X-TTS-Cache') === 'database' ? 'database' : 'generated', ...metadata };
+                return { audio, source: response.headers.get('X-TTS-Cache') === 'database' ? 'database' : 'generated',
+                    audioId: response.headers.get('X-TTS-Audio-ID') || undefined, ...metadata };
             })().then(loaded => {
                 controller.signal.throwIfAborted();
                 if (audioTasksRef.current.get(key) !== task) throw new DOMException('Obsolete audio request', 'AbortError');
@@ -448,7 +516,7 @@ export default function ListenPage() {
                 void retainChapterAudioWindow(identities);
                 if (!promoted) {
                     await loadAudio(currentIdentity);
-                    if (!active) return;
+                    if (!active || desiredAudioKeyRef.current !== currentKey || currentChapterIndexRef.current !== currentChapterIndex) return;
                     const task = audioTasksRef.current.get(currentKey);
                     if (!task?.objectUrl) return;
                     const { changed } = applyTaskSelection(task, currentIdentity, currentChapterIndex);
@@ -506,10 +574,20 @@ export default function ListenPage() {
         void audio.play().catch(error => handlePlaybackError(error, requestedSource));
     };
 
+    const updatePlaybackClock = () => {
+        const audio = audioRef.current;
+        const task = activeAudioKeyRef.current ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
+        if (!audio || task?.objectUrl !== audio.src || audio.currentSrc !== audio.src) return;
+        setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+        setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    };
+
     // --- Audio Event Handlers ---
     const handleAudioEnded = () => {
         const audio = audioRef.current;
         if (!audio?.ended || !activeAudioKeyRef.current) return;
+        const endedTask = audioTasksRef.current.get(activeAudioKeyRef.current);
+        if (endedTask?.objectUrl !== audio.src || audio.currentSrc !== audio.src) return;
         const endedIndex = currentChapterIndexRef.current;
         if (sleepTimer === 'EOC') {
             setIsPlaying(false);
@@ -763,8 +841,20 @@ export default function ListenPage() {
         }
     };
 
+    const resetManualChapterPlayback = () => {
+        switchingAudioRef.current = true;
+        activeAudioKeyRef.current = null;
+        audioRef.current?.pause();
+        setCurrentTime(0);
+        setDuration(0);
+        setIsPlaying(false);
+        setNarration(null);
+        setFollowAudio(true);
+    };
+
     const handleNextChapter = () => {
         if (book && currentChapterIndex < book.chapters.length - 1) {
+            resetManualChapterPlayback();
             updateAudioWindow(currentChapterIndex + 1);
             currentChapterIndexRef.current = currentChapterIndex + 1;
             setCurrentChapterIndex(currentChapterIndex + 1);
@@ -775,6 +865,7 @@ export default function ListenPage() {
 
     const handlePrevChapter = () => {
         if (currentChapterIndex > 0) {
+            resetManualChapterPlayback();
             updateAudioWindow(currentChapterIndex - 1);
             currentChapterIndexRef.current = currentChapterIndex - 1;
             setCurrentChapterIndex(currentChapterIndex - 1);
@@ -782,6 +873,8 @@ export default function ListenPage() {
     };
 
     const handleJumpToChapter = (index: number) => {
+        if (index === currentChapterIndex) { setSidebarOpen(false); return; }
+        resetManualChapterPlayback();
         updateAudioWindow(index);
         currentChapterIndexRef.current = index;
         setCurrentChapterIndex(index);
@@ -1028,8 +1121,10 @@ export default function ListenPage() {
                                     ref={audioRef}
                                     className="hidden"
                                     onEnded={handleAudioEnded}
-                                    onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
-                                    onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+                                    onTimeUpdate={updatePlaybackClock}
+                                    onLoadedMetadata={updatePlaybackClock}
+                                    onDurationChange={updatePlaybackClock}
+                                    onSeeked={updatePlaybackClock}
                                     onCanPlay={() => {
                                         const audio = audioRef.current;
                                         const task = activeAudioKeyRef.current
@@ -1178,36 +1273,26 @@ export default function ListenPage() {
 
                         {/* Chapter text scrolls independently without shrinking the player. */}
                         <section aria-label="Chapter text" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl bg-[#2d3748] shadow-xl border border-[#4a5568]">
-                            <h3 className="shrink-0 px-5 py-4 text-base font-bold text-[#e2e8f0] border-b border-[#4a5568]">Chapter text</h3>
-                            <div ref={chapterTextRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5 px-5 py-5 sm:px-6 text-left text-base leading-8 break-words [scrollbar-gutter:stable]">
-                                {currentChapter?.content && (() => {
-                                    let paragraphs: string[] = [];
-                                    try {
-                                        paragraphs = typeof currentChapter.content === 'string' 
-                                            ? JSON.parse(currentChapter.content) 
-                                            : currentChapter.content;
-                                        if (!Array.isArray(paragraphs)) paragraphs = [String(currentChapter.content)];
-                                    } catch(e) {
-                                        paragraphs = [String(currentChapter.content)];
-                                    }
-                                    return paragraphs.map((para, i) => {
-                                        const progress = duration > 0 ? (currentTime / duration) : 0;
-                                        const startThresh = i / paragraphs.length;
-                                        const endThresh = (i + 1) / paragraphs.length;
-                                        const isActive = progress >= startThresh && progress < endThresh;
-                                        const isPast = progress >= endThresh;
-                                        
-                                        return (
-                                            <p 
-                                                key={i} 
-                                                className={`transition-colors duration-300 ${isActive ? 'text-[#4fd1c5] font-medium' : isPast ? 'text-[#e2e8f0]' : 'text-[#a0aec0]'}`}
-                                            >
-                                                {para}
-                                            </p>
-                                        );
-                                    });
-                                })()}
-                                {!currentChapter?.content && (
+                            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-[#4a5568]">
+                                <div><h3 className="text-base font-bold text-[#e2e8f0]">Chapter text</h3>
+                                    <p className="text-xs text-[#a0aec0] mt-1" title="Sentence timing is estimated within measured audio chunks when available.">{currentSync ? 'Narrated text · sentence estimates' : 'Estimated text timing'}</p></div>
+                                <button type="button" aria-pressed={followAudio} onClick={() => setFollowAudio(value => !value)}
+                                    className={`rounded-lg px-3 py-2 text-xs font-semibold border ${followAudio ? 'text-[#4fd1c5] border-[#4fd1c5]/60' : 'text-[#e2e8f0] border-[#718096]'}`}>
+                                    {followAudio ? 'Following audio' : 'Follow audio'}
+                                </button>
+                            </div>
+                            <div ref={chapterTextRef} tabIndex={0} aria-label="Narration transcript"
+                                onWheel={() => setFollowAudio(false)} onTouchMove={() => setFollowAudio(false)} onPointerDown={() => setFollowAudio(false)}
+                                onKeyDown={event => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) setFollowAudio(false); }}
+                                className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 px-5 py-5 sm:px-6 text-left text-base leading-8 break-words [scrollbar-gutter:stable] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4fd1c5]">
+                                {narrationCues.map((cue, index) => (
+                                    <p key={`${chapterId}-${index}`} ref={element => { narrationCueRefs.current[index] = element; }}
+                                        aria-current={activeCue === index ? 'true' : undefined}
+                                        className={`rounded-md px-2 py-1 transition-colors duration-150 ${activeCue === index ? 'text-[#4fd1c5] bg-[#4fd1c5]/10 font-medium' : activeCue > index ? 'text-[#e2e8f0]' : 'text-[#a0aec0]'}`}>
+                                        {cue.text}
+                                    </p>
+                                ))}
+                                {!narrationCues.length && (
                                     <p className="text-[#a0aec0] italic text-center">Text not available for this chapter.</p>
                                 )}
                             </div>

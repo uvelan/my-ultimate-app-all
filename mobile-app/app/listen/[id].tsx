@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, Pressable, ActivityIndicator,
-    Modal, Animated, Dimensions, Platform, TouchableOpacity, FlatList, Image
+    Modal, Animated, Dimensions, Platform, TouchableOpacity, FlatList, Image, ScrollView, AppState
 } from 'react-native';
 import {
     ChevronLeft, List, SkipBack, SkipForward, Play, Pause as PauseIcon, X, Settings, Clock, BookOpen
@@ -9,20 +9,21 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import Slider from '@react-native-community/slider';
-import * as SecureStore from 'expo-secure-store';
 import { api } from '@/src/lib/api-client';
 import { cacheService } from '@/src/lib/storage';
 import { usePlaybackStore } from '@/src/store/playbackStore';
 import { playbackNotificationService } from '@/src/services/playback-notification.service';
+import { AUDIO_LABELS, AUDIO_VOICES, AudioProvider, NativeAudioIdentity, audioIdentityKey, nextAudioWindowStart, prepareNativeChapterPlayback } from '@/src/lib/listen-audio';
+import { listenAudioService, NativeAudioFile } from '@/src/services/listen-audio.service';
+import { buildNarrationCues, activeNarrationCue } from '@/src/lib/narration-sync';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://my-ultimate-app-all.vercel.app/api';
-
 interface Chapter {
     id: string;
     title: string;
+    content?: unknown;
 }
 
 interface Book {
@@ -55,6 +56,33 @@ export default function ListenScreen() {
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [grammarModel, setGrammarModel] = useState("OFF");
     const [ttsVoice, setTtsVoice] = useState("en");
+    const [provider, setProvider] = useState<AudioProvider>('google');
+    const [mimoVoice, setMimoVoice] = useState('Mia');
+    const [geminiVoice, setGeminiVoice] = useState('Kore');
+    const [settingsReady, setSettingsReady] = useState(false);
+    const [userId, setUserId] = useState('');
+    const [audioError, setAudioError] = useState('');
+    const [audioNotice, setAudioNotice] = useState('');
+    const [retryCount, setRetryCount] = useState(0);
+    const [activeAudio, setActiveAudio] = useState<{ key: string; file: NativeAudioFile } | null>(null);
+    const [readyAudioUri, setReadyAudioUri] = useState<string | null>(null);
+    const awaitingAudio = useRef<string | null>(null);
+    const transcriptRef = useRef<ScrollView>(null);
+    const transcriptHeight = useRef(0);
+    const cueLayouts = useRef(new Map<number, { text: string; y: number; height: number }>());
+    const cueLayoutScope = useRef('');
+    const [followAudio, setFollowAudio] = useState(true);
+    const followAudioRef = useRef(true);
+    const playIntent = useRef(false);
+    const indexRef = useRef(currentChapterIndex); indexRef.current = currentChapterIndex;
+    const windowRef = useRef<{ bookId: string; start: number; current: number } | null>(null);
+    const tasks = useRef(new Map<string, { controller: AbortController; identity: NativeAudioIdentity; promise: Promise<NativeAudioFile>; file?: NativeAudioFile }>());
+    const activeKey = useRef<string | null>(null);
+    const promotedKey = useRef<string | null>(null);
+    const lastEndedKey = useRef<string | null>(null);
+    const refill = useRef<() => void>(() => {});
+    const bypassKeys = useRef(new Set<string>());
+    const currentVoice = provider === 'gemini' ? geminiVoice : provider === 'xiaomi' ? mimoVoice : ttsVoice;
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     
     // Timer State
@@ -78,7 +106,18 @@ export default function ListenScreen() {
         if (storedGrammar) setGrammarModel(storedGrammar);
         
         const storedVoice = cacheService.get('listen-tts-voice');
-        if (storedVoice) setTtsVoice(storedVoice);
+        const storedProvider = cacheService.get('listen-tts-provider');
+        if (storedVoice?.startsWith('gemini-') && (!storedProvider || storedProvider === 'google')) {
+            setProvider('gemini'); cacheService.set('listen-tts-provider', 'gemini'); cacheService.set('listen-tts-voice', 'en');
+        } else {
+            if (AUDIO_VOICES.google.includes(storedVoice || '')) setTtsVoice(storedVoice!);
+            if (storedProvider === 'gemini' || storedProvider === 'xiaomi' || storedProvider === 'google') setProvider(storedProvider);
+        }
+        const storedMimo = cacheService.get('listen-mimo-voice');
+        const storedGemini = cacheService.get('listen-gemini-voice');
+        if (AUDIO_VOICES.xiaomi.includes(storedMimo || '')) setMimoVoice(storedMimo!);
+        if (AUDIO_VOICES.gemini.includes(storedGemini || '')) setGeminiVoice(storedGemini!);
+        setSettingsReady(true);
     }, []);
 
     const th = {
@@ -93,21 +132,25 @@ export default function ListenScreen() {
     };
 
     useEffect(() => {
+        const controller = new AbortController();
         setAudioModeAsync({
             playsInSilentMode: true,
             shouldPlayInBackground: true,
-            interruptionMode: 'mixWithOthers'
-        });
+            interruptionMode: 'doNotMix'
+        }).catch(console.error);
         
         if (bookId) {
-            fetchBook(String(bookId));
+            void fetchBook(String(bookId), controller.signal);
         }
+        return () => controller.abort();
     }, [bookId]);
 
-    const fetchBook = async (id: string) => {
+    const fetchBook = async (id: string, signal?: AbortSignal) => {
         try {
-            const res = await api.get(`/books/${id}`);
+            const [res, profile] = await Promise.all([api.get(`/books/${id}`, { signal }), api.get('/auth/profile', { signal })]);
+            if (signal?.aborted) return;
             const data = res.data;
+            setUserId(profile.data.id || profile.data.email);
             setBook({ ...data, chapters: data.chapters || [] });
             
             let finalIdx = data.chapterId || 0;
@@ -121,11 +164,13 @@ export default function ListenScreen() {
                     }
                 } catch (e) {}
             }
-            setCurrentChapterIndex(finalIdx);
+            setCurrentChapterIndex(Math.max(0, Math.min(finalIdx, (data.chapters?.length || 1) - 1)));
         } catch (error) {
+            if (signal?.aborted) return;
             console.error('Error loading book', error);
+            setAudioError('Unable to load this audiobook. Please retry or sign in again.');
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setLoading(false);
         }
     };
 
@@ -136,45 +181,188 @@ export default function ListenScreen() {
     };
 
     const currentChapter = book?.chapters[currentChapterIndex];
+    const switching = useRef(false);
+    const updateWindow = (index: number) => {
+        const previous = windowRef.current;
+        const sameBook = previous?.bookId === book?.id;
+        const start = nextAudioWindowStart(sameBook ? previous!.start : null, sameBook ? previous!.current : null, index);
+        windowRef.current = { bookId: book?.id || '', start, current: index };
+        return start;
+    };
+    const identityFor = (chapter: Chapter, selectedProvider = provider, voice = currentVoice): NativeAudioIdentity => ({
+        userId, bookId: book!.id, chapterId: chapter.id, title: chapter.title, content: chapter.content,
+        provider: selectedProvider, voice, grammarModel,
+    });
+    const applyFile = (task: NonNullable<ReturnType<typeof tasks.current.get>>, identity: NativeAudioIdentity, index: number) => {
+        const file = task.file!;
+        const actual = { ...identity, provider: file.provider, voice: file.voice };
+        const key = audioIdentityKey(actual);
+        const changed = provider !== file.provider || currentVoice !== file.voice;
+        tasks.current.delete(audioIdentityKey(identity)); tasks.current.set(key, task); task.identity = actual;
+        activeKey.current = key; lastEndedKey.current = null; switching.current = true;
+        awaitingAudio.current = file.uri; setReadyAudioUri(null); setActiveAudio({ key, file });
+        prepareNativeChapterPlayback(player, file.uri, playbackSpeed, {
+            title: book!.chapters[index].title, artist: book!.title, albumTitle: book!.title, artworkUrl: book!.cover,
+        }, playIntent.current);
+        if (changed) {
+            promotedKey.current = key;
+            setProvider(file.provider);
+            if (file.provider === 'gemini') setGeminiVoice(file.voice);
+            else if (file.provider === 'xiaomi') setMimoVoice(file.voice);
+            else setTtsVoice(file.voice);
+            cacheService.set('listen-tts-provider', file.provider);
+            cacheService.set(file.provider === 'gemini' ? 'listen-gemini-voice' : file.provider === 'xiaomi' ? 'listen-mimo-voice' : 'listen-tts-voice', file.voice);
+            setAudioNotice('Using ' + AUDIO_LABELS[file.provider] + ' (' + file.voice + '). Playback settings updated.');
+        } else setAudioNotice('');
+        setAudioError(''); setIsGenerating(false);
+        return key;
+    };
 
     useEffect(() => {
-        if (!book || !currentChapter) return;
-        
-        cacheService.set(`listen-progress-${book.id}`, JSON.stringify({ chapterIndex: currentChapterIndex }));
-        saveProgressToDb(book.id, currentChapterIndex);
-        
-        loadAudioForChapter(currentChapter.id);
-    }, [currentChapterIndex, book, grammarModel, ttsVoice]);
-
-    const loadAudioForChapter = async (chapterId: string) => {
-        setIsGenerating(true);
-        try {
-            const url = `${BASE_URL}/tts?chapterId=${chapterId}&grammarModel=${grammarModel}&voice=${ttsVoice}`;
-            const token = await SecureStore.getItemAsync('accessToken');
-            
-            player.replace({ uri: url, headers: { Authorization: `Bearer ${token}` } });
-            player.play();
-        } catch (error) {
-            console.error('Audio load error:', error);
-        } finally {
-            setIsGenerating(false);
+        if (!book || !currentChapter || !settingsReady || !userId) return;
+        let active = true;
+        const control = new AbortController();
+        const start = updateWindow(currentChapterIndex);
+        const identities = book.chapters.slice(start, start + 5).map(chapter => identityFor(chapter));
+        const current = identityFor(currentChapter);
+        const currentKey = audioIdentityKey(current);
+        const allowed = new Set(identities.map(audioIdentityKey));
+        const promoted = promotedKey.current === currentKey && !!tasks.current.get(currentKey)?.file;
+        promotedKey.current = null;
+        for (const [key, task] of Array.from(tasks.current.entries())) {
+            if (!allowed.has(key)) { task.controller.abort(); tasks.current.delete(key); }
         }
-    };
+        if (!promoted) { switching.current = true; player.pause(); activeKey.current = null; setIsGenerating(true); setAudioError(''); }
+        cacheService.set('listen-progress-' + book.id, JSON.stringify({ chapterIndex: currentChapterIndex }));
+        void saveProgressToDb(book.id, currentChapterIndex);
+        const retained = listenAudioService.retain(identities, currentChapter.id, book.chapters[currentChapterIndex + 1]?.id);
+        const activation = listenAudioService.activate(currentChapter.id, book.chapters[start].id, control.signal).catch(() => {});
+        const load = (identity: NativeAudioIdentity, prefetch = false) => {
+            const key = audioIdentityKey(identity);
+            const existing = tasks.current.get(key);
+            if (existing) return existing.promise;
+            const controller = new AbortController();
+            const bypass = bypassKeys.current.delete(key);
+            const promise = retained.then(() => listenAudioService.load(identity,
+                () => book.chapters[windowRef.current?.start || 0].id, controller.signal, prefetch, bypass)).then(file => {
+                if (controller.signal.aborted || tasks.current.get(key) !== task) throw new Error('Obsolete audio request');
+                task.file = file; return file;
+            });
+            const task = { controller, identity, promise } as NonNullable<ReturnType<typeof tasks.current.get>>;
+            tasks.current.set(key, task);
+            void promise.catch(() => { if (tasks.current.get(key) === task) tasks.current.delete(key); });
+            return promise;
+        };
+        let filling = false;
+        const fill = async () => {
+            if (!active || filling || !tasks.current.get(currentKey)?.file) return;
+            filling = true;
+            try {
+                await activation;
+                for (const chapter of book.chapters.slice(currentChapterIndex + 1, start + 5)) {
+                    if (!active) return;
+                    try { await load(identityFor(chapter), true); } catch { if (!active) return; }
+                }
+            } finally { filling = false; }
+        };
+        refill.current = () => { void fill(); };
+        void (async () => {
+            try {
+                if (!promoted) {
+                    await load(current);
+                    if (!active) return;
+                    const task = tasks.current.get(currentKey);
+                    if (!task?.file) return;
+                    const changed = task.file.provider !== provider || task.file.voice !== currentVoice;
+                    applyFile(task, current, currentChapterIndex);
+                    if (changed) return;
+                }
+                void fill();
+            } catch (error: any) { if (active) setAudioError(error?.message || 'Unable to download narration. Retry this chapter.'); }
+            finally { if (active) setIsGenerating(false); }
+        })();
+        return () => { active = false; control.abort(); };
+    }, [book, currentChapterIndex, provider, currentVoice, grammarModel, settingsReady, userId, retryCount]);
 
     const handleAudioEnded = () => {
-        if (sleepTimer === 'EOC') {
-            setSleepTimer(null);
-        } else {
-            handleNextChapter();
-        }
+        const key = activeKey.current;
+        if (!key || switching.current || lastEndedKey.current === key) return;
+        lastEndedKey.current = key;
+        if (sleepTimer === 'EOC') { playIntent.current = false; setSleepTimer(null); player.pause(); return; }
+        const next = indexRef.current + 1;
+        if (!playIntent.current || !book || next >= book.chapters.length) { playIntent.current = false; return; }
+        updateWindow(next);
+        const identity = identityFor(book.chapters[next]);
+        const task = tasks.current.get(audioIdentityKey(identity));
+        if (task?.file) { const actualKey = applyFile(task, identity, next); promotedKey.current = actualKey; }
+        indexRef.current = next; setCurrentChapterIndex(next);
     };
-
-    // Keep track of ended events by checking duration vs current
     useEffect(() => {
-        if (status.isLoaded && !status.playing && status.currentTime > 0 && status.duration > 0 && status.currentTime >= status.duration - 0.5) {
-            handleAudioEnded();
+        // The hook may still contain a queued update for the preceding file.
+        // The native getter reads the current source after synchronous replace(),
+        // including when the first background update arrives several seconds in.
+        if (awaitingAudio.current && player.currentStatus.isLoaded) {
+            setReadyAudioUri(awaitingAudio.current); awaitingAudio.current = null;
         }
-    }, [status.currentTime, status.duration, status.playing, status.isLoaded]);
+    }, [status]);
+    useEffect(() => {
+        if (status.playing) { switching.current = false; playIntent.current = true; }
+        else if (!status.didJustFinish && status.isLoaded && !switching.current && status.currentTime < status.duration - 0.2) playIntent.current = false;
+        if (status.didJustFinish && !status.playing) handleAudioEnded();
+    }, [status.didJustFinish, status.playing, status.isLoaded]);
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', state => {
+            if (state !== 'active') return;
+            refill.current();
+            if (playIntent.current) {
+                if (audioError) setRetryCount(value => value + 1);
+                else if (activeKey.current) player.play();
+            }
+        });
+        return () => subscription.remove();
+    }, [audioError]);
+    useEffect(() => () => {
+        for (const task of Array.from(tasks.current.values())) task.controller.abort();
+        tasks.current.clear(); player.pause();
+        try { player.setActiveForLockScreen(false); } catch { /* Optional native session may already be gone. */ }
+        playbackNotificationService.stopNotification().catch(() => {});
+    }, []);
+    useEffect(() => listenAudioService.subscribeEvictions(uri => {
+        for (const [key, task] of Array.from(tasks.current.entries())) {
+            if (task.file?.uri === uri) tasks.current.delete(key);
+        }
+    }), []);
+    useEffect(() => listenAudioService.subscribeSync(file => {
+        for (const [key, task] of Array.from(tasks.current.entries())) {
+            if (task.file?.uri !== file.uri || task.file.audioId !== file.audioId || task.controller.signal.aborted) continue;
+            task.file = file;
+            if (activeKey.current === key) setActiveAudio(previous =>
+                previous?.key === key && previous.file.uri === file.uri ? { key, file } : previous);
+        }
+    }), []);
+
+    const transcriptFile = activeAudio && currentChapter && activeAudio.file.chapterId === currentChapter.id ? activeAudio.file : undefined;
+    const transcriptScope = `${currentChapter?.id || ''}:${transcriptFile?.uri || ''}`;
+    if (cueLayoutScope.current !== transcriptScope) {
+        cueLayoutScope.current = transcriptScope; cueLayouts.current.clear();
+    }
+    const cues = useMemo(() => buildNarrationCues(currentChapter?.content, currentChapter?.title, transcriptFile?.sync),
+        [currentChapter?.id, currentChapter?.content, currentChapter?.title, transcriptFile?.sync]);
+    const transcriptStatus = player.currentStatus;
+    const activeCue = !isGenerating && activeKey.current === activeAudio?.key && transcriptFile?.uri === readyAudioUri && transcriptStatus.isLoaded
+        ? activeNarrationCue(cues, transcriptStatus.currentTime, transcriptStatus.duration) : -1;
+    const cueFocus = useRef({ index: activeCue, text: cues[activeCue]?.text });
+    cueFocus.current = { index: activeCue, text: cues[activeCue]?.text };
+    const focusSpokenCue = useCallback((animated = true) => {
+        const target = cueLayouts.current.get(cueFocus.current.index);
+        if (!followAudioRef.current || !target || target.text !== cueFocus.current.text || !transcriptHeight.current) return;
+        transcriptRef.current?.scrollTo({ y: Math.max(0, target.y - (transcriptHeight.current - target.height) / 2), animated });
+    }, []);
+    useEffect(() => {
+        followAudioRef.current = true; setFollowAudio(true);
+        transcriptRef.current?.scrollTo({ y: 0, animated: false });
+    }, [currentChapter?.id, transcriptFile?.uri]);
+    useEffect(() => { focusSpokenCue(); }, [activeCue, cues, followAudio, focusSpokenCue]);
 
     // Playback Store Subs
     const { 
@@ -185,12 +373,14 @@ export default function ListenScreen() {
     // Listen to store actions from Notifee
     useEffect(() => {
         if (playTarget > 0) {
+            playIntent.current = true;
             if (!isPlaying) player.play();
         }
     }, [playTarget]);
 
     useEffect(() => {
         if (pauseTarget > 0) {
+            playIntent.current = false;
             if (isPlaying) player.pause();
         }
     }, [pauseTarget]);
@@ -216,11 +406,11 @@ export default function ListenScreen() {
             const title = book?.title || 'Audiobook';
             const chapter = currentChapter?.title || `Chapter ${currentChapterIndex + 1}`;
             playbackNotificationService.showNotification(title, chapter, isPlaying).catch(console.error);
-        } else {
+        } else if (!isGenerating) {
             clearPlayerState();
             playbackNotificationService.stopNotification().catch(console.error);
         }
-    }, [isPlaying, status.isLoaded, currentChapterIndex, book]);
+    }, [isPlaying, status.isLoaded, currentChapterIndex, book, isGenerating]);
 
     // Timer logic
     useEffect(() => {
@@ -229,6 +419,7 @@ export default function ListenScreen() {
                 if (prev === null) return null;
                 if (prev > 0) return prev - 1;
 
+                playIntent.current = false;
                 player.pause();
                 setSleepTimer(null);
                 return null;
@@ -247,9 +438,12 @@ export default function ListenScreen() {
 
     const togglePlayPause = () => {
         if (isPlaying) {
+            playIntent.current = false;
             player.pause();
         } else {
-            player.play();
+            playIntent.current = true;
+            if (activeKey.current) player.play();
+            else if (audioError) setRetryCount(value => value + 1);
         }
     };
 
@@ -263,13 +457,15 @@ export default function ListenScreen() {
 
     const handleNextChapter = () => {
         if (book && currentChapterIndex < book.chapters.length - 1) {
-            setCurrentChapterIndex(prev => prev + 1);
+            updateWindow(currentChapterIndex + 1); indexRef.current = currentChapterIndex + 1;
+            setCurrentChapterIndex(currentChapterIndex + 1);
         }
     };
 
     const handlePrevChapter = () => {
         if (currentChapterIndex > 0) {
-            setCurrentChapterIndex(prev => prev - 1);
+            updateWindow(currentChapterIndex - 1); indexRef.current = currentChapterIndex - 1;
+            setCurrentChapterIndex(currentChapterIndex - 1);
         }
     };
 
@@ -314,7 +510,10 @@ export default function ListenScreen() {
         );
     }
 
-    if (!book) return null;
+    if (!book) return <View className={`flex-1 items-center justify-center p-6 ${th.bg}`}>
+        <Text className={`${th.text} text-center mb-4`}>{audioError || 'Audiobook unavailable.'}</Text>
+        <Pressable onPress={() => { setLoading(true); void fetchBook(String(bookId)); }}><Text className="text-accent font-bold">Retry</Text></Pressable>
+    </View>;
 
     return (
         <View className={`flex-1 ${th.playerBg}`} style={{ paddingTop: Platform.OS === 'ios' ? 44 : 24 }}>
@@ -341,26 +540,37 @@ export default function ListenScreen() {
             </View>
 
             {/* Main Player Area */}
-            <View className="flex-1 items-center justify-center p-6">
+            <ScrollView className="flex-1" contentContainerStyle={{ flexGrow: 1, alignItems: 'center', padding: 20 }}>
                 
                 {/* Artwork */}
-                <View className={`w-64 h-64 rounded-xl shadow-2xl mb-8 border ${th.border} overflow-hidden ${th.surface} items-center justify-center`} style={{ elevation: 10 }}>
+                <View className="w-full flex-row items-center mb-4 gap-4">
+                <View className={`w-20 h-28 rounded-xl border ${th.border} overflow-hidden ${th.surface} items-center justify-center`}>
                     {book.cover ? (
                         <Image source={{ uri: book.cover }} className="w-full h-full" resizeMode="cover" />
                     ) : (
-                        <BookOpen size={64} color={th.icon} />
+                        <BookOpen size={36} color={th.icon} />
                     )}
                 </View>
 
                 {/* Chapter Info */}
-                <Text className={`text-2xl font-bold ${th.text} text-center mb-2 px-4`} numberOfLines={2}>
+                <View className="flex-1">
+                <Text className={`text-xl font-bold ${th.text} mb-2`}>
                     {currentChapter?.title || 'Unknown Chapter'}
                 </Text>
-                <Text className={`${th.textMuted} font-medium mb-8`}>
+                <Text className={`${th.textMuted} font-medium`}>
                     Chapter {currentChapterIndex + 1} of {book.chapters.length}
                 </Text>
+                </View>
+                </View>
 
                 {/* Status / Timer */}
+                {!!audioNotice && <Text accessibilityLiveRegion="polite" className={`${th.textMuted} text-xs text-center mb-3`}>{audioNotice}</Text>}
+                {!!audioError && <View className="items-center mb-4"><Text accessibilityRole="alert" className="text-red-400 text-center mb-2">{audioError}</Text>
+                    <Pressable accessibilityLabel="Retry chapter audio" onPress={() => {
+                        const key = activeKey.current;
+                        if (key) { tasks.current.get(key)?.controller.abort(); tasks.current.delete(key); bypassKeys.current.add(key); }
+                        setRetryCount(value => value + 1);
+                    }}><Text className="text-accent font-bold">Retry audio</Text></Pressable></View>}
                 {(isGenerating || timeRemaining !== null || sleepTimer === 'EOC') && (
                     <View className="mb-4 flex-row items-center justify-center">
                         {isGenerating && (
@@ -384,7 +594,7 @@ export default function ListenScreen() {
                 )}
 
                 {/* Progress Bar */}
-                <View className="w-full max-w-sm flex-row items-center gap-2 mb-6">
+                <View className="w-full max-w-sm flex-row items-center gap-2 mb-3">
                     <Text className={`${th.textMuted} text-xs font-mono w-11 text-right`}>{formatTime(positionMillis)}</Text>
                     <Slider
                         style={{ flex: 1, height: 40 }}
@@ -410,7 +620,7 @@ export default function ListenScreen() {
                     <TouchableOpacity 
                         onPress={togglePlayPause}
                         disabled={isGenerating}
-                        className={`w-20 h-20 rounded-full bg-accent items-center justify-center shadow-lg ${isGenerating ? 'opacity-50' : ''}`}
+                        className={`w-16 h-16 rounded-full bg-accent items-center justify-center shadow-lg ${isGenerating ? 'opacity-50' : ''}`}
                         style={{ shadowColor: '#8b5cf6', shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 }}
                     >
                         {isPlaying ? <PauseIcon size={36} color="#fff" /> : <Play size={36} color="#fff" style={{ marginLeft: 6 }} />}
@@ -422,7 +632,7 @@ export default function ListenScreen() {
                 </View>
 
                 {/* Chapter Navigation */}
-                <View className="flex-row items-center justify-between w-full max-w-sm mt-12 px-6">
+                <View className="flex-row items-center justify-between w-full max-w-sm mt-5 mb-5 px-6">
                     <TouchableOpacity 
                         onPress={handlePrevChapter} 
                         disabled={currentChapterIndex === 0}
@@ -441,7 +651,36 @@ export default function ListenScreen() {
                         <ChevronLeft size={20} color={th.icon} style={{ transform: [{ rotate: '180deg'}] }} />
                     </TouchableOpacity>
                 </View>
-            </View>
+                <View className={`w-full rounded-xl border ${th.border} ${th.surface} overflow-hidden`}>
+                    <View className={`flex-row items-center justify-between px-4 py-3 border-b ${th.border}`}>
+                        <Text className={`${th.text} font-bold`}>Chapter text</Text>
+                        <Pressable accessibilityRole="button" accessibilityLabel="Follow spoken text"
+                            onPress={() => { followAudioRef.current = true; setFollowAudio(true); focusSpokenCue(); }}
+                            hitSlop={8}>
+                            <Text className={followAudio ? th.textMuted : 'text-accent font-bold'}>{followAudio ? 'Following audio' : 'Follow audio'}</Text>
+                        </Pressable>
+                    </View>
+                    <ScrollView key={transcriptScope} ref={transcriptRef} nestedScrollEnabled style={{ height: Math.min(340, Dimensions.get('window').height * 0.38) }}
+                        contentContainerStyle={{ padding: 12 }}
+                        onLayout={event => { transcriptHeight.current = event.nativeEvent.layout.height; focusSpokenCue(false); }}
+                        onScrollBeginDrag={() => { followAudioRef.current = false; setFollowAudio(false); }}>
+                        {cues.length ? cues.map((cue, index) => (
+                            <View key={`${currentChapter?.id}-${index}-${cue.text}`}
+                                onLayout={event => {
+                                    const { y, height } = event.nativeEvent.layout;
+                                    cueLayouts.current.set(index, { text: cue.text, y, height });
+                                    if (cueFocus.current.index === index) focusSpokenCue(false);
+                                }}
+                                className={`rounded-lg px-3 py-2 mb-1 ${index === activeCue ? 'bg-accent/20' : ''}`}>
+                                <Text accessibilityState={{ selected: index === activeCue }}
+                                    className={`text-base leading-7 ${index === activeCue ? 'text-accent font-semibold' : th.textSec}`}>
+                                    {cue.text}
+                                </Text>
+                            </View>
+                        )) : <Text className={`${th.textMuted} p-3`}>Chapter text is unavailable.</Text>}
+                    </ScrollView>
+                </View>
+            </ScrollView>
 
             {/* Sidebar */}
             {isSidebarOpen && (
@@ -471,7 +710,7 @@ export default function ListenScreen() {
                             const isActive = index === currentChapterIndex;
                             return (
                                 <TouchableOpacity
-                                    onPress={() => { setCurrentChapterIndex(index); closeSidebar(); }}
+                                    onPress={() => { updateWindow(index); indexRef.current = index; setCurrentChapterIndex(index); closeSidebar(); }}
                                     className={`px-4 py-3 border-b border-border/20 ${isActive ? 'bg-accent/20 border-l-2 border-l-accent pl-3' : ''}`}
                                 >
                                     <Text className={`text-sm font-serif ${isActive ? 'text-accent font-bold' : th.textSec}`} numberOfLines={2}>
@@ -487,7 +726,7 @@ export default function ListenScreen() {
             {/* Settings Modal */}
             <Modal visible={isSettingsOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/60">
-                    <View className={`${th.surface} rounded-t-3xl p-6 min-h-[40%] border-t ${th.border}`}>
+                    <ScrollView className={`${th.surface} rounded-t-3xl p-6 max-h-[90%] border-t ${th.border}`} contentContainerStyle={{ paddingBottom: 40 }}>
                         <Text className={`text-2xl font-bold ${th.text} font-serif mb-6`}>Audio Settings</Text>
                         
                         {/* Speed */}
@@ -504,19 +743,30 @@ export default function ListenScreen() {
                             ))}
                         </View>
                         
+                        <Text className={`${th.textSec} font-bold mb-3`}>Audio provider</Text>
+                        <View className="flex-row flex-wrap gap-2 mb-3">{(['gemini', 'xiaomi', 'google'] as AudioProvider[]).map(value => (
+                            <TouchableOpacity key={value} accessibilityRole="button" accessibilityLabel={`Use ${AUDIO_LABELS[value]}`}
+                                onPress={() => { setProvider(value); cacheService.set('listen-tts-provider', value); }}
+                                className={`px-3 py-2 rounded-lg border ${provider === value ? 'bg-accent border-accent' : `${th.bg} ${th.border}`}`}>
+                                <Text className={provider === value ? 'text-white font-bold' : th.textSec}>{AUDIO_LABELS[value]}</Text>
+                            </TouchableOpacity>
+                        ))}</View>
+                        <Text className={`${th.textMuted} text-xs mb-5`}>Automatic fallback: Gemini → Xiaomi MiMo → Google (free).</Text>
                         {/* Voice */}
                         <Text className={`${th.textSec} font-bold mb-3`}>Target Voice (Accent)</Text>
                         <View className="flex-row flex-wrap gap-2 mb-6">
-                            {[{id:'en', label:'Default'}, {id:'en-US', label:'US'}, {id:'en-GB', label:'British'}, {id:'en-AU', label:'Aus'}, {id:'en-IN', label:'Indian'}].map(v => (
+                            {AUDIO_VOICES[provider].map(voice => ({ id: voice, label: voice === 'mimo_default' || voice === 'en' ? 'Default' : voice })).map(v => (
                                 <TouchableOpacity 
                                     key={v.id}
                                     onPress={() => {
-                                        setTtsVoice(v.id);
-                                        cacheService.set('listen-tts-voice', v.id);
+                                        if (provider === 'gemini') setGeminiVoice(v.id);
+                                        else if (provider === 'xiaomi') setMimoVoice(v.id);
+                                        else setTtsVoice(v.id);
+                                        cacheService.set(provider === 'gemini' ? 'listen-gemini-voice' : provider === 'xiaomi' ? 'listen-mimo-voice' : 'listen-tts-voice', v.id);
                                     }}
-                                    className={`px-4 py-2 rounded-lg border ${ttsVoice === v.id ? 'bg-accent border-accent' : `${th.bg} ${th.border}`}`}
+                                    className={`px-4 py-2 rounded-lg border ${currentVoice === v.id ? 'bg-accent border-accent' : `${th.bg} ${th.border}`}`}
                                 >
-                                    <Text className={`font-bold ${ttsVoice === v.id ? 'text-white' : th.textSec}`}>{v.label}</Text>
+                                    <Text className={`font-bold ${currentVoice === v.id ? 'text-white' : th.textSec}`}>{v.label}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -524,7 +774,7 @@ export default function ListenScreen() {
                         {/* AI Model */}
                         <Text className={`${th.textSec} font-bold mb-3`}>Grammar Model</Text>
                         <View className="flex-row flex-wrap gap-2 mb-6">
-                            {['OFF', 'gemini-2.5-flash', 'gpt-4o-mini', 'ollama'].map(m => (
+                            {['OFF', 'gemini-2.5-flash', 'gpt-4o-mini', 'pollinations', 'ollama'].map(m => (
                                 <TouchableOpacity 
                                     key={m}
                                     onPress={() => {
@@ -565,7 +815,7 @@ export default function ListenScreen() {
                         >
                             <Text className="text-white font-bold text-lg">Close Settings</Text>
                         </TouchableOpacity>
-                    </View>
+                    </ScrollView>
                 </View>
             </Modal>
         </View>

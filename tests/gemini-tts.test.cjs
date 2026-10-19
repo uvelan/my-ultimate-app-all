@@ -36,6 +36,24 @@ function readWav(bytes) {
   return { pcm: bytes.subarray(44), rate: bytes.readUInt32LE(24) };
 }
 
+test('Gemini reports source-ordered chunk boundaries from actual PCM duration', async () => {
+  let next = 0;
+  const texts = [];
+  let segments;
+  const helper = loadGemini({ fetch: async (_url, options) => {
+    const index = next++;
+    texts.push(JSON.parse(options.body).contents[0].parts[0].text);
+    if (!index) await new Promise(resolve => setTimeout(resolve, 10));
+    return audioResponse(Buffer.alloc(48000 * (index + 1)));
+  } });
+  const result = await helper.generateGeminiAudio('A sentence. '.repeat(200), 'Kore', undefined, value => { segments = value; });
+  assert.equal(texts.length, 2);
+  assert.deepEqual(Array.from(segments, segment => ({ ...segment })), [
+    { text: texts[0], start: 0, end: 1 }, { text: texts[1], start: 1, end: 3 },
+  ]);
+  assert.equal(readWav(result).pcm.length, 144000);
+});
+
 test('Gemini exposes its supported voices and sends narration through generateContent', async () => {
   const requests = [];
   const timeoutBudgets = [];

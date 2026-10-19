@@ -17,7 +17,7 @@ export async function GET() {
             const modelName = model.name;
             
             // Exclude tables containing massive base64 binaries to prevent Out of Memory / V8 String Length crashes
-            if (['ChapterAudio'].includes(modelName)) {
+            if (['ChapterAudio', 'TtsAudioCacheState', 'TtsAudioCacheChunk'].includes(modelName)) {
                 continue;
             }
 

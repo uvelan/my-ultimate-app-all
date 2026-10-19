@@ -1,4 +1,5 @@
-import { api } from '../lib/api-client';
+import { api, clearSession } from '../lib/api-client';
+import { cacheService } from '../lib/storage';
 
 export interface User {
     id: string;
@@ -25,11 +26,12 @@ export const authService = {
     },
 
     logout: async () => {
-        await api.post('/auth/logout');
+        try { await api.post('/auth/logout'); } finally { cacheService.delete('session-profile'); await clearSession(); }
     },
 
     getProfile: async (): Promise<User> => {
         const res = await api.get('/auth/profile');
+        cacheService.setObject('session-profile', res.data);
         return res.data;
     }
 };

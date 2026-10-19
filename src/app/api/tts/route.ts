@@ -1,9 +1,11 @@
 import { cleanNarrationText, prependChapterTitle, chapterNarrationIdentity } from '@/lib/chapter-narration';
+import { createHash } from 'node:crypto';
+import type { NarrationSync } from '@/lib/narration-sync';
 import { verifyAuth } from '@/lib/auth-server';
 import { NextResponse } from 'next/server';
 import { prisma as db } from '@/lib/prisma';
 import { generateGoogleAudio } from '@/lib/google-tts';
-import { activateAudioCacheWindow, getAudioCacheWindow, readServerAudio, serverAudioCacheKey, writeServerAudio, type AudioCacheWindow } from '@/lib/server-audio-cache';
+import { activateAudioCacheWindow, getAudioCacheWindow, readServerAudio, readServerNarrationSync, serverAudioCacheKey, writeServerAudio, type AudioCacheWindow } from '@/lib/server-audio-cache';
 import { compressNarrationAudio } from '@/lib/audio-compression';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from "openai";
@@ -28,6 +30,7 @@ function audioResponse(audio: Buffer, contentType: string, provider: string, voi
         'X-TTS-Provider': provider,
         'X-TTS-Voice': voice,
         'X-TTS-Cache': cache,
+        'X-TTS-Audio-ID': createHash('sha256').update(audio).digest('hex'),
         ...(fallback.length ? { 'X-TTS-Fallback': fallback.join(',') } : {}),
     } });
 }
@@ -86,6 +89,14 @@ export async function GET(request: Request) {
                 return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
             }
 
+            if (searchParams.get('sync') === '1') {
+                const key = serverAudioCacheKey(chapterNarrationIdentity(chapter), requestedProvider, requestedVoice, grammarModel);
+                let metadata: { sync: NarrationSync | null; audioId: string | null } = { sync: null, audioId: null };
+                try { metadata = await readServerNarrationSync(chapter.bookId, chapterId, key); }
+                catch (error) { console.warn('[TTS Cache] Synchronization metadata unavailable:', error); }
+                return NextResponse.json(metadata, { headers: { 'Cache-Control': 'private, no-store' } });
+            }
+
             request.signal.throwIfAborted();
             const windowStart = searchParams.get('windowStart') || chapterId;
             const windowOnly = searchParams.get('windowOnly') === '1';
@@ -140,6 +151,8 @@ export async function GET(request: Request) {
             } catch (e) {
                 contentArray = [String(chapter.content)];
             }
+        } else if (searchParams.get('sync') === '1') {
+            return NextResponse.json({ sync: null, audioId: null }, { headers: { 'Cache-Control': 'private, no-store' } });
         } else if (questionId && questionField) {
             const question = await db.interviewQuestion.findUnique({
                 where: { id: questionId }
@@ -252,6 +265,8 @@ ${JSON.stringify(contentArray)}`;
         }
 
         if (chapter) fullText = prependChapterTitle(fullText, chapter.title);
+        let measuredSegments: NarrationSync['segments'] = [];
+        const captureSegments = (segments: NarrationSync['segments']) => { measuredSegments = segments; };
 
         const finishAudio = async (audio: Buffer, contentType: string, actualProvider: string, actualVoice: string, fallback: string[]) => {
             request.signal.throwIfAborted();
@@ -268,7 +283,12 @@ ${JSON.stringify(contentArray)}`;
                 try {
                     await writeServerAudio(cacheWindow, chapterId, requestedCacheKey,
                         serverAudioCacheKey(chapterNarrationIdentity(chapter), actualProvider, actualVoice, grammarModel),
-                        { audio, contentType, provider: actualProvider, voice: actualVoice, fallback });
+                        { audio, contentType, provider: actualProvider, voice: actualVoice, fallback,
+                            ...(measuredSegments.length ? { narrationSync: {
+                                version: 1 as const, title: cleanNarrationText(chapter.title || ''),
+                                paragraphs: contentArray.map(paragraph => cleanNarrationText(String(paragraph))).filter(Boolean),
+                                segments: measuredSegments,
+                            } } : {}) });
                 } catch (error) {
                     console.warn('[TTS Cache] Save failed:', error);
                 }
@@ -297,7 +317,8 @@ ${JSON.stringify(contentArray)}`;
         };
         if (provider === 'gemini') {
             try {
-                const audio = await generateGeminiAudio(fullText, voice, request.signal);
+                measuredSegments = [];
+                const audio = await generateGeminiAudio(fullText, voice, request.signal, captureSegments);
                 return await finishAudio(audio, 'audio/wav', 'gemini', voice, fallback);
             } catch {
                 // User cancellation must never start another paid provider request.
@@ -315,7 +336,8 @@ ${JSON.stringify(contentArray)}`;
             try {
                 // Leave time in the route budget for the final Google fallback.
                 const signal = AbortSignal.any([request.signal, AbortSignal.timeout(150_000)]);
-                const audio = await generateMimoAudio(fullText, voice, signal);
+                measuredSegments = [];
+                const audio = await generateMimoAudio(fullText, voice, signal, captureSegments);
                 return await finishAudio(audio, 'audio/wav', 'xiaomi', voice, fallback);
             } catch {
                 request.signal.throwIfAborted();
@@ -329,7 +351,8 @@ ${JSON.stringify(contentArray)}`;
             const cached = await reuseFallbackAudio();
             if (cached) return cached;
         }
-        const audio = await generateGoogleAudio(fullText, voice, request.signal);
+        measuredSegments = [];
+        const audio = await generateGoogleAudio(fullText, voice, request.signal, captureSegments);
         return await finishAudio(audio, 'audio/mpeg', 'google', voice, fallback);
 
     } catch (error: any) {

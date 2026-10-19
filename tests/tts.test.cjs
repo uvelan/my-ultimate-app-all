@@ -21,6 +21,7 @@ function loadTs(relativePath, { mocks = {}, env = {}, fetch } = {}) {
     require(name) {
       if (Object.hasOwn(mocks, name)) return mocks[name];
       if (name === 'server-only') return {};
+      if (name === 'node:crypto') return require('node:crypto');
       if (name === 'node:buffer' || name === 'buffer') return { Buffer };
       throw new Error(`Unmocked import: ${name}`);
     },
@@ -97,8 +98,8 @@ function helper(options = {}) {
 
 function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello world.'], title = '', cached = null,
   cachedAudio = null, cachedFor = { provider: 'google', voice: 'en', grammar: 'OFF' },
-  cacheReadError = false, cacheWriteError = false, compressionError = false, activeWindow = true, chapters = null, fetch, authenticated = true } = {}) {
-  const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cacheKeys: [], compression: [], windowActivate: [], windowRead: [], cacheBackground: [], google: [] };
+  cacheReadError = false, cacheWriteError = false, compressionError = false, activeWindow = true, chapters = null, fetch, authenticated = true, syncMetadata = { sync: null, audioId: null }, correctedParagraphs = null } = {}) {
+  const calls = { chapter: [], question: [], cacheRead: [], cacheWrite: [], cacheKeys: [], compression: [], windowActivate: [], windowRead: [], cacheBackground: [], google: [], syncRead: [] };
   const db = {
     chapter: {
       async findUnique(args) {
@@ -118,6 +119,7 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
   };
   const cacheWindow = { bookId: 'book-1', currentChapterId: 'chapter-1', windowToken: 'window-1', chapterIds: ['chapter-1', 'chapter-2', 'chapter-3', 'chapter-4', 'chapter-5'] };
   const serverCache = {
+    async readServerNarrationSync(...args) { calls.syncRead.push(args); return syncMetadata; },
     async activateAudioCacheWindow(...args) { calls.windowActivate.push(args); return cacheWindow; },
     async getAudioCacheWindow(...args) { calls.windowRead.push(args); return activeWindow ? cacheWindow : null; },
     serverAudioCacheKey(...args) { calls.cacheKeys.push(args); return JSON.stringify(args); },
@@ -135,13 +137,13 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
     },
   };
   class NextResponse extends Response {
-    static json(body, init) { return new NextResponse(JSON.stringify(body), { ...init, headers: { 'Content-Type': 'application/json' } }); }
+    static json(body, init) { return new NextResponse(JSON.stringify(body), { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } }); }
   }
   const mimo = loadTs('src/lib/mimo-tts.ts', { env, fetch });
   const gemini = loadTs('src/lib/gemini-tts.ts', { env, fetch });
   const chapterNarration = loadTs('src/lib/chapter-narration.ts');
   const google = loadTs('src/lib/google-tts.ts', { env, fetch, mocks: {
-    'google-tts-api': { getAllAudioUrls(text, options) { calls.google.push({ text, options }); return [{ url: 'https://google.test/audio' }]; } },
+    'google-tts-api': { getAllAudioUrls(text, options) { calls.google.push({ text, options }); return [{ url: 'https://google.test/audio', shortText: text }]; } },
   } });
   const route = loadTs('src/app/api/tts/route.ts', {
     env, fetch,
@@ -160,7 +162,10 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
         if (compressionError) throw new Error('Encoder unavailable');
         return /wav/i.test(contentType) ? { audio: compressedPremiumAudio, contentType: 'audio/mpeg' } : { audio, contentType };
       } },
-      '@google/generative-ai': { GoogleGenerativeAI: class { constructor() { throw new Error('Unexpected Gemini call'); } } },
+      '@google/generative-ai': { GoogleGenerativeAI: class {
+        constructor() { if (!correctedParagraphs) throw new Error('Unexpected Gemini call'); }
+        getGenerativeModel() { return { async generateContent() { return { response: { text: () => JSON.stringify(correctedParagraphs) } }; } }; }
+      } },
       openai: class { constructor() { throw new Error('Unexpected OpenAI call'); } },
     },
   });
@@ -169,6 +174,75 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
 
 test('MiMo exposes the supported voice choices', () => {
   assert.deepEqual(Array.from(helper().MIMO_VOICES), ['mimo_default', 'Mia', 'Chloe', 'Milo', 'Dean']);
+});
+
+test('MiMo measures all WAV data chunks rather than container or metadata byte sizes', async () => {
+  let segments;
+  const { generateMimoAudio } = helper({ fetch: async () => audioResponse(wav([Buffer.alloc(24000), Buffer.alloc(24000)], { junk: true })) });
+  await generateMimoAudio('One second of speech.', 'Mia', undefined, value => { segments = value; });
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].text, 'One second of speech.');
+  assert.equal(segments[0].start, 0);
+  assert.equal(segments[0].end, 1);
+});
+
+test('sync requests read matching metadata without audio, grammar, window changes, or TTS', async () => {
+  const sync = { version: 1, title: 'Title', paragraphs: ['Edited body.'], segments: [{ text: 'Title. Edited body.', start: 0, end: 4 }] };
+  const app = routeHarness({ title: 'Title', syncMetadata: { sync, audioId: 'a'.repeat(64) } });
+  const response = await app.get('chapterId=chapter-1&provider=xiaomi&voice=Mia&grammarModel=gpt-4o-mini&sync=1&windowStart=invalid&windowOnly=1&bypassCache=1');
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { sync, audioId: 'a'.repeat(64) });
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.equal(app.calls.syncRead.length, 1);
+  assert.deepEqual(JSON.parse(app.calls.syncRead[0][2]), [{ narrationVersion: 2, title: 'Title', content: ['Hello world.'] }, 'xiaomi', 'Mia', 'gpt-4o-mini']);
+  for (const key of ['windowActivate', 'windowRead', 'cacheRead', 'cacheWrite', 'compression', 'google']) assert.equal(app.calls[key].length, 0, key);
+});
+
+test('sync lookup remains authenticated and returns null for legacy metadata', async () => {
+  const blocked = routeHarness({ authenticated: false });
+  assert.equal((await blocked.get('chapterId=chapter-1&sync=1')).status, 401);
+  assert.equal(blocked.calls.chapter.length, 0);
+  const app = routeHarness();
+  assert.deepEqual(await (await app.get('chapterId=chapter-1&sync=1')).json(), { sync: null, audioId: null });
+  assert.equal(app.calls.cacheWrite.length, 0);
+});
+
+test('successful fallback persists actual narration timing and hashes compressed response bytes', async () => {
+  const app = routeHarness({ title: '<b>Chapter One</b>', content: ['<p>First paragraph.</p>', '**Second paragraph.**'],
+    env: { MIMO_API_KEY: 'key' }, fetch: async () => audioResponse(wav([Buffer.alloc(48000)])) });
+  const response = await app.get('chapterId=chapter-1&provider=gemini&voice=Kore');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(response.headers.get('X-TTS-Provider'), 'xiaomi');
+  assert.equal(response.headers.get('X-TTS-Audio-ID'), require('node:crypto').createHash('sha256').update(bytes).digest('hex'));
+  const sync = app.calls.cacheWrite[0].audio.narrationSync;
+  assert.equal(sync.version, 1);
+  assert.equal(sync.title, 'Chapter One');
+  assert.deepEqual(Array.from(sync.paragraphs), ['First paragraph.', 'Second paragraph.']);
+  assert.equal(sync.segments.length, 1);
+  assert.match(sync.segments[0].text, /Chapter One/);
+  assert.equal(sync.segments[0].end, 1);
+});
+
+test('synchronization stores corrected paragraphs and spoken text rather than the uncorrected source', async () => {
+  const app = routeHarness({ title: '# The Title', content: ['She walk home.', 'He wait.'],
+    correctedParagraphs: ['She walks home.', 'He waits.'], env: { GEMINI_API_KEY: 'key' }, fetch: async () => geminiAudioResponse() });
+  const response = await app.get('chapterId=chapter-1&provider=gemini&grammarModel=gemini-2.5-flash');
+  assert.equal(response.status, 200);
+  const sync = app.calls.cacheWrite[0].audio.narrationSync;
+  assert.deepEqual(Array.from(sync.paragraphs), ['She walks home.', 'He waits.']);
+  assert.equal(sync.title, 'The Title');
+  assert.match(sync.segments[0].text, /The Title/);
+  assert.match(sync.segments[0].text, /She walks home\. He waits\./);
+  assert.equal(sync.segments[0].start, 0);
+  assert.equal(sync.segments[0].end, 2 / 24000);
+});
+
+test('cached binary responses also carry the digest of their actual bytes', async () => {
+  const bytes = Buffer.from('existing cached mp3');
+  const app = routeHarness({ cached: bytes });
+  const response = await app.get('chapterId=chapter-1&provider=google');
+  assert.equal(response.headers.get('X-TTS-Audio-ID'), require('node:crypto').createHash('sha256').update(bytes).digest('hex'));
+  assert.equal(app.calls.syncRead.length, 0);
 });
 
 test('MiMo sends narration as an assistant message with WAV output and the chosen voice', async () => {
