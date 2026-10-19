@@ -61,40 +61,66 @@ export default function InterviewScreen() {
     const recordingQuestion = useRef<string | null>(null);
     const handledRecordingUris = useRef(new Set<string>());
     const transcriptionRequest = useRef<AbortController | null>(null);
+    const mounted = useRef(true);
+    const mediaEpoch = useRef(0);
+    // Register before Expo's hooks: invalidate callbacks before their passive
+    // cleanup releases the native player and recorder. Expo owns native release.
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+            requestEpoch.current++;
+            mediaEpoch.current++;
+            recordingQuestion.current = null;
+            transcriptionRequest.current?.abort();
+        };
+    }, []);
     const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, numberOfChannels: 1, bitRate: 16000, sampleRate: 16000 }, status => {
+        if (!mounted.current) return;
         if (status.isFinished && status.url && recordingQuestion.current) void attachRecording(status.url, recordingQuestion.current);
         if (status.hasError) Alert.alert('Recording interrupted', status.error || 'Please record again or type your answer.');
     });
     const recorderState = useAudioRecorderState(recorder);
     const resultPlayer = useAudioPlayer(null);
+    const pauseResultPlayer = () => {
+        if (mounted.current) resultPlayer.pause();
+    };
     async function attachRecording(uri: string, questionId: string) {
-        if (handledRecordingUris.current.has(uri)) return;
+        if (!mounted.current || recordingQuestion.current !== questionId || handledRecordingUris.current.has(uri)) return;
+        const epoch = mediaEpoch.current;
+        const current = () => mounted.current && mediaEpoch.current === epoch && recordingQuestion.current === questionId;
         handledRecordingUris.current.add(uri);
         setAttachingRecording(true);
         try {
             const info = await FileSystem.getInfoAsync(uri);
+            if (!current()) return;
             if (!info.exists || info.size > 5 * 1024 * 1024) return Alert.alert('Recording too large', 'Keep each recording below 5 MB or submit your typed answer.');
             const bytes = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-            if (recordingQuestion.current === questionId) {
+            if (current()) {
                 setRecordings(current => ({ ...current, [questionId]: `data:audio/${Platform.OS === 'web' ? 'webm' : 'm4a'};base64,${bytes}` }));
                 setRecordingUris(current => ({ ...current, [questionId]: uri }));
                 setTranscriptionDraft(null);
             }
-        } catch (err) { Alert.alert('Unable to save recording', errorText(err)); }
-        finally { setAttachingRecording(false); await setAudioModeAsync({ allowsRecording: false }).catch(() => {}); }
+        } catch (err) { if (current()) Alert.alert('Unable to save recording', errorText(err)); }
+        finally {
+            if (current()) { setAttachingRecording(false); await setAudioModeAsync({ allowsRecording: false }).catch(() => {}); }
+        }
     }
     const discardPractice = () => {
+        if (!mounted.current) return;
+        mediaEpoch.current++;
         recordingQuestion.current = null;
-        transcriptionRequest.current?.abort(); resultPlayer.pause();
-        if (recorder.isRecording) void recorder.stop().catch(() => {});
+        transcriptionRequest.current?.abort(); pauseResultPlayer();
+        if (recorderState.isRecording) void recorder.stop().catch(() => {});
         void setAudioModeAsync({ allowsRecording: false }).catch(() => {});
         setPractice([]); setDeadline(0); setAnswers({}); setRecordings({}); setRecordingUris({}); setTranscriptionDraft(null);
+        setBusy(false); setAttachingRecording(false); setTranscribing(false);
     };
-    useEffect(() => () => { recordingQuestion.current = null; transcriptionRequest.current?.abort(); if (recorder.isRecording) void recorder.stop().catch(() => {}); void setAudioModeAsync({ allowsRecording: false }).catch(() => {}); }, []);
     const models = overview.models.filter((model: any) => model.isActive);
     const chosenModel = form.model || models[0]?.modelId || 'gemini-2.5-flash';
 
     const load = useCallback(async () => {
+        if (!mounted.current) return;
         const epoch = ++requestEpoch.current;
         setLoading(true); setError('');
         try {
@@ -129,10 +155,11 @@ export default function InterviewScreen() {
     }, [deadline, practice.length]);
 
     const run = async (operation: string, values: Record<string, unknown> = {}) => {
+        if (!mounted.current) return null;
         setBusy(true);
-        try { const result = await interviewService.act(operation, values); await load(); return result; }
-        catch (err) { Alert.alert('Unable to complete action', errorText(err)); return null; }
-        finally { setBusy(false); }
+        try { const result = await interviewService.act(operation, values); if (!mounted.current) return null; await load(); return result; }
+        catch (err) { if (mounted.current) Alert.alert('Unable to complete action', errorText(err)); return null; }
+        finally { if (mounted.current) setBusy(false); }
     };
     const confirm = (title: string, message: string, operation: string, values: Record<string, unknown>) => {
         Alert.alert(title, message, [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void run(operation, values); } }]);
@@ -229,22 +256,32 @@ export default function InterviewScreen() {
         if (result) { discardPractice(); await openSession(result.sessionId); }
     };
     const recordAnswer = async () => {
+        if (!mounted.current) return;
+        const epoch = mediaEpoch.current;
+        const current = () => mounted.current && mediaEpoch.current === epoch;
+        const question = practice[practiceIndex];
+        if (!question) return;
         setBusy(true);
         try {
             if (!recorderState.isRecording) {
                 const permission = await requestRecordingPermissionsAsync();
+                if (!current()) return;
                 if (!permission.granted) return Alert.alert('Microphone permission', 'Allow microphone access to record an optional answer, or type your response instead.');
                 await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-                resultPlayer.pause();
-                recordingQuestion.current = practice[practiceIndex].id;
-                await recorder.prepareToRecordAsync(); recorder.record({ forDuration: 300 });
+                if (!current()) return;
+                pauseResultPlayer();
+                recordingQuestion.current = question.id;
+                await recorder.prepareToRecordAsync();
+                if (!current()) return;
+                recorder.record({ forDuration: 300 });
             } else {
                 await recorder.stop();
+                if (!current()) return;
                 if (recorder.uri && recordingQuestion.current) await attachRecording(recorder.uri, recordingQuestion.current);
-                await setAudioModeAsync({ allowsRecording: false });
+                if (current()) await setAudioModeAsync({ allowsRecording: false });
             }
-        } catch (err) { Alert.alert('Recording unavailable', errorText(err)); }
-        finally { setBusy(false); }
+        } catch (err) { if (current()) Alert.alert('Recording unavailable', errorText(err)); }
+        finally { if (current()) setBusy(false); }
     };
     const transcribeAnswer = async () => {
         const questionId = practice[practiceIndex].id;
@@ -344,7 +381,7 @@ export default function InterviewScreen() {
                 {detail && <>
                     <Section title="Problem statement" content={detail.problemStatement} /><Section title="Expectation" content={detail.expectation} /><Section title="Explanation" content={detail.explanation} /><Section title="Best answer" content={detail.bestAnswer} /><Section title="Alternative answer" content={detail.alternativeAnswer} /><Section title="Common mistakes" content={detail.commonMistakes} /><Section title="Follow-up questions" content={detail.followUpQuestions} /><Section title="Real-world usage" content={detail.realWorldUsage} />
                     {detail.codeSnippet?.code && <View style={s.card}><Text style={s.heading}>{detail.codeSnippet.language || 'Code'}</Text><Text selectable style={[s.body, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{detail.codeSnippet.code}</Text></View>}
-                    {detail.mcqs?.map((mcq, index) => <View key={index} style={s.card}><Text style={s.heading}>{mcq.question || `Question ${index + 1}`}</Text>{(Array.isArray(mcq.options) ? mcq.options : []).map((option: any, optionIndex: number) => <Text key={optionIndex} style={s.body}>{optionIndex + 1}. {typeof option === 'string' ? option : JSON.stringify(option)}</Text>)}<Text style={s.muted}>Answer: {String(mcq.correctAnswer ?? mcq.answer ?? '')}</Text><Text style={s.body}>{textContent(mcq.explanation)}</Text></View>)}
+                    {(Array.isArray(detail.mcqs) ? detail.mcqs : []).filter(mcq => mcq && typeof mcq === 'object' && !Array.isArray(mcq)).map((mcq, index) => <View key={index} style={s.card}><Text style={s.heading}>{textContent(mcq.question) || `Question ${index + 1}`}</Text>{(Array.isArray(mcq.options) ? mcq.options : []).map((option: any, optionIndex: number) => <Text key={optionIndex} style={s.body}>{optionIndex + 1}. {typeof option === 'string' ? option : JSON.stringify(option)}</Text>)}<Text style={s.muted}>Answer: {String(mcq.correctAnswer ?? mcq.answer ?? '')}</Text><Text style={s.body}>{textContent(mcq.explanation)}</Text></View>)}
                     <Button label="Delete question" danger disabled={busy} onPress={() => Alert.alert('Delete question?', 'This removes the shared question and its associated practice links.', [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void run('deleteQuestion', { id: detail.id }).then(result => { if (result) setDetail(null); }); } }])} />
                 </>}
             </ScrollView></View>
@@ -378,19 +415,19 @@ export default function InterviewScreen() {
                     <Field label="Your answer" value={answers[practiceQuestion?.id] || ''} onChange={value => setAnswers(current => ({ ...current, [practiceQuestion.id]: value }))} multiline />
                     <Text style={s.muted}>Record up to 5 minutes (5 MB). Review playback locally, then choose Transcribe to send this recording for an editable transcript. Nothing is submitted for scoring until you press Submit.</Text>
                     <Button label={recorderState.isRecording ? `Stop recording (${Math.floor(recorderState.durationMillis / 1000)}s)` : attachingRecording ? 'Preparing recording…' : 'Record answer'} disabled={busy || attachingRecording || transcribing} secondary onPress={() => { void recordAnswer(); }} />
-                    {!!recordings[practiceQuestion?.id] && <View style={s.row}><Text style={s.muted}>Recording attached</Text><Button label="Review recording" secondary disabled={recorderState.isRecording} onPress={() => { try { resultPlayer.replace(recordingUris[practiceQuestion.id] || recordings[practiceQuestion.id]); resultPlayer.play(); } catch { Alert.alert('Playback unavailable', 'Try recording this answer again.'); } }} /><Button label="Pause playback" secondary onPress={() => resultPlayer.pause()} /><Button label={transcribing ? 'Transcribing…' : 'Transcribe recording'} disabled={transcribing || busy || recorderState.isRecording || attachingRecording} onPress={() => { void transcribeAnswer(); }} /><Button label="Remove recording" secondary disabled={transcribing || busy} onPress={() => { resultPlayer.pause(); setTranscriptionDraft(null); setRecordings(current => { const next = { ...current }; delete next[practiceQuestion.id]; return next; }); setRecordingUris(current => { const next = { ...current }; delete next[practiceQuestion.id]; return next; }); }} /></View>}
-                    {transcriptionDraft?.questionId === practiceQuestion?.id && <View style={s.card}><Field label="Review transcription" value={transcriptionDraft.text} onChange={text => setTranscriptionDraft(current => current ? { ...current, text } : null)} multiline /><Text style={s.muted}>Correct any mistakes before using this as your answer.</Text><View style={s.row}><Button label="Use as my answer" onPress={() => { setAnswers(current => ({ ...current, [transcriptionDraft.questionId]: transcriptionDraft.text })); setTranscriptionDraft(null); }} /><Button label="Keep existing answer" secondary onPress={() => setTranscriptionDraft(null)} /></View></View>}
-                    <View style={s.row}><Button label="Previous" secondary disabled={!practiceIndex || busy || recorderState.isRecording || attachingRecording || transcribing} onPress={() => { resultPlayer.pause(); setPracticeIndex(value => value - 1); }} /><Button label="Next" secondary disabled={practiceIndex >= practice.length - 1 || busy || recorderState.isRecording || attachingRecording || transcribing} onPress={() => { resultPlayer.pause(); setPracticeIndex(value => value + 1); }} /></View>
+                    {!!recordings[practiceQuestion?.id] && <View style={s.row}><Text style={s.muted}>Recording attached</Text><Button label="Review recording" secondary disabled={recorderState.isRecording} onPress={() => { try { resultPlayer.replace(recordingUris[practiceQuestion.id] || recordings[practiceQuestion.id]); resultPlayer.play(); } catch { Alert.alert('Playback unavailable', 'Try recording this answer again.'); } }} /><Button label="Pause playback" secondary onPress={() => pauseResultPlayer()} /><Button label={transcribing ? 'Transcribing…' : 'Transcribe recording'} disabled={transcribing || busy || recorderState.isRecording || attachingRecording} onPress={() => { void transcribeAnswer(); }} /><Button label="Remove recording" secondary disabled={transcribing || busy} onPress={() => { pauseResultPlayer(); setTranscriptionDraft(null); setRecordings(current => { const next = { ...current }; delete next[practiceQuestion.id]; return next; }); setRecordingUris(current => { const next = { ...current }; delete next[practiceQuestion.id]; return next; }); }} /></View>}
+                    {transcriptionDraft && practiceQuestion && transcriptionDraft.questionId === practiceQuestion.id && <View style={s.card}><Field label="Review transcription" value={transcriptionDraft.text} onChange={text => setTranscriptionDraft(current => current ? { ...current, text } : null)} multiline /><Text style={s.muted}>Correct any mistakes before using this as your answer.</Text><View style={s.row}><Button label="Use as my answer" onPress={() => { setAnswers(current => ({ ...current, [transcriptionDraft.questionId]: transcriptionDraft.text })); setTranscriptionDraft(null); }} /><Button label="Keep existing answer" secondary onPress={() => setTranscriptionDraft(null)} /></View></View>}
+                    <View style={s.row}><Button label="Previous" secondary disabled={!practiceIndex || busy || recorderState.isRecording || attachingRecording || transcribing} onPress={() => { pauseResultPlayer(); setPracticeIndex(value => value - 1); }} /><Button label="Next" secondary disabled={practiceIndex >= practice.length - 1 || busy || recorderState.isRecording || attachingRecording || transcribing} onPress={() => { pauseResultPlayer(); setPracticeIndex(value => value + 1); }} /></View>
                     <Button label="Submit answered questions for AI feedback" disabled={busy || recorderState.isRecording || attachingRecording || transcribing} onPress={() => { void submitPractice(); }} />
                     <Button label="Discard practice" danger disabled={busy} onPress={() => Alert.alert('Discard practice?', 'These responses have not been submitted.', [{ text: 'Keep practicing' }, { text: 'Discard', style: 'destructive', onPress: discardPractice }])} />
                 </ScrollView>
             </KeyboardAvoidingView>
         </Modal>
 
-        <Modal visible={!!session} animationType="slide" onRequestClose={() => { resultPlayer.pause(); setSession(null); }}>
-            <View style={s.modal}><Button label="Back to sessions" secondary onPress={() => { resultPlayer.pause(); setSession(null); }} /><ScrollView contentContainerStyle={s.content}>
+        <Modal visible={!!session} animationType="slide" onRequestClose={() => { pauseResultPlayer(); setSession(null); }}>
+            <View style={s.modal}><Button label="Back to sessions" secondary onPress={() => { pauseResultPlayer(); setSession(null); }} /><ScrollView contentContainerStyle={s.content}>
                 <Text style={s.title}>Session results</Text><Text style={s.muted}>{session?.status}</Text><Button label="Refresh results" secondary disabled={busy} onPress={() => { if (session) void openSession(session.id); }} />
-                {session?.answers.map((answer: any) => <View key={answer.id} style={s.card}><Text style={s.heading}>{answer.question.title}</Text><Section title="Your response" content={answer.transcript} />{!!answer.audioBase64 && <View style={s.row}><Button label="Play recording" secondary onPress={() => { try { resultPlayer.replace(answer.audioBase64); resultPlayer.play(); } catch { Alert.alert('Playback unavailable', 'This recording could not be played.'); } }} /><Button label="Pause audio" secondary onPress={() => resultPlayer.pause()} /></View>}<Text style={s.body}>{answer.aiScore != null ? `Score: ${answer.aiScore}/100` : answer.status}</Text><Section title="AI feedback" content={answer.aiFeedback} />{!!answer.errorReason && <Text style={s.error}>{answer.errorReason}</Text>}{answer.status === 'FAILED' && <><Text style={s.label}>Retry model</Text>{models.map((model: any) => <Button key={model.id} label={model.name} secondary={chosenModel !== model.modelId} onPress={() => setValue('model', model.modelId)} />)}<Button label="Retry evaluation" disabled={busy || !models.length} onPress={() => { void run('retryAnswer', { id: answer.id, model: chosenModel }).then(result => { if (result && session) void openSession(session.id); }); }} /></>}</View>)}
+                {session?.answers.map((answer: any) => <View key={answer.id} style={s.card}><Text style={s.heading}>{answer.question.title}</Text><Section title="Your response" content={answer.transcript} />{!!answer.audioBase64 && <View style={s.row}><Button label="Play recording" secondary onPress={() => { try { resultPlayer.replace(answer.audioBase64); resultPlayer.play(); } catch { Alert.alert('Playback unavailable', 'This recording could not be played.'); } }} /><Button label="Pause audio" secondary onPress={() => pauseResultPlayer()} /></View>}<Text style={s.body}>{answer.aiScore != null ? `Score: ${answer.aiScore}/100` : answer.status}</Text><Section title="AI feedback" content={answer.aiFeedback} />{!!answer.errorReason && <Text style={s.error}>{answer.errorReason}</Text>}{answer.status === 'FAILED' && <><Text style={s.label}>Retry model</Text>{models.map((model: any) => <Button key={model.id} label={model.name} secondary={chosenModel !== model.modelId} onPress={() => setValue('model', model.modelId)} />)}<Button label="Retry evaluation" disabled={busy || !models.length} onPress={() => { void run('retryAnswer', { id: answer.id, model: chosenModel }).then(result => { if (result && session) void openSession(session.id); }); }} /></>}</View>)}
             </ScrollView></View>
         </Modal>
     </View>;

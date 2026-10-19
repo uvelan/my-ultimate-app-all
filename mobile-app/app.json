@@ -2,7 +2,7 @@
   "expo": {
     "name": "uvelan.ultimateapp",
     "slug": "my-ultimate-app",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "my-ultimate-app",
@@ -33,7 +33,7 @@
       "permissions": [
         "READ_SMS"
       ],
-      "versionCode": 5
+      "versionCode": 6
     },
     "web": {
       "bundler": "metro",
@@ -58,7 +58,8 @@
       ],
       "@react-native-community/datetimepicker",
       "./plugins/withNotifeeRepo",
-      "./plugins/withSmsReader"
+      "./plugins/withSmsReader",
+      "./plugins/withReaderMediaSession"
     ],
     "experiments": {
       "typedRoutes": true

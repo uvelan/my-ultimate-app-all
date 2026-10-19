@@ -3,6 +3,8 @@ const { withNativeWind } = require("nativewind/metro");
 const path = require("node:path");
 
 const config = getDefaultConfig(__dirname);
+// Bound worker memory on release/CI machines that also run Gradle.
+if (process.env.CI) config.maxWorkers = Math.min(config.maxWorkers, 2);
 // Native build trees and package caches contain thousands of generated files
 // and are never JavaScript sources. Avoid crawling them during release builds.
 const existingBlockList = config.resolver.blockList;

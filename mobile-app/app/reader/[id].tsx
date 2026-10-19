@@ -15,8 +15,9 @@ import { offlineService } from '@/src/services/offline.service';
 import { ttsService } from '@/src/services/tts.service';
 import { cacheService } from '@/src/lib/storage';
 import { usePlaybackStore } from '@/src/store/playbackStore';
-import { playbackNotificationService } from '@/src/services/playback-notification.service';
-import { readerTitlePrefix, readerSpeechText } from '@/src/lib/listen-audio';
+import { playbackNotificationService, registerTtsControls } from '@/src/services/playback-notification.service';
+import { prepareReaderChapter, readerChapterQueue, type PreparedReaderChapter } from '@/src/lib/reader-speech';
+import { readableReaderVoices, readerBookTitle, mergeReaderBookMetadata } from '@/src/lib/reader-metadata';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
@@ -42,6 +43,7 @@ export default function ReaderScreen() {
 
     // Chapter list (for sidebar)
     const [chapterList, setChapterList] = useState<{ order: number; title: string }[]>([]);
+    const [bookMetadataTitle, setBookMetadataTitle] = useState<{ bookId: string; title: string } | null>(null);
     const [loadedChapterTitle, setLoadedChapterTitle] = useState<{ bookId: string; chapterId: string; title: string } | null>(null);
     const [totalChapters, setTotalChapters] = useState(0);
 
@@ -100,7 +102,9 @@ export default function ReaderScreen() {
     const [bulkLoading, setBulkLoading] = useState(false);
     const [isOffline, setIsOffline] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
-    const [isPaused, setIsPaused] = useState(false);
+    const [isPaused, setIsPausedState] = useState(false);
+    const isPausedRef = useRef(false);
+    const setIsPaused = (value: boolean) => { isPausedRef.current = value; setIsPausedState(value); };
     const [isCorrecting, setIsCorrecting] = useState(false);
     const [fontSize, setFontSize] = useState(18);
     const [rate, setRate] = useState(1.0);
@@ -148,12 +152,21 @@ export default function ReaderScreen() {
     const speakingTitleRef = useRef(false);
     const titleBodyIndexRef = useRef<number | null>(null);
     const utteranceRef = useRef(0);
+    const queuedPromotionRef = useRef<{ bookId: string; chapterId: string } | null>(null);
+    const speechChapterRef = useRef<PreparedReaderChapter | null>(null);
+    const directControlsRef = useRef({ play: () => {}, pause: () => {}, toggle: () => {}, next: () => {}, prev: () => {}, stop: () => {} });
     const chapterTitleRef = useRef('');
     chapterTitleRef.current = (loadedChapterTitle && loadedChapterTitle.bookId === id && loadedChapterTitle.chapterId === chapterId ? loadedChapterTitle.title : '')
         || chapterList.find(chapter => chapter.order === Number(chapterId))?.title
         || cacheService.getObject<{ chapters?: { order: number; title: string }[] }>(`book_meta_${id}`)?.chapters?.find(chapter => chapter.order === Number(chapterId))?.title
         || `Chapter ${Number(chapterId) + 1}`;
     useEffect(() => {
+        if (queuedPromotionRef.current?.bookId === String(id || '') && queuedPromotionRef.current.chapterId === chapterId) {
+            scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false });
+            return;
+        }
+        queuedPromotionRef.current = null;
+        speechChapterRef.current = null;
         const wasRunning = isSpeakingRef.current;
         ttsService.stop();
         isSpeakingRef.current = false;
@@ -166,7 +179,13 @@ export default function ReaderScreen() {
         utteranceRef.current++;
         scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false });
     }, [id, chapterId]);
-    useEffect(() => () => { utteranceRef.current++; isSpeakingRef.current = false; ttsService.stop(); }, []);
+    useEffect(() => () => {
+        utteranceRef.current++; isSpeakingRef.current = false; ttsService.stop();
+        if (usePlaybackStore.getState().activePlayer === 'tts') {
+            usePlaybackStore.getState().clearPlayerState();
+            void playbackNotificationService.stopNotification().catch(console.error);
+        }
+    }, []);
 
     // Keep the JS thread alive and screen on while reading/TTS is active
     useKeepAwake();
@@ -199,7 +218,7 @@ export default function ReaderScreen() {
 
     // Playback Store Subs
     const { 
-        playTarget, pauseTarget, nextTarget, prevTarget, 
+        playTarget, pauseTarget, nextTarget, prevTarget, stopTarget,
         setPlayerState, clearPlayerState 
     } = usePlaybackStore();
 
@@ -232,7 +251,26 @@ export default function ReaderScreen() {
         }
     }, [prevTarget]);
 
-    const bookTitleCache = cacheService.getObject<any>(`book_meta_${id}`)?.title || 'Unknown Book';
+    useEffect(() => {
+        if (stopTarget > 0 && (isSpeakingRef.current || isPaused)) stopTTS();
+    }, [stopTarget]);
+
+    const bookTitleCache = (bookMetadataTitle?.bookId === id ? bookMetadataTitle?.title : '')
+        || readerBookTitle(cacheService.getObject<{ title?: string }>(`book_meta_${id}`)?.title) || 'Audiobook';
+    useEffect(() => {
+        if (!id) return;
+        let active = true;
+        const cached = mergeReaderBookMetadata(cacheService.getObject(`book_meta_${id}`), {});
+        setBookMetadataTitle({ bookId: id, title: cached.title || '' });
+        // Chapter-list responses need not include their parent book relation.
+        // Fetch real book metadata separately without delaying cached reading.
+        void bookService.getBook(id).then(book => {
+            const merged = mergeReaderBookMetadata(cacheService.getObject(`book_meta_${id}`), { title: book?.title });
+            cacheService.setObject(`book_meta_${id}`, merged);
+            if (active && readerSelectionRef.current.bookId === id) setBookMetadataTitle({ bookId: id, title: merged.title || '' });
+        }).catch(() => { /* Offline reading retains the last known title. */ });
+        return () => { active = false; };
+    }, [id]);
 
     // Update Notification State when speaking changes
     useEffect(() => {
@@ -240,12 +278,12 @@ export default function ReaderScreen() {
             setPlayerState('tts', !isPaused);
             const title = bookTitleCache;
             const chapter = chapterList.find(c => c.order === parseInt(chapterId))?.title || `Chapter ${currentChapterNum + 1}`;
-            playbackNotificationService.showNotification(title, chapter, !isPaused).catch(console.error);
+            playbackNotificationService.showNotification(title, chapter, !isPaused, 'tts', rate).catch(console.error);
         } else {
             clearPlayerState();
             playbackNotificationService.stopNotification().catch(console.error);
         }
-    }, [isSpeaking, isPaused, chapterId, chapterList, bookTitleCache]);
+    }, [isSpeaking, isPaused, chapterId, chapterList, bookTitleCache, rate]);
 
     const openSidebar = useCallback(() => {
         setIsSidebarOpen(true);
@@ -313,11 +351,13 @@ export default function ReaderScreen() {
                 setTotalChapters(chapters.length);
                 setIsOffline(false);
                 
-                // Try to get book title from first chapter's book relation if possible, or leave blank
-                const bookTitle = (chapters[0] as any)?.book?.title || 'Unknown Book';
-                
-                // Store metadata for future cache-only loads
-                cacheService.setObject(`book_meta_${bookId}`, { chapters: list, title: bookTitle });
+                // Merge with book metadata fetched independently; an absent
+                // chapter.book relation must never erase the known book title.
+                const metadata = mergeReaderBookMetadata(cacheService.getObject(`book_meta_${bookId}`), {
+                    chapters: list, title: (chapters[0] as any)?.book?.title,
+                });
+                cacheService.setObject(`book_meta_${bookId}`, metadata);
+                if (readerSelectionRef.current.bookId === bookId) setBookMetadataTitle({ bookId, title: metadata.title || '' });
                 
                 console.warn(`[Reader] Bulk cached ${chapters.length} chapters`);
             }
@@ -390,6 +430,7 @@ export default function ReaderScreen() {
             isFirstMount.current = false;
             return;
         }
+        if (queuedPromotionRef.current?.bookId === String(id || '') && queuedPromotionRef.current.chapterId === chapterId) return;
         if (id) loadChapterFromCache(id as string, chapterId);
     }, [chapterId]);
 
@@ -524,86 +565,109 @@ export default function ReaderScreen() {
 
     const speakNextSentence = useCallback((replay = false) => {
         if (!isSpeakingRef.current) return;
-        const nextIndex = titleBodyIndexRef.current ?? Math.max(0, replay ? currentIndexRef.current : currentIndexRef.current + 1);
-        if (titlePendingRef.current) {
-            // A heading such as "Chapter 1. The Crossing" is split into two
-            // body sentences. Compare its complete upcoming paragraph so the
-            // title already being spoken from the body is not announced twice.
-            const paragraph = sentenceParagraphsRef.current[nextIndex];
-            let paragraphEnd = nextIndex + 1;
-            while (paragraph !== undefined && paragraphEnd < sentencesRef.current.length
-                && sentenceParagraphsRef.current[paragraphEnd] === paragraph) paragraphEnd++;
-            const title = readerTitlePrefix(chapterTitleRef.current, sentencesRef.current.slice(nextIndex, paragraphEnd).join(' '));
-            titlePendingRef.current = false;
-            if (title) {
-                speakingTitleRef.current = true;
-                titleBodyIndexRef.current = nextIndex;
-                const utterance = ++utteranceRef.current;
-                const finishTitle = () => {
-                    if (utteranceRef.current !== utterance || !isSpeakingRef.current) return;
-                    speakingTitleRef.current = false;
-                    titleBodyIndexRef.current = null;
-                    currentIndexRef.current = nextIndex - 1;
-                    speakNextSentence(false);
-                };
-                ttsService.speak(title, ttsRateRef.current, finishTitle, finishTitle);
-                return;
-            }
-        }
-        
-        titleBodyIndexRef.current = null;
-        
-        if (nextIndex >= 0 && nextIndex < sentencesRef.current.length) {
-            currentIndexRef.current = nextIndex;
-            setCurrentSentenceIndex(nextIndex); // UI sync
-            
-            const sentence = sentencesRef.current[nextIndex];
-            const sentenceWithNewline = readerSpeechText(sentence) + '\n';
-            const utterance = ++utteranceRef.current;
-            
-            console.log(`[Reader] Speaking sentence ${nextIndex + 1}/${sentencesRef.current.length}${replay ? ' (replay)' : ''}`);
-            
-            ttsService.speak(
-                sentenceWithNewline, 
-                ttsRateRef.current, 
-                () => { // onDone
-                    const delay = Platform.OS === 'android' ? 250 : 100;
-                    setTimeout(() => {
-                        if (utteranceRef.current !== utterance) return;
-                        speakNextSentence(false); // Move to next
-                    }, delay);
-                },
-                (err) => { // onError
-                    console.warn('[Reader] TTS Error, skipping to next sentence', err);
-                    setTimeout(() => {
-                        if (utteranceRef.current !== utterance) return;
-                        speakNextSentence(false);
-                    }, 500);
+        const epoch = ++utteranceRef.current;
+        const bookId = String(id || '');
+        const currentChapter = readerSelectionRef.current.chapterId;
+        const startIndex = titleBodyIndexRef.current ?? Math.max(0, replay ? currentIndexRef.current : currentIndexRef.current + 1);
+        const initial: PreparedReaderChapter = speechChapterRef.current?.chapterId === currentChapter ? speechChapterRef.current : { chapterId: currentChapter, title: chapterTitleRef.current,
+            rawContent, sentences: sentencesRef.current.map((text, index) => ({ text, paraIdx: sentenceParagraphsRef.current[index] || 0 })) };
+        speechChapterRef.current = initial;
+        const prepared = new Map<string, PreparedReaderChapter>([[currentChapter, initial]]);
+        const pending = new Map<string, Promise<PreparedReaderChapter | null>>();
+        const queued = new Set<string>([currentChapter]);
+        const active = () => epoch === utteranceRef.current && isSpeakingRef.current && readerSelectionRef.current.bookId === bookId;
+        const loadFollowing = (after: string): Promise<PreparedReaderChapter | null> => {
+            if (pending.has(after)) return pending.get(after)!;
+            const task = (async () => {
+                const ordered = chapterList.filter(chapter => chapter.order > Number(after)).sort((a, b) => a.order - b.order);
+                const candidates = ordered.length ? ordered : Array.from({ length: Math.max(0, totalChapters - Number(after) - 1) }, (_, offset) => ({ order: Number(after) + offset + 1, title: '' }));
+                for (const meta of candidates) {
+                    if (!active()) return null;
+                    const nextId = String(meta.order);
+                    let body = await offlineService.getChapter(bookId, nextId);
+                    let title = meta.title;
+                    if (body === null) {
+                        const response = await bookService.getChapterContent(bookId, nextId);
+                        body = Array.isArray(response.content) ? response.content.join('\n') : String(response.content || '');
+                        title = response.title || title;
+                        if (body) await offlineService.saveChapter(bookId, nextId, body).catch(() => {});
+                    }
+                    if (!active()) return null;
+                    const chapter = prepareReaderChapter(nextId, title || 'Chapter ' + (meta.order + 1), body || '', replacements, replacementsEnabled);
+                    if (!chapter.sentences.length) continue;
+                    prepared.set(nextId, chapter);
+                    return chapter;
                 }
-            );
-        } else if (nextIndex >= sentencesRef.current.length) {
-            console.log('[Reader] Finished all sentences, checking for next chapter');
-            const transitioned = goToNextChapter();
-            if (transitioned) {
-                // Set flag to auto-start on next chapter load
-                shouldAutoStartTTSRef.current = true;
-                
-                setIsSpeaking(false);
-                isSpeakingRef.current = false;
-                setCurrentSentenceIndex(-1);
-                currentIndexRef.current = -1;
-            } else {
-                setIsSpeaking(false);
-                isSpeakingRef.current = false;
-                setCurrentSentenceIndex(-1);
-                currentIndexRef.current = -1;
-            }
-        } else if (nextIndex < 0 && sentencesRef.current.length > 0) {
-            // Start from first if somehow negative
-            currentIndexRef.current = -1;
-            speakNextSentence(false);
-        }
-    }, [goToNextChapter]);
+                return null;
+            })().catch(error => { if (active()) console.warn('[Reader] Unable to prepare the following chapter:', error); return null; });
+            pending.set(after, task);
+            return task;
+        };
+        const appendFollowing = async (after: string) => {
+            const following = await loadFollowing(after);
+            if (!active() || !following || queued.has(following.chapterId)) return;
+            queued.add(following.chapterId);
+            ttsService.append(readerChapterQueue(following));
+        };
+        const start = async () => {
+            // Start this chapter immediately; prepare and append its successor in parallel.
+            const items = readerChapterQueue(initial, startIndex, titlePendingRef.current);
+            if (!items.length) { isSpeakingRef.current = false; setIsSpeaking(false); setIsPaused(false); return; }
+            titlePendingRef.current = false;
+            titleBodyIndexRef.current = null;
+            await ttsService.queue(items, ttsRateRef.current, {
+                onStart: item => {
+                    if (!active()) return;
+                    const chapter = prepared.get(item.chapterId)!;
+                    speechChapterRef.current = chapter;
+                    if (readerSelectionRef.current.chapterId !== item.chapterId) {
+                        queuedPromotionRef.current = { bookId, chapterId: item.chapterId };
+                        readerSelectionRef.current = { bookId, chapterId: item.chapterId };
+                        chapterLoadRef.current++;
+                        shouldAutoStartTTSRef.current = false;
+                        sentencesRef.current = chapter.sentences.map(sentence => sentence.text);
+                        sentenceParagraphsRef.current = chapter.sentences.map(sentence => sentence.paraIdx);
+                        setRawContent(chapter.rawContent as any);
+                        setLoadedChapterTitle({ bookId, chapterId: item.chapterId, title: chapter.title });
+                        setChapterId(item.chapterId); setLoading(false);
+                        chapterTitleRef.current = chapter.title;
+                        void playbackNotificationService.showNotification(bookTitleCache, chapter.title, true, 'tts', ttsRateRef.current).catch(console.error);
+                        for (const key of Array.from(prepared.keys())) if (key !== item.chapterId && Number(key) < Number(item.chapterId)) prepared.delete(key);
+                        for (const key of Array.from(pending.keys())) if (Number(key) < Number(item.chapterId)) pending.delete(key);
+                    }
+                    speakingTitleRef.current = !!item.isTitle;
+                    titleBodyIndexRef.current = item.isTitle ? item.sentenceIndex : null;
+                    if (!item.isTitle) {
+                        currentIndexRef.current = item.sentenceIndex;
+                        setCurrentSentenceIndex(item.sentenceIndex);
+                    }
+                    void appendFollowing(item.chapterId);
+                },
+                onDone: item => { if (active() && item.isTitle) speakingTitleRef.current = false; },
+                onError: error => { if (active()) console.warn('[Reader] Device TTS utterance failed:', error); },
+                onComplete: () => {
+                    const last = Array.from(queued).pop() || currentChapter;
+                    void loadFollowing(last).then(following => {
+                        if (!active()) return;
+                        if (following && !queued.has(following.chapterId)) {
+                            queued.add(following.chapterId); ttsService.append(readerChapterQueue(following));
+                        } else {
+                            isSpeakingRef.current = false; setIsSpeaking(false); setIsPaused(false);
+                            clearPlayerState();
+                            void playbackNotificationService.stopNotification().catch(console.error);
+                        }
+                    });
+                },
+            });
+        };
+        void start().then(() => { if (active()) void appendFollowing(currentChapter); }).catch(error => {
+            if (!active()) return;
+            isSpeakingRef.current = false; setIsSpeaking(false); setIsPaused(false);
+            clearPlayerState();
+            void playbackNotificationService.stopNotification().catch(console.error);
+            Alert.alert('Speech unavailable', error?.message || 'The device speech engine could not start.');
+        });
+    }, [id, rawContent, chapterList, totalChapters, replacements, replacementsEnabled, bookTitleCache]);
 
     // Scroll to highlighted sentence
     useEffect(() => {
@@ -625,7 +689,8 @@ export default function ReaderScreen() {
     }, [currentSentenceIndex, isSpeaking, flatSentences]);
 
     const skipForward = () => {
-        if (!isSpeaking) return;
+        if (!isSpeakingRef.current && !isPausedRef.current) return;
+        isSpeakingRef.current = true;
         utteranceRef.current++;
         speakingTitleRef.current = false;
         titlePendingRef.current = false;
@@ -636,7 +701,8 @@ export default function ReaderScreen() {
     };
 
     const skipBackward = () => {
-        if (!isSpeaking) return;
+        if (!isSpeakingRef.current && !isPausedRef.current) return;
+        isSpeakingRef.current = true;
         utteranceRef.current++;
         speakingTitleRef.current = false;
         titlePendingRef.current = false;
@@ -650,8 +716,8 @@ export default function ReaderScreen() {
     };
 
     const toggleTTS = async () => {
-        if (isSpeaking) {
-            if (isPaused) {
+        if (isSpeakingRef.current || isPausedRef.current) {
+            if (isPausedRef.current) {
                 // Resume
                 console.log('[Reader] Resuming TTS');
                 setIsPaused(false);
@@ -674,6 +740,7 @@ export default function ReaderScreen() {
             }
 
             setSentences(flatSentences);
+            speechChapterRef.current = null;
             sentencesRef.current = flatSentences.map(s => s.text);
             sentenceParagraphsRef.current = flatSentences.map(s => s.paraIdx);
             setCurrentSentenceIndex(-1);
@@ -711,6 +778,45 @@ export default function ReaderScreen() {
         currentIndexRef.current = -1;
     }, []);
 
+    const reportSpeechState = () => {
+        if (isSpeakingRef.current || isPausedRef.current) {
+            setPlayerState('tts', isSpeakingRef.current);
+            void playbackNotificationService.showNotification(bookTitleCache, chapterTitleRef.current, isSpeakingRef.current, 'tts', ttsRateRef.current).catch(console.error);
+        } else {
+            clearPlayerState();
+            void playbackNotificationService.stopNotification().catch(console.error);
+        }
+    };
+    directControlsRef.current = {
+        play: () => { if (isPausedRef.current) void toggleTTS(); reportSpeechState(); },
+        pause: () => { if (isSpeakingRef.current) void toggleTTS(); reportSpeechState(); },
+        toggle: () => { void toggleTTS(); reportSpeechState(); },
+        next: () => { skipForward(); reportSpeechState(); },
+        prev: () => { skipBackward(); reportSpeechState(); },
+        stop: () => { stopTTS(); reportSpeechState(); },
+    };
+    // Headless notification/media callbacks must operate refs immediately;
+    // React state effects may not flush while the activity is backgrounded.
+    useEffect(() => registerTtsControls({
+        play: () => directControlsRef.current.play(), pause: () => directControlsRef.current.pause(),
+        toggle: () => directControlsRef.current.toggle(), next: () => directControlsRef.current.next(),
+        prev: () => directControlsRef.current.prev(), stop: () => directControlsRef.current.stop(),
+    }), [id]);
+
+    const queueSettingsRef = useRef({ rate, selectedVoice, replacements, replacementsEnabled });
+    useEffect(() => {
+        const previous = queueSettingsRef.current;
+        queueSettingsRef.current = { rate, selectedVoice, replacements, replacementsEnabled };
+        if (previous.rate === rate && previous.selectedVoice === selectedVoice
+            && previous.replacements === replacements && previous.replacementsEnabled === replacementsEnabled) return;
+        if (isSpeakingRef.current) {
+            if (speakingTitleRef.current) titlePendingRef.current = true;
+            speechChapterRef.current = null;
+            void ttsService.stop();
+            speakNextSentence(true);
+        } else if (isPausedRef.current) speechChapterRef.current = null;
+    }, [rate, selectedVoice, replacements, replacementsEnabled]);
+
     const startSleepTimer = (minutes: number) => {
         if (sleepTimer) clearInterval(sleepTimer);
         setSelectedTimerMinutes(minutes);
@@ -739,7 +845,6 @@ export default function ReaderScreen() {
         const rates = [0.75, 1.0, 1.25, 1.5, 2.0];
         const next = rates[(rates.indexOf(rate) + 1) % rates.length];
         setRate(next);
-        // No need to restart manually here as the next speakNextSentence call will use the ref value
     };
 
     // ─── Grammar correction ──────────────────────────────────────────────────────
@@ -1180,10 +1285,10 @@ export default function ReaderScreen() {
                             <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>Speech Settings</Text>
                             <Text className={`${th.textSec} font-bold mb-3`}>Device voice</Text>
                             <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled className="mb-4">
-                                {[{ identifier: '', name: 'System default', language: '' }, ...speechVoices].map(voice => (
-                                    <Pressable key={voice.identifier || 'default'} accessibilityLabel={`Use ${voice.name}`}
+                                {[{ identifier: '', label: 'System default' }, ...readableReaderVoices(speechVoices)].map(voice => (
+                                    <Pressable key={voice.identifier || 'default'} accessibilityLabel={`Use ${voice.label}`}
                                         onPress={() => setSelectedVoice(voice.identifier)} className={`p-3 mb-2 rounded-lg border ${selectedVoice === voice.identifier ? 'border-accent bg-accent/20' : th.border}`}>
-                                        <Text className={th.textSec}>{voice.name} {voice.language}</Text>
+                                        <Text className={th.textSec}>{voice.label}</Text>
                                     </Pressable>
                                 ))}
                             </ScrollView>

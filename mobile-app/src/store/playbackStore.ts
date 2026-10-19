@@ -13,12 +13,14 @@ interface PlaybackState {
     pauseTarget: number;
     nextTarget: number;
     prevTarget: number;
+    stopTarget: number;
     
     // Methods for Notifee to trigger actions
     triggerPlay: () => void;
     triggerPause: () => void;
     triggerNext: () => void;
     triggerPrev: () => void;
+    triggerStop: () => void;
 
     // Methods for components to report status
     setPlayerState: (player: 'tts' | 'audio', isPlaying: boolean) => void;
@@ -33,7 +35,9 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
     pauseTarget: 0,
     nextTarget: 0,
     prevTarget: 0,
+    stopTarget: 0,
 
+    triggerStop: () => set((state) => ({ stopTarget: state.stopTarget + 1, isPlaying: false })),
     triggerPlay: () => set((state) => ({ playTarget: state.playTarget + 1, isPlaying: true })),
     triggerPause: () => set((state) => ({ pauseTarget: state.pauseTarget + 1, isPlaying: false })),
     triggerNext: () => set((state) => ({ nextTarget: state.nextTarget + 1 })),

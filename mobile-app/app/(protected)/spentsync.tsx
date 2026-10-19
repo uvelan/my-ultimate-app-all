@@ -6,9 +6,10 @@ import { ChevronLeft, X } from 'lucide-react-native';
 import { api } from '@/src/lib/api-client';
 import { smsPeriodDates, smsBookingTimestamp, type SmsPeriod } from '@/src/lib/sms-date-range';
 import { parseSmsTransaction, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
+import { buildSmsPageArguments, type SmsPageCursor } from '@/src/lib/sms-bridge';
 
 type Transaction = ParsedSmsTransaction;
-type Cursor = { date: number; id: string } | null;
+type Cursor = SmsPageCursor;
 const rupee = '\u20b9';
 const button = 'rounded-xl bg-accent px-4 py-3 items-center';
 const field = 'rounded-xl border border-border bg-background p-3 text-text-primary';
@@ -97,8 +98,7 @@ export default function SpentSyncScreen() {
             let more = false;
             let pageCount = 0;
             do {
-                const page = await NativeModules.SmsReader.readSmsPage(from.getTime(), until.getTime() - 1,
-                    next?.date ?? -1, next?.id ?? '', 250);
+                const page = await NativeModules.SmsReader.readSmsPage(...buildSmsPageArguments(from.getTime(), until.getTime() - 1, next));
                 if (run !== generation.current) return;
                 const messages: any[] = page.messages || [];
                 count += messages.length;

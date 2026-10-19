@@ -29,9 +29,14 @@ class SmsReaderModule(reactContext: ReactApplicationContext) :
             return
         }
         val cursorId = beforeId?.toLongOrNull()
+        // JS sends 0/empty on its first page. Accept -1/empty from older JS
+        // clients too, while 0 plus an ID is a real epoch-time cursor.
+        val noCursor = (beforeDate == -1.0 || beforeDate == 0.0) && beforeId.isNullOrEmpty()
+        val hasCursor = !noCursor
+        val validCursor = noCursor || (beforeDate.isFinite() && beforeDate >= minDate && beforeDate <= maxDate &&
+            beforeDate % 1.0 == 0.0 && cursorId != null && cursorId >= 0)
         if (!minDate.isFinite() || !maxDate.isFinite() || minDate < 0 || maxDate < minDate || maxDate > 8640000000000000.0 ||
-            !beforeDate.isFinite() || beforeDate < 0 || beforeDate > 8640000000000000.0 ||
-            (beforeDate > 0 && (cursorId == null || cursorId < 0))) {
+            minDate % 1.0 != 0.0 || maxDate % 1.0 != 0.0 || !validCursor) {
             promise.reject("SMS_INVALID_RANGE", "Invalid SMS date range or pagination cursor.")
             return
         }
@@ -45,7 +50,7 @@ class SmsReaderModule(reactContext: ReactApplicationContext) :
 
             var selection = "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?"
             val selectionArgs = mutableListOf(minDate.toLong().toString(), maxDate.toLong().toString())
-            if (beforeDate > 0) {
+            if (hasCursor) {
                 selection += " AND (${Telephony.Sms.DATE} < ? OR (${Telephony.Sms.DATE} = ? AND ${Telephony.Sms._ID} < ?))"
                 selectionArgs.add(beforeDate.toLong().toString())
                 selectionArgs.add(beforeDate.toLong().toString())

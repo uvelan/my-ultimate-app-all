@@ -42,6 +42,32 @@ export default function ListenScreen() {
     const [book, setBook] = useState<Book | null>(null);
     const [loading, setLoading] = useState(true);
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+
+    const alive = useRef(true);
+    const lifetimeCleanups = useRef(new Set<() => void>());
+    const registerCleanup = useCallback((cleanup: () => void) => {
+        let pending = true;
+        const cancel = () => {
+            if (!pending) return;
+            pending = false; lifetimeCleanups.current.delete(cancel); cleanup();
+        };
+        lifetimeCleanups.current.add(cancel);
+        return cancel;
+    }, []);
+    // Register before useAudioPlayer: Expo's passive cleanup releases its shared
+    // native object. Invalidate our callbacks first and let Expo own disposal.
+    useEffect(() => {
+        alive.current = true;
+        return () => {
+            alive.current = false;
+            playIntent.current = false; activeKey.current = null; promotedKey.current = null; awaitingAudio.current = null;
+            refill.current = () => {};
+            for (const cancel of Array.from(lifetimeCleanups.current)) cancel();
+            for (const task of Array.from(tasks.current.values())) task.controller.abort();
+            tasks.current.clear();
+            playbackNotificationService.stopNotification().catch(() => {});
+        };
+    }, []);
     
     // Audio Player hook integration
     const player = useAudioPlayer(null);
@@ -142,13 +168,13 @@ export default function ListenScreen() {
         if (bookId) {
             void fetchBook(String(bookId), controller.signal);
         }
-        return () => controller.abort();
+        return registerCleanup(() => controller.abort());
     }, [bookId]);
 
     const fetchBook = async (id: string, signal?: AbortSignal) => {
         try {
             const [res, profile] = await Promise.all([api.get(`/books/${id}`, { signal }), api.get('/auth/profile', { signal })]);
-            if (signal?.aborted) return;
+            if (!alive.current || signal?.aborted) return;
             const data = res.data;
             setUserId(profile.data.id || profile.data.email);
             setBook({ ...data, chapters: data.chapters || [] });
@@ -166,11 +192,11 @@ export default function ListenScreen() {
             }
             setCurrentChapterIndex(Math.max(0, Math.min(finalIdx, (data.chapters?.length || 1) - 1)));
         } catch (error) {
-            if (signal?.aborted) return;
+            if (!alive.current || signal?.aborted) return;
             console.error('Error loading book', error);
             setAudioError('Unable to load this audiobook. Please retry or sign in again.');
         } finally {
-            if (!signal?.aborted) setLoading(false);
+            if (alive.current && !signal?.aborted) setLoading(false);
         }
     };
 
@@ -194,6 +220,7 @@ export default function ListenScreen() {
         provider: selectedProvider, voice, grammarModel,
     });
     const applyFile = (task: NonNullable<ReturnType<typeof tasks.current.get>>, identity: NativeAudioIdentity, index: number) => {
+        if (!alive.current || task.controller.signal.aborted) return null;
         const file = task.file!;
         const actual = { ...identity, provider: file.provider, voice: file.voice };
         const key = audioIdentityKey(actual);
@@ -219,7 +246,7 @@ export default function ListenScreen() {
     };
 
     useEffect(() => {
-        if (!book || !currentChapter || !settingsReady || !userId) return;
+        if (!alive.current || !book || !currentChapter || !settingsReady || !userId) return;
         let active = true;
         const control = new AbortController();
         const start = updateWindow(currentChapterIndex);
@@ -255,12 +282,12 @@ export default function ListenScreen() {
         };
         let filling = false;
         const fill = async () => {
-            if (!active || filling || !tasks.current.get(currentKey)?.file) return;
+            if (!alive.current || !active || filling || !tasks.current.get(currentKey)?.file) return;
             filling = true;
             try {
                 await activation;
                 for (const chapter of book.chapters.slice(currentChapterIndex + 1, start + 5)) {
-                    if (!active) return;
+                    if (!alive.current || !active) return;
                     try { await load(identityFor(chapter), true); } catch { if (!active) return; }
                 }
             } finally { filling = false; }
@@ -270,7 +297,7 @@ export default function ListenScreen() {
             try {
                 if (!promoted) {
                     await load(current);
-                    if (!active) return;
+                    if (!alive.current || !active) return;
                     const task = tasks.current.get(currentKey);
                     if (!task?.file) return;
                     const changed = task.file.provider !== provider || task.file.voice !== currentVoice;
@@ -281,10 +308,11 @@ export default function ListenScreen() {
             } catch (error: any) { if (active) setAudioError(error?.message || 'Unable to download narration. Retry this chapter.'); }
             finally { if (active) setIsGenerating(false); }
         })();
-        return () => { active = false; control.abort(); };
+        return registerCleanup(() => { active = false; control.abort(); });
     }, [book, currentChapterIndex, provider, currentVoice, grammarModel, settingsReady, userId, retryCount]);
 
     const handleAudioEnded = () => {
+        if (!alive.current) return;
         const key = activeKey.current;
         if (!key || switching.current || lastEndedKey.current === key) return;
         lastEndedKey.current = key;
@@ -298,6 +326,7 @@ export default function ListenScreen() {
         indexRef.current = next; setCurrentChapterIndex(next);
     };
     useEffect(() => {
+        if (!alive.current) return;
         // The hook may still contain a queued update for the preceding file.
         // The native getter reads the current source after synchronous replace(),
         // including when the first background update arrives several seconds in.
@@ -306,40 +335,37 @@ export default function ListenScreen() {
         }
     }, [status]);
     useEffect(() => {
+        if (!alive.current) return;
         if (status.playing) { switching.current = false; playIntent.current = true; }
         else if (!status.didJustFinish && status.isLoaded && !switching.current && status.currentTime < status.duration - 0.2) playIntent.current = false;
         if (status.didJustFinish && !status.playing) handleAudioEnded();
     }, [status.didJustFinish, status.playing, status.isLoaded]);
     useEffect(() => {
         const subscription = AppState.addEventListener('change', state => {
-            if (state !== 'active') return;
+            if (!alive.current || state !== 'active') return;
             refill.current();
             if (playIntent.current) {
                 if (audioError) setRetryCount(value => value + 1);
                 else if (activeKey.current) player.play();
             }
         });
-        return () => subscription.remove();
+        return registerCleanup(() => subscription.remove());
     }, [audioError]);
-    useEffect(() => () => {
-        for (const task of Array.from(tasks.current.values())) task.controller.abort();
-        tasks.current.clear(); player.pause();
-        try { player.setActiveForLockScreen(false); } catch { /* Optional native session may already be gone. */ }
-        playbackNotificationService.stopNotification().catch(() => {});
-    }, []);
-    useEffect(() => listenAudioService.subscribeEvictions(uri => {
+    useEffect(() => registerCleanup(listenAudioService.subscribeEvictions(uri => {
+        if (!alive.current) return;
         for (const [key, task] of Array.from(tasks.current.entries())) {
             if (task.file?.uri === uri) tasks.current.delete(key);
         }
-    }), []);
-    useEffect(() => listenAudioService.subscribeSync(file => {
+    })), []);
+    useEffect(() => registerCleanup(listenAudioService.subscribeSync(file => {
+        if (!alive.current) return;
         for (const [key, task] of Array.from(tasks.current.entries())) {
             if (task.file?.uri !== file.uri || task.file.audioId !== file.audioId || task.controller.signal.aborted) continue;
             task.file = file;
             if (activeKey.current === key) setActiveAudio(previous =>
                 previous?.key === key && previous.file.uri === file.uri ? { key, file } : previous);
         }
-    }), []);
+    })), []);
 
     const transcriptFile = activeAudio && currentChapter && activeAudio.file.chapterId === currentChapter.id ? activeAudio.file : undefined;
     const transcriptScope = `${currentChapter?.id || ''}:${transcriptFile?.uri || ''}`;
@@ -348,14 +374,14 @@ export default function ListenScreen() {
     }
     const cues = useMemo(() => buildNarrationCues(currentChapter?.content, currentChapter?.title, transcriptFile?.sync),
         [currentChapter?.id, currentChapter?.content, currentChapter?.title, transcriptFile?.sync]);
-    const transcriptStatus = player.currentStatus;
+    const transcriptStatus = alive.current ? player.currentStatus : status;
     const activeCue = !isGenerating && activeKey.current === activeAudio?.key && transcriptFile?.uri === readyAudioUri && transcriptStatus.isLoaded
         ? activeNarrationCue(cues, transcriptStatus.currentTime, transcriptStatus.duration) : -1;
     const cueFocus = useRef({ index: activeCue, text: cues[activeCue]?.text });
     cueFocus.current = { index: activeCue, text: cues[activeCue]?.text };
     const focusSpokenCue = useCallback((animated = true) => {
         const target = cueLayouts.current.get(cueFocus.current.index);
-        if (!followAudioRef.current || !target || target.text !== cueFocus.current.text || !transcriptHeight.current) return;
+        if (!alive.current || !followAudioRef.current || !target || target.text !== cueFocus.current.text || !transcriptHeight.current) return;
         transcriptRef.current?.scrollTo({ y: Math.max(0, target.y - (transcriptHeight.current - target.height) / 2), animated });
     }, []);
     useEffect(() => {
@@ -372,21 +398,21 @@ export default function ListenScreen() {
 
     // Listen to store actions from Notifee
     useEffect(() => {
-        if (playTarget > 0) {
+        if (alive.current && playTarget > 0) {
             playIntent.current = true;
             if (!isPlaying) player.play();
         }
     }, [playTarget]);
 
     useEffect(() => {
-        if (pauseTarget > 0) {
+        if (alive.current && pauseTarget > 0) {
             playIntent.current = false;
             if (isPlaying) player.pause();
         }
     }, [pauseTarget]);
 
     useEffect(() => {
-        if (nextTarget > 0) {
+        if (alive.current && nextTarget > 0) {
             // Note: Notifee "next" can either mean next chapter or skip forward. 
             // Usually media next means next chapter.
             handleNextChapter();
@@ -394,13 +420,14 @@ export default function ListenScreen() {
     }, [nextTarget]);
 
     useEffect(() => {
-        if (prevTarget > 0) {
+        if (alive.current && prevTarget > 0) {
             handlePrevChapter();
         }
     }, [prevTarget]);
 
     // Update Notification Service
     useEffect(() => {
+        if (!alive.current) return;
         if (status.isLoaded) {
             setPlayerState('audio', isPlaying);
             const title = book?.title || 'Audiobook';
@@ -415,7 +442,9 @@ export default function ListenScreen() {
     // Timer logic
     useEffect(() => {
         const interval = setInterval(() => {
+            if (!alive.current) return;
             setTimeRemaining(prev => {
+                if (!alive.current) return prev;
                 if (prev === null) return null;
                 if (prev > 0) return prev - 1;
 
@@ -425,7 +454,7 @@ export default function ListenScreen() {
                 return null;
             });
         }, 1000);
-        return () => clearInterval(interval);
+        return registerCleanup(() => clearInterval(interval));
     }, [timeRemaining]);
 
     const formatTime = (millis: number) => {
@@ -437,6 +466,7 @@ export default function ListenScreen() {
     };
 
     const togglePlayPause = () => {
+        if (!alive.current) return;
         if (isPlaying) {
             playIntent.current = false;
             player.pause();
@@ -447,15 +477,22 @@ export default function ListenScreen() {
         }
     };
 
+    const seekToSeconds = (seconds: number) => {
+        if (!alive.current) return;
+        void player.seekTo(seconds).catch(error => {
+            if (alive.current) setAudioError(error?.message || 'Unable to seek narration.');
+        });
+    };
     const skipForward = () => {
-        player.seekTo((status.currentTime || 0) + 15);
+        seekToSeconds((status.currentTime || 0) + 15);
     };
 
     const skipBackward = () => {
-        player.seekTo(Math.max(0, (status.currentTime || 0) - 15));
+        seekToSeconds(Math.max(0, (status.currentTime || 0) - 15));
     };
 
     const handleNextChapter = () => {
+        if (!alive.current) return;
         if (book && currentChapterIndex < book.chapters.length - 1) {
             updateWindow(currentChapterIndex + 1); indexRef.current = currentChapterIndex + 1;
             setCurrentChapterIndex(currentChapterIndex + 1);
@@ -463,6 +500,7 @@ export default function ListenScreen() {
     };
 
     const handlePrevChapter = () => {
+        if (!alive.current) return;
         if (currentChapterIndex > 0) {
             updateWindow(currentChapterIndex - 1); indexRef.current = currentChapterIndex - 1;
             setCurrentChapterIndex(currentChapterIndex - 1);
@@ -483,6 +521,7 @@ export default function ListenScreen() {
     }, [sidebarAnim]);
 
     const changeSpeed = (newSpeed: number) => {
+        if (!alive.current) return;
         setPlaybackSpeed(newSpeed);
         cacheService.set('listen-playback-speed', newSpeed.toString());
         player.setPlaybackRate(newSpeed);
@@ -602,7 +641,7 @@ export default function ListenScreen() {
                         maximumValue={durationMillis > 0 ? durationMillis : 100}
                         value={positionMillis}
                         onSlidingComplete={(val) => {
-                            player.seekTo(val / 1000);
+                            seekToSeconds(val / 1000);
                         }}
                         minimumTrackTintColor="#8b5cf6"
                         maximumTrackTintColor={isLightMode ? "#e5e5e0" : "#4a5568"}

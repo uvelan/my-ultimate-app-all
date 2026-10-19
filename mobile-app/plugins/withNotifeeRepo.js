@@ -29,6 +29,7 @@ const withNotifeeManifest = (config) => {
       'android.permission.FOREGROUND_SERVICE',
       'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
       'android.permission.POST_NOTIFICATIONS',
+      'android.permission.WAKE_LOCK',
     ];
 
     if (!manifest['uses-permission']) {
@@ -52,19 +53,19 @@ const withNotifeeManifest = (config) => {
       if (!application.service) {
         application.service = [];
       }
-      const serviceExists = application.service.some(
+      const existingService = application.service.find(
         (s) => s.$?.['android:name'] === 'app.notifee.core.ForegroundService'
       );
-      if (!serviceExists) {
-        application.service.push({
-          $: {
+      const service = existingService || { $: {} };
+      service.$ = {
+            ...service.$,
             'android:name': 'app.notifee.core.ForegroundService',
             'android:exported': 'false',
             'android:foregroundServiceType': 'mediaPlayback',
-            'tools:replace': 'android:foregroundServiceType',
-          },
-        });
-      }
+            'tools:replace': Array.from(new Set([...(service.$?.['tools:replace'] || '').split(',').map(value => value.trim()).filter(Boolean), 'android:foregroundServiceType'])).join(','),
+      };
+      if (!existingService) application.service.push(service);
+      manifest.$ = { ...manifest.$, 'xmlns:tools': 'http://schemas.android.com/tools' };
     }
 
     return config;

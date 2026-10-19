@@ -233,15 +233,15 @@ test('reader grammar and replacement calls match the authenticated web API contr
   assert.equal(calls[2].options.params.id, 'rule-1');
 });
 
-test('reader native voice selection applies to speech without changing title/body callbacks', () => {
+test('reader native voice selection applies to speech without changing title/body callbacks', async () => {
   const calls = [];
   const voice = { identifier: 'voice-1', name: 'English', language: 'en-IN' };
   const { ttsService } = load('src/services/tts.service.ts', { 'expo-speech': {
-    speak: (text, options) => calls.push({ text, options }), getAvailableVoicesAsync: async () => [voice],
+    stop: async () => {}, speak: (text, options) => calls.push({ text, options }), getAvailableVoicesAsync: async () => [voice],
   } });
   ttsService.selectVoice(voice.identifier);
   let done = 0;
-  ttsService.speak('Chapter title', 1.25, () => done++);
+  await ttsService.queue([{ text: 'Chapter title', chapterId: '0', sentenceIndex: 0, isTitle: true }], 1.25, { onDone: () => done++ });
   assert.equal(calls[0].options.voice, 'voice-1');
   assert.equal(calls[0].options.rate, 1.25);
   calls[0].options.onDone();
