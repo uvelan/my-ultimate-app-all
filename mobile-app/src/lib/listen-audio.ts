@@ -52,9 +52,16 @@ export function nextAudioWindowStart(start: number | null, previous: number | nu
     return start === null || previous === null || current < previous || current < start || current >= start + 2 ? current : start;
 }
 export function readerTitlePrefix(title: string, firstSentence: string): string {
-    const clean = (value: string) => value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-    const spokenTitle = clean(title);
-    return spokenTitle && !clean(firstSentence).toLowerCase().startsWith(spokenTitle.toLowerCase()) ? spokenTitle : '';
+    const spokenTitle = readerSpeechText(title);
+    const normalize = (value: string) => readerSpeechText(value).normalize('NFKC').toLowerCase()
+        .replace(/[\p{P}\p{Z}\s]+/gu, ' ').trim();
+    const heading = normalize(spokenTitle), opening = normalize(firstSentence);
+    return heading && opening !== heading && !opening.startsWith(heading + ' ') ? spokenTitle : '';
+}
+export function readerSpeechText(value: string): string {
+    return value.replace(/<[^>]*>/g, ' ').replace(/!\[.*?\]\(.*?\)/g, '')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/^\s{0,3}(?:#{1,6}\s+|>\s*)/gm, '')
+        .replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
 }
 export function actualAudioSelection(headers: Record<string, unknown>, identity: NativeAudioIdentity) {
     const candidate = String(headers['x-tts-provider'] || identity.provider);

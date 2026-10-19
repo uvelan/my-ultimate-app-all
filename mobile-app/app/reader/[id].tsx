@@ -16,7 +16,7 @@ import { ttsService } from '@/src/services/tts.service';
 import { cacheService } from '@/src/lib/storage';
 import { usePlaybackStore } from '@/src/store/playbackStore';
 import { playbackNotificationService } from '@/src/services/playback-notification.service';
-import { readerTitlePrefix } from '@/src/lib/listen-audio';
+import { readerTitlePrefix, readerSpeechText } from '@/src/lib/listen-audio';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
@@ -42,6 +42,7 @@ export default function ReaderScreen() {
 
     // Chapter list (for sidebar)
     const [chapterList, setChapterList] = useState<{ order: number; title: string }[]>([]);
+    const [loadedChapterTitle, setLoadedChapterTitle] = useState<{ bookId: string; chapterId: string; title: string } | null>(null);
     const [totalChapters, setTotalChapters] = useState(0);
 
     // Content display states
@@ -120,6 +121,7 @@ export default function ReaderScreen() {
     const isSpeakingRef = useRef(false);
     const shouldAutoStartTTSRef = useRef(false);
     const sentencesRef = useRef<string[]>([]);
+    const sentenceParagraphsRef = useRef<number[]>([]);
     const currentIndexRef = useRef<number>(-1);
     const ttsRateRef = useRef<number>(1.0);
     const skipDirectionRef = useRef<number>(1);
@@ -144,9 +146,13 @@ export default function ReaderScreen() {
     }, [readerSettingsReady, fontSize, rate, replacementsEnabled, selectedVoice]);
     const titlePendingRef = useRef(true);
     const speakingTitleRef = useRef(false);
+    const titleBodyIndexRef = useRef<number | null>(null);
     const utteranceRef = useRef(0);
     const chapterTitleRef = useRef('');
-    chapterTitleRef.current = chapterList.find(chapter => chapter.order === Number(chapterId))?.title || '';
+    chapterTitleRef.current = (loadedChapterTitle && loadedChapterTitle.bookId === id && loadedChapterTitle.chapterId === chapterId ? loadedChapterTitle.title : '')
+        || chapterList.find(chapter => chapter.order === Number(chapterId))?.title
+        || cacheService.getObject<{ chapters?: { order: number; title: string }[] }>(`book_meta_${id}`)?.chapters?.find(chapter => chapter.order === Number(chapterId))?.title
+        || `Chapter ${Number(chapterId) + 1}`;
     useEffect(() => {
         const wasRunning = isSpeakingRef.current;
         ttsService.stop();
@@ -156,6 +162,7 @@ export default function ReaderScreen() {
         currentIndexRef.current = -1; setCurrentSentenceIndex(-1);
         titlePendingRef.current = true;
         speakingTitleRef.current = false;
+        titleBodyIndexRef.current = null;
         utteranceRef.current++;
         scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false });
     }, [id, chapterId]);
@@ -341,6 +348,7 @@ export default function ReaderScreen() {
                 console.warn(`[Reader] Cache miss for chapter ${chapId}, fetching individually`);
                 const data = await bookService.getChapterContent(bookId, chapId);
                 if (!current()) return;
+                if (typeof data?.title === 'string' && data.title.trim()) setLoadedChapterTitle({ bookId, chapterId: chapId, title: data.title });
                 const liveContent = toStr(data?.content) || '';
                 setRawContent(liveContent);
                 if (liveContent) {
@@ -455,14 +463,6 @@ export default function ReaderScreen() {
         
         setContent(processedParas.join('\n\n\n'));
         
-        // Auto-start TTS if we transitioned chapters
-        if (shouldAutoStartTTSRef.current) {
-            shouldAutoStartTTSRef.current = false;
-            // Small delay to ensure UI labels and sentences are updated
-            setTimeout(() => {
-                toggleTTS();
-            }, 500);
-        }
     }, [rawContent, replacements, replacementsEnabled]);
 
     const flatSentences = useMemo(() => {
@@ -476,6 +476,19 @@ export default function ReaderScreen() {
         });
         return flat;
     }, [paragraphStructure]);
+
+    // Start only after the new chapter's parsed body is committed. A timeout
+    // from the previous chapter must never restart its captured sentence list.
+    useEffect(() => {
+        if (!shouldAutoStartTTSRef.current || loading || !flatSentences.length) return;
+        const selection = { bookId: String(id || ''), chapterId };
+        const timer = setTimeout(() => {
+            if (readerSelectionRef.current.bookId !== selection.bookId || readerSelectionRef.current.chapterId !== selection.chapterId) return;
+            shouldAutoStartTTSRef.current = false;
+            void toggleTTS();
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [flatSentences, loading, id, chapterId]);
 
     // Progress sync
     useEffect(() => {
@@ -498,6 +511,7 @@ export default function ReaderScreen() {
     // Sync refs for the callback loop
     useEffect(() => {
         sentencesRef.current = flatSentences.map((s: any) => s.text);
+        sentenceParagraphsRef.current = flatSentences.map(s => s.paraIdx);
     }, [flatSentences]);
 
     useEffect(() => {
@@ -510,15 +524,26 @@ export default function ReaderScreen() {
 
     const speakNextSentence = useCallback((replay = false) => {
         if (!isSpeakingRef.current) return;
-        if (titlePendingRef.current && currentIndexRef.current < 0) {
-            const title = readerTitlePrefix(chapterTitleRef.current, sentencesRef.current[0] || '');
+        const nextIndex = titleBodyIndexRef.current ?? Math.max(0, replay ? currentIndexRef.current : currentIndexRef.current + 1);
+        if (titlePendingRef.current) {
+            // A heading such as "Chapter 1. The Crossing" is split into two
+            // body sentences. Compare its complete upcoming paragraph so the
+            // title already being spoken from the body is not announced twice.
+            const paragraph = sentenceParagraphsRef.current[nextIndex];
+            let paragraphEnd = nextIndex + 1;
+            while (paragraph !== undefined && paragraphEnd < sentencesRef.current.length
+                && sentenceParagraphsRef.current[paragraphEnd] === paragraph) paragraphEnd++;
+            const title = readerTitlePrefix(chapterTitleRef.current, sentencesRef.current.slice(nextIndex, paragraphEnd).join(' '));
             titlePendingRef.current = false;
             if (title) {
                 speakingTitleRef.current = true;
+                titleBodyIndexRef.current = nextIndex;
                 const utterance = ++utteranceRef.current;
                 const finishTitle = () => {
                     if (utteranceRef.current !== utterance || !isSpeakingRef.current) return;
                     speakingTitleRef.current = false;
+                    titleBodyIndexRef.current = null;
+                    currentIndexRef.current = nextIndex - 1;
                     speakNextSentence(false);
                 };
                 ttsService.speak(title, ttsRateRef.current, finishTitle, finishTitle);
@@ -526,14 +551,14 @@ export default function ReaderScreen() {
             }
         }
         
-        const nextIndex = replay ? currentIndexRef.current : currentIndexRef.current + 1;
+        titleBodyIndexRef.current = null;
         
         if (nextIndex >= 0 && nextIndex < sentencesRef.current.length) {
             currentIndexRef.current = nextIndex;
             setCurrentSentenceIndex(nextIndex); // UI sync
             
             const sentence = sentencesRef.current[nextIndex];
-            const sentenceWithNewline = sentence + '\n';
+            const sentenceWithNewline = readerSpeechText(sentence) + '\n';
             const utterance = ++utteranceRef.current;
             
             console.log(`[Reader] Speaking sentence ${nextIndex + 1}/${sentencesRef.current.length}${replay ? ' (replay)' : ''}`);
@@ -578,7 +603,7 @@ export default function ReaderScreen() {
             currentIndexRef.current = -1;
             speakNextSentence(false);
         }
-    }, [sentences]);
+    }, [goToNextChapter]);
 
     // Scroll to highlighted sentence
     useEffect(() => {
@@ -603,6 +628,8 @@ export default function ReaderScreen() {
         if (!isSpeaking) return;
         utteranceRef.current++;
         speakingTitleRef.current = false;
+        titlePendingRef.current = false;
+        titleBodyIndexRef.current = null;
         ttsService.stop();
         speakNextSentence();
         setIsPaused(false);
@@ -611,6 +638,10 @@ export default function ReaderScreen() {
     const skipBackward = () => {
         if (!isSpeaking) return;
         utteranceRef.current++;
+        speakingTitleRef.current = false;
+        titlePendingRef.current = false;
+        if (titleBodyIndexRef.current !== null) currentIndexRef.current = titleBodyIndexRef.current;
+        titleBodyIndexRef.current = null;
         ttsService.stop();
         // Move back 2 because speakNextSentence increments by 1
         currentIndexRef.current = Math.max(-1, currentIndexRef.current - 2);
@@ -644,13 +675,14 @@ export default function ReaderScreen() {
 
             setSentences(flatSentences);
             sentencesRef.current = flatSentences.map(s => s.text);
+            sentenceParagraphsRef.current = flatSentences.map(s => s.paraIdx);
             setCurrentSentenceIndex(-1);
             currentIndexRef.current = -1;
             titlePendingRef.current = true;
+            titleBodyIndexRef.current = null;
             const saved = cacheService.getObject<{ chapterIndex: number; sentenceIndex: number }>(`reader-progress-${id}`);
             if (saved?.chapterIndex === Number(chapterId) && saved.sentenceIndex > 0 && saved.sentenceIndex < flatSentences.length) {
                 currentIndexRef.current = saved.sentenceIndex - 1;
-                titlePendingRef.current = false;
             }
             
             setIsSpeaking(true);
@@ -658,7 +690,9 @@ export default function ReaderScreen() {
             isSpeakingRef.current = true;
             
             // Small delay to ensure state updates are settled
+            const utterance = ++utteranceRef.current;
             setTimeout(() => {
+                if (utteranceRef.current !== utterance) return;
                 speakNextSentence(false);
             }, 100);
         }
@@ -668,6 +702,7 @@ export default function ReaderScreen() {
         utteranceRef.current++;
         titlePendingRef.current = true;
         speakingTitleRef.current = false;
+        titleBodyIndexRef.current = null;
         ttsService.stop();
         setIsSpeaking(false);
         setIsPaused(false);
