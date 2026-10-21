@@ -1,5 +1,8 @@
 'use client';
 
+import { useChapterWindow } from '@/hooks/useChapterWindow';
+
+import { chapterParagraphs } from '@/lib/chapter-paragraphs';
 import { readerParagraphNarration } from '@/lib/chapter-narration';
 
 import { useState, useEffect, useRef } from 'react';
@@ -41,6 +44,7 @@ export default function ReadBookPage() {
     const [loading, setLoading] = useState(true);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+    const chapterWindow = useChapterWindow(book, currentChapterIndex, setBook, true);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [selectedVoice, setSelectedVoice] = useState('Microsoft Neerja Online (Natural) - English (India)');
     const [fontSize, setFontSize] = useState(20);
@@ -132,7 +136,7 @@ export default function ReadBookPage() {
     useEffect(() => {
         if (!book || !book.chapters[currentChapterIndex]) return;
 
-        const originalContent = book.chapters[currentChapterIndex].content;
+        const originalContent = book.chapters[currentChapterIndex].content || [];
 
         let newContent = originalContent.map((p: any) => {
             if (typeof p === 'string') return p;
@@ -150,6 +154,9 @@ export default function ReadBookPage() {
             }
             return String(p);
         });
+
+        // Also normalize older cached chapters stored as one multiline block.
+        newContent = newContent.flatMap(chapterParagraphs);
 
         replacementRules.forEach(rule => {
             try {
@@ -626,17 +633,19 @@ export default function ReadBookPage() {
 
     const fetchBookNetwork = async (id: string) => {
         try {
-            const res = await fetch(`/api/books/${id}`);
+            const res = await fetch(`/api/books/${id}?chapters=metadata`, { signal: AbortSignal.timeout(20000) });
             if (res.status === 401 || res.status === 403) {
                 router.push('/login');
                 return;
             }
             if (res.ok) {
                 const data = await res.json();
-                setBook(data);
-
-                // Save to cache
-                saveBookToCache(data).catch(err => console.error("Failed to cache book:", err));
+                setBook(previous => {
+                    const cached = new Map((previous && previous.id === data.id ? previous.chapters : []).map(c => [c.id, c]));
+                    const merged = { ...data, chapters: data.chapters.map((c: Chapter) => c.content === undefined && cached.has(c.id) ? { ...c, content: cached.get(c.id)?.content } : c) };
+                    saveBookToCache(merged).catch(err => console.error('Failed to cache book:', err));
+                    return merged;
+                });
 
                 // Reset TTS state when a new book is loaded
                 window.speechSynthesis.cancel();
@@ -1053,6 +1062,8 @@ export default function ReadBookPage() {
                                 </h2>
                             )}
 
+                            {chapterWindow.loading && <p role="status" className="py-4 text-text-secondary">Loading chapter...</p>}
+                            {chapterWindow.error && <div role="alert" className="py-4 text-error">{chapterWindow.error} <button onClick={chapterWindow.retry} className="underline">Retry</button></div>}
                             {/* Chapter Content */}
                             <div
                                 className={`prose prose-invert prose-p:text-text-primary prose-p:leading-loose font-serif max-w-none text-justify ${crimsonText.className}`}
@@ -1302,7 +1313,7 @@ export default function ReadBookPage() {
 
                             <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-background">
                                 <div className="space-y-6 font-serif text-lg leading-relaxed text-text-primary">
-                                    {currentChapter.content.map((originalParagraph, idx) => {
+                                    {(currentChapter.content || []).map((originalParagraph, idx) => {
                                         const correctedParagraph = correctedContent[idx];
                                         if (!correctedParagraph) return null;
 

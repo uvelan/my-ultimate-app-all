@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { readNovels, writeNovels, readSettings, SUPPORTED_SITES, ScrapedNovel } from '@/lib/scraper-db';
 import { randomUUID } from 'crypto';
+import { staleScrapeCutoff } from '@/lib/scraper-jobs';
 
 // GET /api/novelscraper/novels — list all scraped novels
 export async function GET() {
@@ -12,22 +13,55 @@ export async function GET() {
     }
 
     try {
-        const dbNovels = await prisma.novel.findMany({
-            orderBy: { createdAt: 'desc' }
+        // Compute progress in MongoDB; never transfer saved chapter text to poll status.
+        // Status reads must not contend with the worker by updating novel documents.
+        const rows = await prisma.novel.aggregateRaw({
+            pipeline: [
+                { $sort: { createdAt: -1 } },
+                { $project: {
+                    title: 1, sourceWebsiteId: 1, sourceLink: 1, imageLink: 1,
+                    status: 1, createdAt: 1, updatedAt: 1,
+                    progress: { $let: {
+                        vars: { chapters: { $cond: [{ $isArray: '$allChapters' }, '$allChapters', []] } },
+                        in: {
+                            total: { $size: '$$chapters' },
+                            saved: { $size: { $filter: { input: '$$chapters', as: 'c', cond: { $and: [
+                                { $eq: ['$$c.status', 'done'] },
+                                { $ne: [{ $ifNull: ['$$c.content', ''] }, ''] },
+                            ] } } } },
+                            failure: { $arrayElemAt: [{ $map: {
+                                input: { $filter: { input: '$$chapters', as: 'c', cond: { $eq: ['$$c.status', 'error'] } } },
+                                as: 'c', in: { title: '$$c.title', error: '$$c.error', attempts: '$$c.attempts' },
+                            } }, 0] },
+                        },
+                    } },
+                } },
+            ],
+            options: { maxTimeMS: 10_000 },
         });
-
-        // Map Prisma model properties to the old ScrapedNovel interface format temporarily so the frontend doesn't break entirely,
-        const novels: ScrapedNovel[] = dbNovels.map(n => ({
-            id: n.id,
-            title: n.title,
-            site: n.sourceWebsiteId || 'unknown',
-            sourceUrl: n.sourceLink,
-            cover: n.imageLink || undefined,
-            chaptersScraped: Array.isArray(n.allChapters) ? n.allChapters.length : 0,
-            status: n.status === 'PENDING' ? 'pending' : n.status === 'DONE' ? 'done' : n.status === 'SCRAPING' ? 'scraping' : 'error',
-            createdAt: n.createdAt.toISOString(),
-            updatedAt: n.updatedAt.toISOString(),
-        }));
+        const novels: ScrapedNovel[] = (rows as unknown as any[]).map(n => {
+            const updatedAt = new Date(n.updatedAt?.$date ?? n.updatedAt);
+            const status = ['SCRAPING', 'STOPPING', 'IMPORTING'].includes(n.status) && updatedAt < staleScrapeCutoff()
+                ? 'INTERRUPTED' : n.status === 'SCRAPING' && n.progress.total > 0 && n.progress.saved === n.progress.total ? 'IMPORTING' : n.status;
+            const chapter = n.progress?.failure;
+            return {
+                id: n._id?.$oid ?? n._id,
+                title: n.title,
+                site: n.sourceWebsiteId?.$oid ?? n.sourceWebsiteId ?? 'unknown',
+                sourceUrl: n.sourceLink,
+                cover: n.imageLink || undefined,
+                chaptersScraped: n.progress.saved,
+                totalChapters: n.progress.total,
+                status: status === 'IMPORTING' ? 'importing' : status === 'PENDING' ? 'pending' : status === 'DONE' ? 'done' : status === 'SCRAPING' ? 'scraping' : status === 'STOPPING' ? 'stopping' : status === 'PAUSED' ? 'paused' : status === 'INTERRUPTED' ? 'interrupted' : 'error',
+                error: status === 'IMPORT_ERROR' ? 'All chapters are saved, but the library import failed. Sync to retry the import.' : status === 'PAUSED' ? 'Paused. Sync to resume from the first unsaved chapter.'
+                    : status === 'INTERRUPTED' ? 'Worker stopped. Sync to resume.'
+                    : status === 'ERROR' ? (chapter?.error
+                        ? chapter.title + ': ' + chapter.error + (chapter.attempts > 1 ? ' (after ' + chapter.attempts + ' attempts)' : '')
+                        : 'Scraping stopped. Sync to retry the first unsaved chapter.') : undefined,
+                createdAt: new Date(n.createdAt?.$date ?? n.createdAt).toISOString(),
+                updatedAt: updatedAt.toISOString(),
+            };
+        });
 
         return NextResponse.json(novels);
     } catch (error) {

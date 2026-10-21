@@ -2,7 +2,12 @@ export const runtime = 'nodejs';
 import { verifyAuth } from '@/lib/auth-server';
 
 
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
+import { discoverFreeWebNovelChapters } from '@/lib/freewebnovel';
+import { matchesScraperSource } from '@/lib/scraper-url';
+import { startNovelSyncAsync } from '@/lib/chapter-scraper';
+import { fetchScraperResource } from '@/lib/scraper-fetch';
+import { staleScrapeCutoff } from '@/lib/scraper-jobs';
 import { prisma } from '@/lib/prisma';
 import * as cheerio from 'cheerio';
 
@@ -16,12 +21,19 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, retries 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
-            const res = await fetch(url, { ...options, signal: controller.signal });
+            const res = await fetchScraperResource(url, { ...options, signal: controller.signal });
             clearTimeout(timeoutId);
+            if (res.status === 403 || res.status === 429) {
+                throw Object.assign(new Error(res.status === 403
+                    ? 'The source website blocked the scraper (HTTP 403 / possible Cloudflare challenge). For NovelFull locally, use Open verification browser, complete verification, then retry.'
+                    : 'The source website is rate limiting requests (HTTP 429). Please try again later.'),
+                    { code: 'SOURCE_BLOCKED', retryable: false, status: 502 });
+            }
             if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
             return res;
         } catch (err: any) {
             clearTimeout(timeoutId);
+            if (err.retryable === false) throw err;
             lastErr = err;
             if (err.name !== 'AbortError' && tryCount < retries) {
                 await new Promise(r => setTimeout(r, 1000 * Math.pow(2, tryCount))); // Exponential backoff
@@ -39,7 +51,8 @@ export async function POST(req: NextRequest) {
 
     try {
         const body = await req.json();
-        const { siteId, sourceUrl } = body;
+        const { siteId, fromChapter, toChapter } = body;
+        const sourceUrl = typeof body.sourceUrl === 'string' ? body.sourceUrl.trim() : '';
 
         if (!siteId || !sourceUrl) {
             return NextResponse.json({ error: 'siteId and sourceUrl are required', code: 'MISSING_PARAMS', retryable: false }, { status: 400 });
@@ -50,12 +63,19 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Source website not found', code: 'INVALID_SITE_ID', retryable: false }, { status: 404 });
         }
 
-        const urlObj = new URL(sourceUrl);
-        if (!urlObj.hostname.includes(sourceSite.url) && !sourceSite.url.includes(urlObj.hostname.replace('www.', ''))) {
+        if (!matchesScraperSource(sourceUrl, sourceSite.url)) {
             return NextResponse.json({ error: 'URL hostname does not match the chosen Source Website', code: 'HOST_MISMATCH', retryable: false }, { status: 400 });
         }
-
-        const proxyUrl = process.env.SCRAPER_PROXY_URL ? process.env.SCRAPER_PROXY_URL : ''; // Future-proof for rotation
+        const urlObj = new URL(sourceUrl);
+        const start = fromChapter === '' || fromChapter == null ? 1 : Number(fromChapter);
+        const end = toChapter === '' || toChapter == null ? undefined : Number(toChapter);
+        if (!Number.isInteger(start) || start < 1 || (end !== undefined && (!Number.isInteger(end) || end < start))) {
+            return NextResponse.json({ error: 'Enter a valid chapter range', code: 'INVALID_RANGE', retryable: false }, { status: 400 });
+        }
+        const existing = await prisma.novel.findUnique({ where: { sourceLink: sourceUrl } });
+        if (existing && ['SCRAPING', 'STOPPING', 'IMPORTING'].includes(existing.status) && existing.updatedAt >= staleScrapeCutoff()) {
+            return NextResponse.json({ error: 'This novel is already being scraped' }, { status: 409 });
+        }
 
         console.info(`[Scraper] Initializing scrape for: ${sourceUrl}`);
         const response = await fetchWithTimeout(sourceUrl, {
@@ -112,6 +132,7 @@ export async function POST(req: NextRequest) {
                 const arrayBuffer = await imgRes.arrayBuffer();
                 const buffer = Buffer.from(arrayBuffer);
                 const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+                if (!contentType.toLowerCase().startsWith('image/')) throw new Error('Cover URL did not return an image');
                 base64Image = `data:${contentType};base64,${buffer.toString('base64')}`;
             } catch (err: any) {
                 console.error(`[Scraper] Failed to download or convert image from ${imageLink}:`, err.message);
@@ -121,7 +142,9 @@ export async function POST(req: NextRequest) {
         const chapters: { title: string, url: string, status: string }[] = [];
         const chapterSelector = tags.chapters || '#list-chapter a, .chapter-list a, .list-chapter a, ul.list-chapter li a';
 
-        if (urlObj.hostname.includes('novelfull')) {
+        if (/^(www\.)?freewebnovel\.com$/i.test(urlObj.hostname)) {
+            chapters.push(...await discoverFreeWebNovelChapters(html, sourceUrl, url => fetchWithTimeout(url)));
+        } else if (urlObj.hostname.includes('novelfull')) {
             const novelIdMatch = html.match(/(?:novelId|data-novel-id)\s*[:=]\s*['"]?(\d+)['"]?/i);
             if (novelIdMatch && novelIdMatch[1]) {
                 try {
@@ -130,11 +153,11 @@ export async function POST(req: NextRequest) {
                     });
                     const ajaxHtml = await ajaxRes.text();
                     const $ajax = cheerio.load(ajaxHtml);
-                    $ajax('select option').each((_, el) => {
+                    $ajax('option').each((_, el) => {
                         const href = $ajax(el).attr('value');
                         const text = $ajax(el).text().trim();
                         if (href) {
-                            const absHref = new URL(href, urlObj.origin).href;
+                            const absHref = new URL(href, sourceUrl).href;
                             chapters.push({ title: text || `Chapter ${chapters.length + 1}`, url: absHref, status: 'pending' });
                         }
                     });
@@ -157,15 +180,16 @@ export async function POST(req: NextRequest) {
                         });
                         const chaptersHtml = await chaptersRes.text();
                         const $c = cheerio.load(chaptersHtml);
-                        const chapterLinks = $c('#list-chapter a, .chapter-list a, ul.list-chapter li a');
+                        const chapterLinks = $c(chapterSelector);
 
                         if (chapterLinks.length === 0) break;
 
+                        const previousCount = chapters.length;
                         chapterLinks.each((_, el) => {
                             const href = $c(el).attr('href');
-                            const text = $c(el).text().trim();
+                            const text = $c(el).find('.chapter-title').text().trim() || $c(el).attr('title') || $c(el).text().trim();
                             if (href) {
-                                const absHref = new URL(href, urlObj.origin).href;
+                                    const absHref = new URL(href, `${urlObj.origin}/book/${slug}/chapters?page=${page}`).href;
                                 if (!chapterSet.has(absHref)) {
                                     chapterSet.add(absHref);
                                     chapters.push({ title: text || `Chapter ${chapters.length + 1}`, url: absHref, status: 'pending' });
@@ -174,7 +198,7 @@ export async function POST(req: NextRequest) {
                         });
 
                         const nextLink = $c(`a[href*="page=${page + 1}"]`);
-                        if (nextLink.length === 0) hasMore = false;
+                        if (chapters.length === previousCount || nextLink.length === 0) hasMore = false;
                         else page++;
                     } catch (e) {
                         console.error(`NovelFire chapter fetch failed for page ${page}. Breaking loop.`, e);
@@ -190,7 +214,7 @@ export async function POST(req: NextRequest) {
                 const href = $(el).attr('href');
                 let text = $(el).text().trim() || $(el).attr('title') || '';
                 if (href) {
-                    const absHref = new URL(href, urlObj.origin).href;
+                    const absHref = new URL(href, sourceUrl).href;
                     if (!chapterSet.has(absHref)) {
                         chapterSet.add(absHref);
                         chapters.push({ title: text || `Chapter ${chapters.length + 1}`, url: absHref, status: 'pending' });
@@ -200,13 +224,23 @@ export async function POST(req: NextRequest) {
         }
 
         console.info(`[Scraper] Successfully extracted ${chapters.length} chapters for ${title}.`);
+        const selectedChapters = chapters.slice(start - 1, end);
+        if (selectedChapters.length === 0) {
+            return NextResponse.json({ error: chapters.length === 0
+                ? 'No chapters found. Check the source chapter selector or whether the website blocks automated requests.'
+                : 'No chapters found in the requested range.', code: 'NO_CHAPTERS', retryable: false }, { status: 422 });
+        }
+        const previousChapters = new Map((Array.isArray(existing?.allChapters) ? existing.allChapters : [])
+            .filter((c: any) => c?.status === 'done' && c.content)
+            .map((c: any) => [c.url, c]));
+        const chaptersToSave = selectedChapters.map(c => previousChapters.get(c.url) || c);
         
         const novelData = {
              title,
              description,
-             imageLink: base64Image || undefined,
-             allChapters: chapters.length > 0 ? chapters : undefined,
-             status: 'PENDING',
+             imageLink: base64Image || imageLink || undefined,
+             allChapters: chaptersToSave,
+             status: 'SCRAPING',
              wordReplacementSetting: sourceSite.wordReplacementSetting
         };
 
@@ -217,18 +251,19 @@ export async function POST(req: NextRequest) {
                 ...novelData,
                 sourceLink: sourceUrl,
                 sourceWebsiteId: siteId,
-                allChapters: chapters.length > 0 ? chapters : [],
+                allChapters: chaptersToSave,
             }
         });
 
+        after(() => startNovelSyncAsync(novel.id, auth.user!.id));
         return NextResponse.json(novel, { status: 201 });
 
     } catch (error: any) {
         console.error("[Scraper] Catastrophic Error:", error);
         return NextResponse.json({ 
             error: error.message || 'Scrape link failed',
-            code: 'INTERNAL_ERROR',
-            retryable: true 
-        }, { status: 500 });
+            code: error.code || 'INTERNAL_ERROR',
+            retryable: error.retryable !== false
+        }, { status: error.status === 502 ? 502 : 500 });
     }
 }

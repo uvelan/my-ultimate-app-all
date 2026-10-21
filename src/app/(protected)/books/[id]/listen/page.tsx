@@ -1,5 +1,7 @@
 'use client';
 
+import { useChapterWindow } from '@/hooks/useChapterWindow';
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
@@ -61,6 +63,7 @@ export default function ListenPage() {
     const chapterRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+    const chapterWindow = useChapterWindow(book, currentChapterIndex, setBook, false);
     const currentChapterIndexRef = useRef(currentChapterIndex);
     currentChapterIndexRef.current = currentChapterIndex;
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -194,7 +197,7 @@ export default function ListenPage() {
 
     const fetchBook = async (id: string, signal: AbortSignal) => {
         try {
-            const res = await authenticatedFetch(`/api/books/${id}`, { signal });
+            const res = await authenticatedFetch(`/api/books/${id}?chapters=metadata`, { signal });
             if (signal.aborted) return;
             if (res.status === 401 || res.status === 403) {
                 router.push('/login');
@@ -342,7 +345,7 @@ export default function ListenPage() {
 
     // Keep the current chapter and four successors, on disk and in memory.
     useEffect(() => {
-        if (!bookId || !chapterId || !preferencesReady) return;
+        if (!bookId || !chapterId || !preferencesReady || chapterWindow.loading || chapterWindow.error || chapterContent === undefined) return;
 
         let active = true;
         const windowController = new AbortController();
@@ -550,7 +553,7 @@ export default function ListenPage() {
             active = false;
             windowController.abort();
         };
-    }, [currentChapterIndex, chapterId, chapterTitle, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount]);
+    }, [currentChapterIndex, chapterId, chapterTitle, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount, chapterWindow.loading, chapterWindow.error]);
 
     const handlePlaybackError = (error: unknown, requestedSource: string) => {
         const audio = audioRef.current;
@@ -1108,6 +1111,8 @@ export default function ListenPage() {
                         <div className="min-w-0 flex-1 text-left">
                             <h2 className="text-lg sm:text-xl font-bold leading-snug text-white mb-2 break-words">
                                 {currentChapter?.title || 'Unknown Chapter'}
+                                {chapterWindow.loading && <span role="status" className="block text-sm">Loading chapter...</span>}
+                                {chapterWindow.error && <span role="alert" className="block text-sm">{chapterWindow.error} <button onClick={chapterWindow.retry} className="underline">Retry</button></span>}
                             </h2>
                             <p className="text-[#a0aec0] text-sm font-medium">Chapter {currentChapterIndex + 1} of {book.chapters.length}</p>
 

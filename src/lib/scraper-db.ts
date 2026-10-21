@@ -46,7 +46,7 @@ export interface ScrapedNovel {
     totalChapters?: number;
     fromChapter?: number;
     toChapter?: number;
-    status: 'pending' | 'scraping' | 'done' | 'error';
+    status: 'pending' | 'scraping' | 'done' | 'error' | 'interrupted' | 'stopping' | 'paused' | 'importing';
     epubPath?: string;
     createdAt: string;
     updatedAt: string;

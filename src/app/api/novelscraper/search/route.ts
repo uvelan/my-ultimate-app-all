@@ -2,6 +2,8 @@ import { verifyAuth } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import * as cheerio from 'cheerio';
+import { scraperSourceUrl } from '@/lib/scraper-url';
+import { fetchScraperResource } from '@/lib/scraper-fetch';
 
 export async function POST(req: NextRequest) {
     const auth = await verifyAuth();
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Source website not found' }, { status: 404 });
         }
 
-        const urlObj = new URL(sourceSite.url);
+        const urlObj = scraperSourceUrl(sourceSite.url);
         let searchUrl = '';
 
         // Determine a basic search strategy based on known sites, or use a generic one
@@ -34,8 +36,8 @@ export async function POST(req: NextRequest) {
         } else if (urlObj.hostname.includes('wuxiaworld')) {
             searchUrl = `${urlObj.origin}/search?query=${encodeURIComponent(query)}`;
         } else if (urlObj.hostname.includes('novelfull')) {
-            return NextResponse.json({ error: 'Search by Name is protected by Cloudflare on this site. Please copy the link from your browser and use Search by Link instead.' }, { status: 403 });
-        } else if (urlObj.hostname.includes('novelfire')) {
+            searchUrl = `${urlObj.origin}/search?keyword=${encodeURIComponent(query.trim())}`;
+        } else if ((urlObj.hostname.includes('novelfire') || /^(www\.)?freewebnovel\.com$/i.test(urlObj.hostname))) {
             searchUrl = `${urlObj.origin}/search?keyword=${encodeURIComponent(query)}`;
         } else {
             // Generic fallback WordPress-style search
@@ -43,7 +45,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Fetch the HTML
-        const response = await fetch(searchUrl, {
+        const response = await fetchScraperResource(searchUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml',
@@ -51,7 +53,9 @@ export async function POST(req: NextRequest) {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to fetch Search URL. Status: ${response.status}`);
+            return NextResponse.json({ error: response.status === 403
+                ? 'The source blocked search (HTTP 403). Start FlareSolverr or complete browser verification, then retry.'
+                : `Search website returned HTTP ${response.status}` }, { status: 502 });
         }
 
         const html = await response.text();
@@ -59,6 +63,23 @@ export async function POST(req: NextRequest) {
 
         // Attempt to generically extract search results
         const results: { title: string, url: string, image?: string }[] = [];
+        if (urlObj.hostname.includes('novelfull') || /^(www\.)?freewebnovel\.com$/i.test(urlObj.hostname)) {
+            // Both domains place recommendations outside these result containers.
+            $('h3.truyen-title a, .rank-list .li .tit a').each((_, el) => {
+                const link = $(el);
+                const href = link.attr('href');
+                if (!href) return;
+                const url = new URL(href, searchUrl);
+                if (url.origin !== urlObj.origin) return;
+                if (/freewebnovel\.com$/i.test(urlObj.hostname) && !/^\/novel\/[^/]+$/.test(url.pathname)) return;
+                const title = link.attr('title') || link.text().trim();
+                const image = link.closest('.row, .li').find('img').first().attr('src');
+                if (title && !results.some(r => r.url === url.href)) {
+                    results.push({ title, url: url.href, image: image ? new URL(image, searchUrl).href : undefined });
+                }
+            });
+            return NextResponse.json({ results: results.slice(0, 10) });
+        }
 
         // We check common selectors for search result items
         // This is a naive heuristic that attempts to find links resembling novel containers
@@ -108,6 +129,6 @@ export async function POST(req: NextRequest) {
 
     } catch (error: any) {
         console.error("Search API Error:", error);
-        return NextResponse.json({ error: error.message || 'Search failed' }, { status: 500 });
+        return NextResponse.json({ error: error.message || 'Search failed' }, { status: error.status === 502 ? 502 : 500 });
     }
 }

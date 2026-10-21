@@ -20,7 +20,8 @@ export async function GET(
             where: { id: id },
             include: {
                 chapters: {
-                    orderBy: { order: 'asc' }
+                    orderBy: { order: 'asc' },
+                    ...(req.nextUrl.searchParams.get('chapters') === 'metadata' ? { select: { id: true, title: true, order: true } } : {})
                 }
             }
         });

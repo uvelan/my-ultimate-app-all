@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { fetchScraperList } from '@/lib/scraper-client';
+import { matchesScraperSource } from '@/lib/scraper-url';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -23,7 +25,8 @@ import {
     Search,
     BookOpen,
     Edit3,
-    X
+    X,
+    Square
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -52,7 +55,7 @@ interface ScrapedNovel {
     totalChapters?: number;
     fromChapter?: number;
     toChapter?: number;
-    status: 'pending' | 'scraping' | 'done' | 'error';
+    status: 'pending' | 'scraping' | 'done' | 'error' | 'interrupted' | 'stopping' | 'paused' | 'importing';
     createdAt: string;
     updatedAt: string;
     error?: string;
@@ -87,20 +90,33 @@ export default function NovelScraperPage() {
     const [loadingSites, setLoadingSites] = useState(true);
     const [loadingSettings, setLoadingSettings] = useState(false);
 
-    const fetchSites = useCallback(async () => {
-        try {
-            const res = await fetch('/api/novelscraper/sources');
-            if (res.ok) setSites(await res.json());
-        } catch { toast.error('Failed to load websites'); }
-        finally { setLoadingSites(false); }
+    const [novelsError, setNovelsError] = useState<string | null>(null);
+    const [sitesError, setSitesError] = useState<string | null>(null);
+    const novelsRequest = useRef<Promise<void> | null>(null);
+    const sitesRequest = useRef<Promise<void> | null>(null);
+
+    const fetchSites = useCallback(() => {
+        if (sitesRequest.current) return sitesRequest.current;
+        sitesRequest.current = (async () => {
+            try {
+                setSites(await fetchScraperList<SourceSite>('/api/novelscraper/sources'));
+                setSitesError(null);
+            } catch (error) { setSitesError(error instanceof Error ? error.message : 'Failed to load websites'); }
+            finally { setLoadingSites(false); sitesRequest.current = null; }
+        })();
+        return sitesRequest.current;
     }, []);
 
-    const fetchNovels = useCallback(async () => {
-        try {
-            const res = await fetch('/api/novelscraper/novels');
-            if (res.ok) setNovels(await res.json());
-        } catch { toast.error('Failed to load novels'); }
-        finally { setLoadingNovels(false); }
+    const fetchNovels = useCallback(() => {
+        if (novelsRequest.current) return novelsRequest.current;
+        novelsRequest.current = (async () => {
+            try {
+                setNovels(await fetchScraperList<ScrapedNovel>('/api/novelscraper/novels'));
+                setNovelsError(null);
+            } catch (error) { setNovelsError(error instanceof Error ? error.message : 'Failed to load novels'); }
+            finally { setLoadingNovels(false); novelsRequest.current = null; }
+        })();
+        return novelsRequest.current;
     }, []);
 
     const fetchSettings = useCallback(async () => {
@@ -114,6 +130,11 @@ export default function NovelScraperPage() {
 
     useEffect(() => { fetchNovels(); fetchSites(); }, [fetchNovels, fetchSites]);
     useEffect(() => {
+        if (!novels.some(n => n.status === 'scraping' || n.status === 'pending' || n.status === 'stopping' || n.status === 'importing')) return;
+        const timer = setInterval(fetchNovels, 3000);
+        return () => clearInterval(timer);
+    }, [novels, fetchNovels]);
+    useEffect(() => {
         if (activeTab === 'settings') fetchSettings();
     }, [activeTab, fetchSettings]);
 
@@ -124,6 +145,16 @@ export default function NovelScraperPage() {
             if (res.ok) { toast.success('Sync started!', { id: `sync-${id}` }); fetchNovels(); }
             else { const d = await res.json(); toast.error(d.error || 'Sync failed', { id: `sync-${id}` }); }
         } catch { toast.error('Error syncing', { id: `sync-${id}` }); }
+    };
+
+    const handleStop = async (id: string) => {
+        try {
+            const response = await fetch(`/api/novelscraper/novels/${id}/stop`, { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Could not stop job');
+            toast.success(data.status === 'STOPPING' ? 'Stopping after the current chapter finishes saving.' : 'Job is stopped.');
+            await fetchNovels();
+        } catch (error: any) { toast.error(error.message || 'Could not stop job'); }
     };
 
     const handleDownload = (id: string) => {
@@ -181,11 +212,16 @@ export default function NovelScraperPage() {
                             </TabsList>
 
                             <TabsContent value="dashboard">
+                                {sitesError && <div role="alert" className="mb-4 text-sm text-text-secondary">
+                                    Websites: {sitesError} <button className="text-primary underline" onClick={fetchSites}>Retry</button>
+                                </div>}
                                 <DashboardTab
                                     sites={sites}
                                     novels={novels}
-                                    loading={loadingNovels || loadingSites}
+                                    loading={loadingNovels}
+                                    error={novelsError}
                                     onSync={handleSync}
+                                    onStop={handleStop}
                                     onDownload={handleDownload}
                                     onAddToDb={handleAddToDb}
                                     onDelete={handleDelete}
@@ -240,12 +276,14 @@ export default function NovelScraperPage() {
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
 
 function DashboardTab({
-    sites, novels, loading, onSync, onDownload, onAddToDb, onDelete, onGenerate, onRefresh
+    sites, novels, loading, error, onSync, onStop, onDownload, onAddToDb, onDelete, onGenerate, onRefresh
 }: {
     sites: SourceSite[];
     novels: ScrapedNovel[];
     loading: boolean;
+    error: string | null;
     onSync: (id: string) => void;
+    onStop: (id: string) => Promise<void>;
     onDownload: (id: string) => void;
     onAddToDb: (id: string) => void;
     onDelete: (id: string, title: string) => void;
@@ -260,6 +298,15 @@ function DashboardTab({
             </Stack>
         );
     }
+
+    const errorNotice = error ? (
+        <div role="alert" className="rounded-xl border border-border p-4 text-sm text-text-secondary">
+            Could not refresh novels: {error}
+            {novels.length > 0 && ' Showing the last loaded status.'}
+            <Button variant="ghost" size="sm" onClick={onRefresh}>Retry</Button>
+        </div>
+    ) : null;
+    if (error && novels.length === 0) return errorNotice;
 
     if (novels.length === 0) {
         return (
@@ -282,6 +329,7 @@ function DashboardTab({
 
     return (
         <Stack gap="space-6">
+            {errorNotice}
             <Stack direction="row" align="center" justify="between">
                 <Stack direction="row" align="center" gap="space-2">
                     <Typography variant="h3">Scraped Novels</Typography>
@@ -294,13 +342,14 @@ function DashboardTab({
                 </Button>
             </Stack>
 
-            <Grid cols={{ sm: 1, md: 2, lg: 3, xl: 4 }} gap="space-6">
+            <Grid cols={{ base: 1, lg: 2, xl: 3 }} gap="space-4" className="w-full items-stretch">
                 {novels.map(novel => (
                     <NovelCard
                         key={novel.id}
                         novel={novel}
                         sites={sites}
                         onSync={onSync}
+                        onStop={onStop}
                         onDownload={onDownload}
                         onAddToDb={onAddToDb}
                         onDelete={onDelete}
@@ -314,114 +363,108 @@ function DashboardTab({
 
 // ─── Novel Card ───────────────────────────────────────────────────────────────
 
-function NovelCard({ sites, novel, onSync, onDownload, onAddToDb, onDelete, onRefresh }: {
+function NovelCard({ sites, novel, onSync, onStop, onDownload, onAddToDb, onDelete, onRefresh }: {
     sites: SourceSite[];
     novel: ScrapedNovel;
     onSync: (id: string) => void;
+    onStop: (id: string) => Promise<void>;
     onDownload: (id: string) => void;
     onAddToDb: (id: string) => void;
     onDelete: (id: string, title: string) => void;
     onRefresh: () => void;
 }) {
     const siteInfo = sites.find(s => s.id === novel.site);
+    const [openingBrowser, setOpeningBrowser] = useState(false);
+    const [requestingStop, setRequestingStop] = useState(false);
+    const [isLocal, setIsLocal] = useState(false);
+    useEffect(() => {
+        setIsLocal(['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname));
+    }, []);
     const statusMap = {
         pending: { label: 'Pending', variant: 'warning' as const, icon: Clock },
+        importing: { label: 'Adding to library', variant: 'primary' as const, icon: Clock },
         scraping: { label: 'Scraping', variant: 'primary' as const, icon: Zap },
         done: { label: 'Done', variant: 'success' as const, icon: CheckCircle2 },
         error: { label: 'Error', variant: 'error' as const, icon: XCircle },
+        interrupted: { label: 'Interrupted', variant: 'warning' as const, icon: Clock },
+        stopping: { label: 'Stopping', variant: 'warning' as const, icon: Clock },
+        paused: { label: 'Paused', variant: 'secondary' as const, icon: Clock },
     };
-
     const status = statusMap[novel.status];
     const StatusIcon = status.icon;
+    const importing = novel.status === 'importing';
+    const busy = novel.status === 'scraping' || novel.status === 'stopping' || importing;
+    const stopping = novel.status === 'stopping' || requestingStop;
+    const openBrowser = async () => {
+        setOpeningBrowser(true);
+        try {
+            const response = await fetch('/api/novelscraper/browser-session', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceUrl: novel.sourceUrl }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Could not open verification browser');
+            toast.success(data.verificationRequired
+                ? 'Complete verification in the browser window, then click Sync on this card.'
+                : 'Browser ready. Click Sync to resume.');
+        } catch (error: any) { toast.error(error.message || 'Could not open verification browser'); }
+        finally { setOpeningBrowser(false); }
+    };
 
     return (
-        <Card className="group overflow-hidden flex flex-col h-full border-border/50 hover:border-primary/50 transition-premium">
-            <div className="relative aspect-[3/4] overflow-hidden bg-secondary/50">
-                {novel.cover ? (
-                    <img src={novel.cover} alt={novel.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                ) : (
-                    <Stack align="center" justify="center" className="w-full h-full bg-gradient-to-br from-secondary/80 to-background/50 text-text-muted">
-                        <BookOpen className="w-12 h-12 opacity-20" />
-                        <Typography variant="caption" className="mt-2 opacity-50 uppercase tracking-widest font-bold">
-                            {siteInfo?.name || novel.site}
-                        </Typography>
-                    </Stack>
-                )}
-                <div className="absolute top-2 right-2">
-                    <Badge variant={status.variant} className="backdrop-blur-md bg-opacity-80 shadow-lg">
-                        <StatusIcon className={cn("w-3 h-3 mr-1", novel.status === 'scraping' && "animate-pulse")} />
-                        {status.label}
-                    </Badge>
+        <Card className="flex h-full min-w-0 w-full flex-col p-3 border-border/50 hover:translate-y-0">
+            <div className="flex flex-1 items-start gap-3">
+                <div className="h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-background/50">
+                    {novel.cover ? (
+                        <img src={novel.cover} alt={novel.title} className="h-full w-full object-cover" />
+                    ) : (
+                        <div className="flex h-full items-center justify-center text-text-muted">
+                            <BookOpen className="h-7 w-7 opacity-40" />
+                        </div>
+                    )}
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-start justify-between gap-1.5">
+                        <h3 className="min-w-0 flex-1 text-sm font-semibold leading-snug line-clamp-2" title={novel.title}>{novel.title}</h3>
+                        <Badge variant={status.variant} className="shrink-0 px-2 py-0.5 text-[10px]">
+                            <StatusIcon className={cn('mr-1 h-3 w-3', busy && 'animate-pulse')} />
+                            {status.label}
+                        </Badge>
+                    </div>
+                    <p className="flex items-center gap-1 text-xs text-text-muted"><Globe className="h-3 w-3 shrink-0" />{siteInfo?.name || novel.site}</p>
+                    <p className="text-xs text-text-secondary">{novel.chaptersScraped} / {novel.totalChapters ?? '?'} chapters saved</p>
+                    {importing && <p className="text-xs text-text-secondary">All chapters saved. Adding them to your library...</p>}
+                    {novel.error && (
+                        <details className="text-xs leading-relaxed text-warning">
+                            <summary className="cursor-pointer">{novel.error.includes('403') ? 'NovelFull blocked request (403)' : novel.status === 'paused' ? 'Paused. Sync to resume.' : novel.status === 'interrupted' ? 'Worker stopped. Sync to resume.' : 'Scraping stopped. View error'}</summary>
+                            <p className="mt-1 break-words">{novel.error}</p>
+                        </details>
+                    )}
                 </div>
             </div>
-
-            <CardContent className="p-space-4 flex-1 flex flex-col justify-between">
-                <Stack gap="space-2">
-                    <Typography variant="small" className="font-bold line-clamp-2 leading-tight group-hover:text-primary transition-colors" title={novel.title}>
-                        {novel.title}
-                    </Typography>
-                    <Stack gap="space-1" className="text-caption text-text-muted">
-                        <Typography variant="caption" className="flex items-center gap-1">
-                            <Globe className="w-3 h-3" />
-                            {siteInfo?.name || novel.site}
-                        </Typography>
-                        {novel.chaptersScraped > 0 && (
-                            <Typography variant="caption" className="flex items-center gap-1">
-                                <Search className="w-3 h-3" />
-                                {novel.chaptersScraped} chapters
-                            </Typography>
-                        )}
-                        {(novel.fromChapter || novel.toChapter) && (
-                            <Typography variant="caption" className="text-primary/70 font-medium">
-                                Ch. {novel.fromChapter ?? 1} – {novel.toChapter ?? '∞'}
-                            </Typography>
-                        )}
-                    </Stack>
-                </Stack>
-
-                <Stack gap="space-2" direction="row" className="mt-4 pt-4 border-t border-border/50">
-                    <Button 
-                        variant="secondary" 
-                        size="sm" 
-                        className="flex-1 p-0 h-9" 
-                        onClick={() => onSync(novel.id)} 
-                        disabled={novel.status === 'scraping'}
-                        title={novel.status === 'scraping' ? 'Scraping in progress...' : 'Sync / Re-scrape'}
-                    >
-                        <RefreshCw className={cn("w-4 h-4", novel.status === 'scraping' && "animate-spin")} />
+            <div className="mt-3 flex items-center gap-1.5 border-t border-border/50 pt-2">
+                {importing ? (
+                    <span role="status" className="text-xs text-text-secondary">Adding to library...</span>
+                ) : busy ? (
+                    <Button variant="secondary" size="sm" className="h-8 shrink-0 gap-1 px-2 text-xs text-error" disabled={stopping}
+                        onClick={async () => { setRequestingStop(true); try { await onStop(novel.id); } finally { setRequestingStop(false); } }}
+                        title="Stop after the current chapter finishes saving">
+                        <Square className="h-3.5 w-3.5" />{stopping ? 'Stopping…' : 'Stop'}
                     </Button>
-                    <Button 
-                        variant="secondary" 
-                        size="sm" 
-                        className="flex-1 p-0 h-9" 
-                        onClick={() => onDownload(novel.id)} 
-                        disabled={novel.status !== 'done'}
-                        title="Download EPUB"
-                    >
-                        <Download className="w-4 h-4" />
+                ) : (
+                    <Button variant="secondary" size="sm" className="h-8 shrink-0 gap-1 px-2 text-xs" onClick={() => onSync(novel.id)} title="Resume from first unsaved chapter">
+                        <RefreshCw className="h-3.5 w-3.5" />Sync
                     </Button>
-                    <Button 
-                        variant="secondary" 
-                        size="sm" 
-                        className="flex-1 p-0 h-9" 
-                        onClick={() => onAddToDb(novel.id)} 
-                        disabled={novel.status !== 'done'}
-                        title="Add to Book Library"
-                    >
-                        <Database className="w-4 h-4" />
-                    </Button>
-                    <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="p-0 w-9 h-9 text-error hover:bg-error/10" 
-                        onClick={() => onDelete(novel.id, novel.title)} 
-                        disabled={novel.status === 'scraping'}
-                        title={novel.status === 'scraping' ? 'Cannot delete while scraping' : 'Delete'}
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </Button>
-                </Stack>
-            </CardContent>
+                )}
+                {isLocal && /novelfull\.(net|com)/i.test(novel.sourceUrl) && !busy && (
+                    <Button variant="secondary" size="sm" className="h-8 w-14 shrink-0 px-2 text-xs" onClick={openBrowser} isLoading={openingBrowser} title="Open verification browser" aria-label="Open verification browser">{openingBrowser ? null : 'Verify'}</Button>
+                )}
+                <div className="ml-auto flex shrink-0 items-center">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onDownload(novel.id)} disabled={novel.status !== 'done'} title="Download EPUB" aria-label="Download EPUB"><Download className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onAddToDb(novel.id)} disabled={novel.status !== 'done'} title="Add to Book Library" aria-label="Add to Book Library"><Database className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-error" onClick={() => onDelete(novel.id, novel.title)} disabled={busy} title="Delete" aria-label="Delete novel"><Trash2 className="h-4 w-4" /></Button>
+                </div>
+            </div>
         </Card>
     );
 }
@@ -753,10 +796,36 @@ function GenerateModal({ sites, onClose, onSuccess }: {
     const [searchMode, setSearchMode] = useState<'link' | 'name'>('link');
     const [searchResults, setSearchResults] = useState<{ title: string, url: string, image?: string }[] | null>(null);
     const [searching, setSearching] = useState(false);
+    const [searchError, setSearchError] = useState('');
+    const [openingBrowser, setOpeningBrowser] = useState(false);
+    const [isLocal, setIsLocal] = useState(false);
+    useEffect(() => {
+        setIsLocal(['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname));
+    }, []);
+
+    const openVerificationBrowser = async () => {
+        if (!sourceUrl.trim()) { toast.error('Enter the novel URL first'); return; }
+        setOpeningBrowser(true);
+        try {
+            const res = await fetch('/api/novelscraper/browser-session', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceUrl: sourceUrl.trim() }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not open verification browser');
+            toast.success(data.verificationRequired
+                ? 'Complete verification in the browser window, then click Generate here.'
+                : 'Browser session ready. Click Generate to scrape.');
+        } catch (error: any) {
+            toast.error(error.message || 'Could not open verification browser');
+        } finally { setOpeningBrowser(false); }
+    };
 
     const handleSearchByName = async () => {
         if (!novelName) { toast.error('Enter a novel name'); return; }
         setSearching(true);
+        setSearchError('');
+        setSearchResults(null);
         try {
             const res = await fetch('/api/novelscraper/search', {
                 method: 'POST',
@@ -767,9 +836,11 @@ function GenerateModal({ sites, onClose, onSuccess }: {
                 const data = await res.json();
                 setSearchResults(data.results || []);
             } else {
-                toast.error('Search failed');
+                const data = await res.json();
+                setSearchError(data.error || 'Search failed');
+                toast.error(data.error || 'Search failed');
             }
-        } catch { toast.error('Error searching'); }
+        } catch { setSearchError('Could not reach search. Please retry.'); toast.error('Error searching'); }
         setSearching(false);
     };
 
@@ -779,7 +850,7 @@ function GenerateModal({ sites, onClose, onSuccess }: {
         if (searchMode === 'link') {
             if (!sourceUrl) { toast.error('Please enter a URL'); return; }
             const selectedSiteData = sites.find(s => s.id === site);
-            if (selectedSiteData && !sourceUrl.includes(selectedSiteData.url) && !sourceUrl.includes(selectedSiteData.url.replace('www.', ''))) {
+            if (selectedSiteData && !matchesScraperSource(sourceUrl, selectedSiteData.url)) {
                 toast.error(`URL must belong to ${selectedSiteData.name} (${selectedSiteData.url})`);
                 return;
             }
@@ -859,6 +930,17 @@ function GenerateModal({ sites, onClose, onSuccess }: {
                             onChange={e => setSourceUrl(e.target.value)}
                             required
                         />
+                        {isLocal && /novelfull\.(net|com)/i.test(sites.find(s => s.id === site)?.url || '') && (
+                            <Stack gap="space-2">
+                                <Button type="button" variant="secondary" onClick={openVerificationBrowser} isLoading={openingBrowser}>
+                                    Open verification browser
+                                </Button>
+                                <Typography variant="caption" className="text-text-muted">
+                                    If NovelFull blocks the request, open its browser window and complete verification yourself.
+                                    Then click Generate. Keep that window open while scraping. Verification may still be refused by the website.
+                                </Typography>
+                            </Stack>
+                        )}
                         <Stack direction="row" gap="space-4">
                             <Input
                                 label="From Chapter"
@@ -902,6 +984,7 @@ function GenerateModal({ sites, onClose, onSuccess }: {
                             </Button>
                         </div>
 
+                        {searchError && <p role="alert" className="text-sm text-error">{searchError}</p>}
                         {searchResults !== null && (
                             <Stack gap="space-2">
                                 <Typography variant="caption" className="font-medium text-text-muted">Search Results</Typography>

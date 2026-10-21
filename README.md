@@ -51,6 +51,45 @@ A production-ready Authentication System built with Next.js 16 (App Router), Rea
     npm run dev
     ```
 
+## Local NovelFull browser verification
+
+Run the development server and open the app at `http://127.0.0.1:3000`.
+In Novel Scraper, select NovelFull and enter a specific novel URL. Click
+**Open verification browser**, complete any verification yourself in the new
+Chromium window, and then click **Generate** in the app. Chapter downloads reuse
+that browser session. Keep the window open; an idle session closes after 15 minutes.
+
+Chapters load one at a time. The browser waits up to two minutes for chapter text
+to appear and settle, and the database save must finish before it opens the next
+chapter. A load or save failure stops the sync at that chapter. Complete any
+verification, then use **Sync** to retry; already saved chapters are skipped.
+
+Running novel cards show **Stop**. This requests a pause after the current chapter
+has been saved; **Stopping** remains visible until the worker acknowledges it.
+The card then shows **Paused**, and **Sync** resumes at the first unsaved chapter.
+
+Both `novelfull.net` and `novelfull.com` support this verification flow. Add/select
+each domain as a separate source; verification cookies remain scoped to its domain.
+
+To use FlareSolverr for blocked NovelFull searches and downloads, run its service
+and set `FLARESOLVERR_URL=http://127.0.0.1:8191/v1` in `.env.local`, then restart
+the app. Hosted deployments need a reachable, protected FlareSolverr service URL.
+
+FlareSolverr sessions are reused per website and closed after two minutes of idle
+time. Fast requests skip media downloads and fixed waits. Delayed/empty chapter
+content is retried with media enabled and an additional rendering wait. Temporary
+load failures get up to three attempts with backoff; HTTP 429 honors `Retry-After`
+up to 30 seconds, then stops for a manual retry if a longer wait is needed. Database
+save failures stop immediately without opening another chapter. Chapter logs include
+load, save and total duration. Set `SCRAPER_CHAPTER_DELAY_MS` to add a successful
+chapter delay when needed (default `0`, capped at `10000`).
+
+This uses the project's existing Puppeteer dependency. If Chromium is missing, run
+`npx puppeteer browsers install chrome`. Browser verification is restricted to
+authenticated, same-origin requests on the local development server; hosted Vercel
+deployments cannot open a browser on your computer. It does not automatically
+solve CAPTCHAs or guarantee that Cloudflare will accept the browser session.
+
 ## Deployment (Vercel)
 
 1.  Push code to GitHub.

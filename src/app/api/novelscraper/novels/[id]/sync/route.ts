@@ -1,81 +1,39 @@
-import { verifyAuth } from '@/lib/auth-server';
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+﻿import { verifyAuth } from '@/lib/auth-server';
+import { after, NextRequest, NextResponse } from 'next/server';
+import { readScrapeJobHeader, claimScrapeJob } from '@/lib/scraper-store';
 import { startNovelSyncAsync } from '@/lib/chapter-scraper';
-import { cookies } from 'next/headers';
-import { verifyAccessToken } from '@/lib/auth-node';
+import { staleScrapeCutoff } from '@/lib/scraper-jobs';
 
 export const runtime = 'nodejs';
 
-// POST /api/novelscraper/novels/[id]/sync — trigger background scraping
 export async function POST(
     _req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     const auth = await verifyAuth();
-    if (!auth.isAuthenticated) {
+    if (!auth.isAuthenticated || !auth.user) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
     try {
         const { id } = await params;
-
-        // ── Extract userId from cookie (optional — used for book creation) ────
-        // The page itself is protected by ProtectedRoute, so the user is already
-        // authenticated at the layout level. We don't hard-reject here.
-        let userId = 'scraper';
-        try {
-            const cookieStore = await cookies();
-            const token = cookieStore.get('accessToken')?.value;
-            if (token) {
-                const payload = verifyAccessToken(token) as { id?: string } | null;
-                userId = payload?.id ?? 'scraper';
-            }
-        } catch {
-            // Token parse failed — non-fatal, continue with fallback userId
+        const novel = await readScrapeJobHeader(id);
+        if (!novel) return NextResponse.json({ error: 'Novel not found' }, { status: 404 });
+        if (novel.chapterCount === 0) {
+            return NextResponse.json({ error: 'No chapters found. Submit the novel link again to discover chapters.' }, { status: 422 });
         }
-
-        // ── Novel Lookup ──────────────────────────────────────────────────────
-        const novel = await prisma.novel.findUnique({ where: { id } });
-        if (!novel) {
-            return NextResponse.json({ error: 'Novel not found' }, { status: 404 });
+        // Claim the job atomically so repeated requests cannot launch duplicate workers.
+        const claimed = await claimScrapeJob(id, staleScrapeCutoff());
+        if (!claimed.count) {
+            return NextResponse.json({ error: novel.status === 'STOPPING' ? 'Wait for the current chapter to finish saving before resuming.' : 'This novel is already being scraped' }, { status: 409 });
         }
-
-        // ── Mark as PENDING immediately ───────────────────────────────────────
-        const updatedNovel = await prisma.novel.update({
-            where: { id },
-            data: { status: 'PENDING' }
-        });
-
-        console.info(`[${new Date().toISOString()}] [INFO] [Sync:Route] Background sync triggered`, {
-            novelId: id,
-            title: novel.title,
-            userId,
-        });
-
-        // ── Fire & Forget via setImmediate ────────────────────────────────────
-        // setImmediate detaches from the current request/response cycle so
-        // the HTTP response is sent instantly while scraping continues in background.
-        setImmediate(() => {
-            startNovelSyncAsync(id, userId).catch(err => {
-                console.error(`[${new Date().toISOString()}] [ERROR] [Sync:Route] Background sync crashed`, {
-                    novelId: id,
-                    error: err?.message ?? String(err),
-                });
-            });
-        });
-
-        // ── Respond instantly ─────────────────────────────────────────────────
+        after(() => startNovelSyncAsync(id, auth.user!.id));
         return NextResponse.json({
             success: true,
             message: 'Sync started in background',
-            novel: updatedNovel,
+            novel: { id, status: 'SCRAPING' },
         });
-
     } catch (e: any) {
-        console.error(`[${new Date().toISOString()}] [ERROR] [Sync:Route] Route handler crashed`, {
-            error: e.message,
-        });
+        console.error('[Scraper] Failed to start sync', e);
         return NextResponse.json({ error: e.message || 'Failed to start sync' }, { status: 500 });
     }
 }

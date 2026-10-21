@@ -33,7 +33,15 @@ export async function GET(
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
+        const startValue = req.nextUrl.searchParams.get('start');
+        const limitValue = req.nextUrl.searchParams.get('limit');
+        const windowed = startValue !== null || limitValue !== null;
+        const start = Number(startValue ?? 0), limit = Number(limitValue ?? 5);
+        if (windowed && (!Number.isInteger(start) || start < 0 || !Number.isInteger(limit) || limit < 1 || limit > 5)) {
+            return NextResponse.json({ error: 'Invalid chapter window' }, { status: 400 });
+        }
         const chapters = await prisma.chapter.findMany({
+            ...(windowed ? { skip: start, take: limit } : {}),
             where: { bookId: id },
             orderBy: { order: 'asc' },
             select: {
