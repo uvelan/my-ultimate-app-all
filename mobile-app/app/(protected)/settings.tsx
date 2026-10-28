@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Switch, RefreshControl, Alert } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
@@ -5,6 +6,7 @@ import { api } from '@/src/lib/api-client';
 
 const inputStyle = { color: '#fff', backgroundColor: '#27232e', borderRadius: 8, padding: 12, marginBottom: 12 };
 export default function SettingsScreen() {
+    const router = useRouter();
     const [profile, setProfile] = useState<any>();
     const [models, setModels] = useState<any[]>([]);
     const [canManage, setCanManage] = useState(false);
@@ -42,8 +44,10 @@ export default function SettingsScreen() {
     } }]);
     return <View className="flex-1 bg-background"><View className="pt-12 px-5 pb-4 flex-row items-center"><SidebarToggle /><Text className="text-white text-2xl font-bold ml-3">Settings</Text></View>
         <ScrollView contentContainerStyle={{ padding: 20 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+            <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/diagnostics' as any)} className="bg-accent p-4 rounded-xl mb-5"><Text className="text-white font-bold">Diagnostics · crash reports and debug logs</Text></TouchableOpacity>
             {!!error && <Text className="text-red-400 mb-5">{error}</Text>}
             <View className="bg-background-surface rounded-xl p-4 mb-5"><Text className="text-white text-xl font-bold">{profile?.name || 'Your account'}</Text><Text className="text-gray-300 mt-2">{profile?.email}</Text><Text className="text-gray-300 mt-2">Role: {profile?.role || '—'}</Text></View>
+            <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/local-sync' as any)} className="bg-accent p-4 rounded-xl mb-5"><Text className="text-white font-bold">Local PC chapter sync</Text></TouchableOpacity>
             <Text className="text-white text-xl font-bold mb-3">AI models</Text><Text className="text-gray-400 mb-4">{canManage ? 'Changes apply globally to AI model choices.' : 'Active models available for AI features. Administrators manage the catalog.'}</Text>
             {models.map(model => <View key={model.id} className="bg-background-surface p-4 rounded-xl mb-3"><Text className="text-white font-bold">{model.name}</Text><Text className="text-gray-300 mt-2">{model.modelId} · {model.isActive ? 'Active' : 'Disabled'}</Text>{canManage && <View className="flex-row mt-3"><TouchableOpacity disabled={saving} onPress={() => { setEditing(model.id); setModelId(model.modelId); setName(model.name); setActive(model.isActive); }} className="p-3 bg-accent rounded-lg mr-3"><Text className="text-white">Edit</Text></TouchableOpacity><TouchableOpacity disabled={saving} onPress={() => remove(model.id)} className="p-3 bg-red-900 rounded-lg"><Text className="text-white">Delete</Text></TouchableOpacity></View>}</View>)}
             {canManage && <View className="mt-5"><Text className="text-white text-xl mb-4">{editing ? 'Edit model' : 'Add model'}</Text><TextInput placeholder="Model ID" placeholderTextColor="#999" autoCapitalize="none" style={inputStyle} value={modelId} onChangeText={setModelId} /><TextInput placeholder="Display name" placeholderTextColor="#999" style={inputStyle} value={name} onChangeText={setName} />{editing && <View className="flex-row items-center justify-between mb-3"><Text className="text-white">Active</Text><Switch value={active} onValueChange={setActive} /></View>}<TouchableOpacity disabled={saving} onPress={save} className="bg-accent p-4 rounded-xl"><Text className="text-white text-center">{saving ? 'Saving…' : 'Save model'}</Text></TouchableOpacity>{editing && <TouchableOpacity disabled={saving} onPress={reset} className="p-4"><Text className="text-white text-center">Cancel editing</Text></TouchableOpacity>}</View>}

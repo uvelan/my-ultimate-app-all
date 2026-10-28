@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { href: '/finance/calendar', icon: 'calendar_month', label: 'Calendar' },
   { href: '/finance/budgets', icon: 'account_balance_wallet', label: 'Budgets' },
   { href: '/finance/categories', icon: 'category', label: 'Categories' },
-  { href: '/finance/reports', icon: 'bar_chart', label: 'Reports' },
   { href: '/finance/recurring', icon: 'update', label: 'Recurring' },
 ]
 

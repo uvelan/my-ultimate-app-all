@@ -4,8 +4,10 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const ts = require('typescript');
 const webSource = fs.readFileSync('src/lib/narration-sync.ts', 'utf8');
+const chapterModule = { exports: {} };
+new vm.Script(ts.transpileModule(fs.readFileSync('src/lib/chapter-content.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText).runInNewContext({ module: chapterModule, exports: chapterModule.exports });
 const moduleCopy = { exports: {} };
-new vm.Script(ts.transpileModule(webSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText).runInNewContext({ module: moduleCopy, exports: moduleCopy.exports });
+new vm.Script(ts.transpileModule(webSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText).runInNewContext({ module: moduleCopy, exports: moduleCopy.exports, require: name => { assert.equal(name, './chapter-content'); return chapterModule.exports; } });
 const { buildNarrationCues, activeNarrationCue, validNarrationSync } = moduleCopy.exports;
 const metadata = segments => ({ version: 1, title: 'Title', paragraphs: ['Corrected body.'], segments });
 

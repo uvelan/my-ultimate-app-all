@@ -27,8 +27,8 @@ export function prependChapterTitle(body: string, title?: string | null): string
 }
 
 export function chapterNarrationIdentity(chapter: { title?: string | null; content: unknown }) {
-    // Old body-only cache keys must not serve audio that omits the title.
-    return { narrationVersion: 2, title: chapter.title || '', content: chapter.content };
+    // Invalidate older recordings that coerced rich-text blocks into object strings.
+    return { narrationVersion: 3, title: chapter.title || '', content: chapter.content };
 }
 
 // Keep reader paragraph indices unchanged for highlighting and saved progress.

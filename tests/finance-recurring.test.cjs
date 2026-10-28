@@ -175,9 +175,10 @@ test('finance dashboard and transactions pages can render while processing due s
         assert.equal(calls.created.length, 2, 'the page processes due schedules before reading finance data');
         assert.equal(calls.updates.length, 1);
       };
-      const aggregates = { totalIncome: 0, totalExpense: 5000, netSavings: -5000, categorySpending: {}, methodSpending: {}, dailyCashFlow: {} };
+      const aggregates = { totalIncome: 0, totalExpense: 5000, netSavings: -5000, categorySpending: {}, methodSpending: {}, dailyCashFlow: {}, transactions: [{ id: 'due-transaction', amountPaise: 5000, type: 'EXPENSE', transactionDate: NOW }] };
       const client = () => {};
       const pageModule = loadTs(`src/app/(protected)/finance/${page}/page.tsx`, {
+        '@/lib/finance-range': loadTs('src/lib/finance-range.ts', {}),
         '@/actions/recurring': actions,
         '@/actions/transaction': {
           async getDashboardAggregates() { readFinanceData(); return aggregates; },
@@ -191,7 +192,7 @@ test('finance dashboard and transactions pages can render while processing due s
       });
       const rendered = await pageModule.default({ searchParams: Promise.resolve({}) });
       assert.equal(rendered.type, client);
-      assert.equal(page === 'dashboard' ? rendered.props.totalExpense : rendered.props.total, page === 'dashboard' ? 5000 : 2);
+      assert.equal(page === 'dashboard' ? rendered.props.transactions.reduce((sum, item) => sum + item.amountPaise, 0) : rendered.props.total, page === 'dashboard' ? 5000 : 2);
       assert.equal(calls.invalidations.length, 0);
     });
   }

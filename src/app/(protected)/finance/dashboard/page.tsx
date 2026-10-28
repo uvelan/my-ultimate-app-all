@@ -1,20 +1,25 @@
-import { getDashboardAggregates, getTransactions } from '@/actions/transaction'
+import { financeDateRange, financeDay } from '@/lib/finance-range'
+import { getDashboardAggregates } from '@/actions/transaction'
 import { getCategories } from '@/actions/category'
 import { processRecurringTransactions } from '@/actions/recurring'
 import DashboardClient from './DashboardClient'
 
-export default async function FinanceDashboard(props: { searchParams: Promise<{ period?: string }> }) {
+export default async function FinanceDashboard(props: { searchParams: Promise<{ period?: string; startDate?: string; endDate?: string }> }) {
   const searchParams = await props.searchParams
-  const period = searchParams.period || 'month'
+  const customRange = financeDateRange(searchParams.startDate || '', searchParams.endDate || '')
+  const period = customRange ? 'custom' : searchParams.period === 'custom' ? 'month' : searchParams.period || 'month'
   
   // Auto-populate recurring transactions before fetching aggregates
   await processRecurringTransactions()
   
-  const now = new Date()
+  const now = new Date(financeDay(new Date()) + 'T12:00:00Z')
   let startDate: Date
   let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
   
-  if (period === 'year') {
+  if (customRange) {
+    startDate = new Date(customRange.startDate)
+    endDate = new Date(customRange.endDate)
+  } else if (period === 'year') {
     startDate = new Date(now.getFullYear(), 0, 1)
     endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59)
   } else if (period === 'halfYear') {
@@ -30,90 +35,25 @@ export default async function FinanceDashboard(props: { searchParams: Promise<{ 
     startDate = new Date(now.getFullYear(), now.getMonth(), 1)
   }
   
-  const startOf12MonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1)
-  const endOfCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-
-  const [aggregates, twelveMonthAggregates, categories] = await Promise.all([
+  const calendarKey = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2,'0'), String(date.getDate()).padStart(2,'0')].join('-')
+  const selectedRange = customRange || financeDateRange(calendarKey(startDate), calendarKey(endDate))!
+  startDate = new Date(selectedRange.startDate)
+  endDate = new Date(selectedRange.endDate)
+  const [aggregates, categories] = await Promise.all([
     getDashboardAggregates(startDate, endDate),
-    getDashboardAggregates(startOf12MonthsAgo, endOfCurrentMonth),
-    getCategories(),
+    getCategories(true),
   ])
-
-  // Resolve category names for breakdown
-  const categoryMap = Object.fromEntries(categories.map(c => [c.id, c]))
-  const categoryBreakdown = Object.entries(aggregates.categorySpending)
-    .filter(([categoryId]) => !categoryMap[categoryId]?.parentId) // Only show top-level parents
-    .map(([categoryId, amountPaise]) => {
-      // Find children that have spending
-      const children = Object.entries(aggregates.categorySpending)
-        .filter(([childId]) => categoryMap[childId]?.parentId === categoryId)
-        .map(([childId, childAmount]) => ({
-          name: categoryMap[childId]?.name ?? 'Other',
-          color: categoryMap[childId]?.color ?? '#888',
-          amountPaise: childAmount,
-        }))
-        .sort((a, b) => b.amountPaise - a.amountPaise)
-
-      return {
-        name: categoryMap[categoryId]?.name ?? 'Other',
-        color: categoryMap[categoryId]?.color ?? '#888',
-        amountPaise,
-        children: children.length > 0 ? children : undefined,
-      }
-    })
-    .sort((a, b) => b.amountPaise - a.amountPaise)
-
-  const totalCatSpend = categoryBreakdown.reduce((s, c) => s + c.amountPaise, 0)
-
-  // Method breakdown
-  const methodColors = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f43f5e']
-  const methodBreakdown = Object.entries(aggregates.methodSpending)
-    .map(([name, amountPaise], i) => ({
-      name,
-      color: methodColors[i % methodColors.length],
-      amountPaise,
-    }))
-    .sort((a, b) => b.amountPaise - a.amountPaise)
-
-  const totalMethodSpend = methodBreakdown.reduce((s, m) => s + m.amountPaise, 0)
-
-  // Build 12-month cashflow data
-  const monthLabels: string[] = []
-  const monthIncome: number[] = []
-  const monthExpense: number[] = []
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    monthLabels.push(d.toLocaleString('en-IN', { month: 'short' }))
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    let inc = 0, exp = 0
-    for (const [dateStr, vals] of Object.entries(twelveMonthAggregates.dailyCashFlow)) {
-      if (dateStr.startsWith(key)) {
-        inc += vals.income
-        exp += vals.expense
-      }
-    }
-    monthIncome.push(inc)
-    monthExpense.push(exp)
-  }
-
-  const savingsRate = aggregates.totalIncome > 0
-    ? Math.round((aggregates.netSavings / aggregates.totalIncome) * 100)
-    : 0
 
   return (
     <DashboardClient
-      totalIncome={aggregates.totalIncome}
-      totalExpense={aggregates.totalExpense}
-      netSavings={aggregates.netSavings}
-      savingsRate={savingsRate}
-      categoryBreakdown={categoryBreakdown}
-      totalCatSpend={totalCatSpend}
-      methodBreakdown={methodBreakdown}
-      totalMethodSpend={totalMethodSpend}
-      monthLabels={monthLabels}
-      monthIncome={monthIncome}
-      monthExpense={monthExpense}
+      transactions={aggregates.transactions.map(item => ({
+        ...item,
+        transactionDate: item.transactionDate.toISOString(),
+      }))}
+      categories={categories.map(({ id, name, color, parentId }) => ({ id, name, color, parentId }))}
       currentPeriod={period}
+      rangeStart={selectedRange.start}
+      rangeEnd={selectedRange.end}
     />
   )
 }

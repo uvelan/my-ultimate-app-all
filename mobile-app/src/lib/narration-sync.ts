@@ -1,3 +1,5 @@
+import { chapterContentParagraphs } from './chapter-content';
+
 /** Portable playback cues. start/end are fractions of the decoded audio duration. */
 export interface NarrationCue { text: string; start: number; end: number }
 export interface NarrationSync {
@@ -13,11 +15,7 @@ function clean(text: string): string {
         .replace(/<[^>]*>?/gm, ' ').replace(/[#*~_>]/g, '').replace(/\s+/g, ' ').trim();
 }
 function paragraphsFrom(content: unknown): string[] {
-    if (typeof content === 'string') {
-        try { const value = JSON.parse(content); if (Array.isArray(value)) content = value; } catch { /* Plain chapter text. */ }
-    }
-    return (Array.isArray(content) ? content : typeof content === 'string' ? [content] : [])
-        .filter((value): value is string => typeof value === 'string').map(clean).filter(Boolean);
+    return chapterContentParagraphs(content).map(clean).filter(Boolean);
 }
 function weight(text: string): number {
     // Word length and punctuation approximate speaking time inside one measured

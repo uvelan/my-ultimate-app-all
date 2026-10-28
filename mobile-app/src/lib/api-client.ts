@@ -51,7 +51,7 @@ api.interceptors.response.use(response => response, async error => {
         error.message = message;
         error.response.data = { error: message };
     }
-    if (error.response?.status !== 401 || !original || original._retry || /\/auth\//.test(original.url || '')) throw error;
+    if (error.response?.status !== 401 || !original || original._retry || /\/auth\/(?:login|register|refresh|logout)(?:[/?#]|$)/.test(original.url || '')) throw error;
     original._retry = true;
     const failedToken = original.headers?.Authorization;
     const latest = await SecureStore.getItemAsync('accessToken');

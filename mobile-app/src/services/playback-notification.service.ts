@@ -39,6 +39,7 @@ class PlaybackNotificationService {
     private currentId = 'playback-notification';
     private initialized?: Promise<string>;
     private revision = 0;
+    private mode: 'audio' | 'tts' | null = null;
     private pending: Promise<void> = Promise.resolve();
     initialize() {
         if (!this.initialized) {
@@ -54,13 +55,20 @@ class PlaybackNotificationService {
     }
     showNotification(title: string, chapter: string, isPlaying: boolean,
         mode: 'tts' | 'audio' = usePlaybackStore.getState().activePlayer || 'audio', rate = 1) {
+        if (mode === 'audio') {
+            if (this.mode === 'audio') return Promise.resolve();
+            this.mode = 'audio';
+            // Expo owns the audio MediaSession and foreground media notification.
+            // Retire the Reader/legacy Notifee service instead of publishing a second card.
+            return this.stopNotification();
+        }
+        this.mode = 'tts';
         const revision = ++this.revision;
         return this.enqueue(async () => {
             if (revision !== this.revision) return;
             await this.initialize();
             if (revision !== this.revision) return;
-            if (mode === 'tts') NativeModules.ReaderMediaSession?.update(title, chapter, isPlaying, rate);
-            else NativeModules.ReaderMediaSession?.deactivate();
+            NativeModules.ReaderMediaSession?.update(title, chapter, isPlaying, rate);
             await notifee.displayNotification({
                 id: this.currentId, title: title || 'Ultimate App', body: chapter || 'Playing audio',
                 android: {

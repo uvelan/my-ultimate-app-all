@@ -23,7 +23,7 @@ function setup({ unavailable = false } = {}) {
         const filename = path.join(__dirname, '../src/lib', file);
         const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
         const mod = { exports: {} };
-        vm.runInNewContext(source, { ...common, module: mod, exports: mod.exports, require: name => name === './narration-sync' ? compile('narration-sync.ts') : require(name) }, { filename });
+        vm.runInNewContext(source, { ...common, module: mod, exports: mod.exports, require: name => name === './narration-sync' ? compile('narration-sync.ts') : name === './chapter-content' ? compile('chapter-content.ts') : require(name) }, { filename });
         return mod.exports;
     };
     return { ...compile('listen-narration-cache.ts'), entries, clock };

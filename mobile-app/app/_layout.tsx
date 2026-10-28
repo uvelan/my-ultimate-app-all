@@ -44,6 +44,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(protected)" />
+        <Stack.Screen name="diagnostics" options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="local-sync" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="reader/[id]" options={{ presentation: 'fullScreenModal' }} />
       </Stack>
     </ThemeProvider>

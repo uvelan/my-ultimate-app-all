@@ -156,6 +156,7 @@ function routeHarness({ env = { MIMO_API_KEY: 'test-key' }, content = ['Hello wo
       '@/lib/google-tts': google,
       '@/lib/server-audio-cache': serverCache,
       '@/lib/chapter-narration': chapterNarration,
+      '@/lib/chapter-content': loadTs('src/lib/chapter-content.ts'),
       '@/lib/audio-compression': { async compressNarrationAudio(audio, contentType, signal) {
         calls.compression.push({ audio, contentType, signal });
         signal?.throwIfAborted();
@@ -194,7 +195,7 @@ test('sync requests read matching metadata without audio, grammar, window change
   assert.deepEqual(await response.json(), { sync, audioId: 'a'.repeat(64) });
   assert.equal(response.headers.get('cache-control'), 'private, no-store');
   assert.equal(app.calls.syncRead.length, 1);
-  assert.deepEqual(JSON.parse(app.calls.syncRead[0][2]), [{ narrationVersion: 2, title: 'Title', content: ['Hello world.'] }, 'xiaomi', 'Mia', 'gpt-4o-mini']);
+  assert.deepEqual(JSON.parse(app.calls.syncRead[0][2]), [{ narrationVersion: 3, title: 'Title', content: ['Hello world.'] }, 'xiaomi', 'Mia', 'gpt-4o-mini']);
   for (const key of ['windowActivate', 'windowRead', 'cacheRead', 'cacheWrite', 'compression', 'google']) assert.equal(app.calls[key].length, 0, key);
 });
 
@@ -409,7 +410,7 @@ test('server cache hits return premium and fallback audio before grammar correct
       assert.equal(response.headers.get('X-TTS-Voice'), actual.voice);
       assert.equal(response.headers.get('X-TTS-Fallback'), actual.fallback.length ? actual.fallback.join(',') : null);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), audio);
-      assert.deepEqual(JSON.parse(JSON.stringify(app.calls.cacheKeys[0])), [{ title: '', content, narrationVersion: 2 }, requested.provider, requested.voice, 'gpt-4o-mini']);
+      assert.deepEqual(JSON.parse(JSON.stringify(app.calls.cacheKeys[0])), [{ title: '', content, narrationVersion: 3 }, requested.provider, requested.voice, 'gpt-4o-mini']);
       assert.equal(app.calls.cacheWrite.length, 0);
       assert.equal(app.calls.google.length, 0);
       assert.equal(app.calls.compression.length, 0, 'server cache reads already return their stored format');
@@ -700,17 +701,17 @@ test('all fallback providers receive the title and all cache aliases use the tit
   assert.deepEqual([...paidNarration, app.calls.google[0].text], Array(3).fill('Chapter 7: The Return. The gates opened.'));
   assert.equal(app.calls.cacheKeys.length, 4, 'original, fallback-stage, and saved actual keys all use the same narration identity');
   for (const [identity] of app.calls.cacheKeys) {
-    assert.deepEqual(JSON.parse(JSON.stringify(identity)), { narrationVersion: 2, title, content });
+    assert.deepEqual(JSON.parse(JSON.stringify(identity)), { narrationVersion: 3, title, content });
   }
   const saved = app.calls.cacheWrite[0];
-  assert.deepEqual(JSON.parse(saved.requestedKey)[0], { narrationVersion: 2, title, content });
-  assert.deepEqual(JSON.parse(saved.actualKey)[0], { narrationVersion: 2, title, content });
+  assert.deepEqual(JSON.parse(saved.requestedKey)[0], { narrationVersion: 3, title, content });
+  assert.deepEqual(JSON.parse(saved.actualKey)[0], { narrationVersion: 3, title, content });
 });
 
 test('body-only legacy keys and a previous title cannot serve cached narration after a title change', async t => {
   const content = ['The same chapter body.'];
   const title = 'New Chapter Title';
-  for (const oldIdentity of [content, { narrationVersion: 2, title: 'Old Chapter Title', content }]) {
+  for (const oldIdentity of [content, { narrationVersion: 3, title: 'Old Chapter Title', content }]) {
     await t.test(Array.isArray(oldIdentity) ? 'body-only legacy key' : 'changed title', async () => {
       const app = routeHarness({ title, content, env: {}, cached: Buffer.from('old-audio'),
         cachedFor: { provider: 'google', voice: 'en', grammar: 'OFF', identity: oldIdentity },
@@ -721,7 +722,7 @@ test('body-only legacy keys and a previous title cannot serve cached narration a
       assert.equal(response.headers.get('X-TTS-Cache'), 'generated');
       assert.equal(await response.text(), 'new-audio');
       assert.equal(app.calls.google[0].text, 'New Chapter Title. The same chapter body.');
-      for (const [identity] of app.calls.cacheKeys) assert.deepEqual(JSON.parse(JSON.stringify(identity)), { narrationVersion: 2, title, content });
+      for (const [identity] of app.calls.cacheKeys) assert.deepEqual(JSON.parse(JSON.stringify(identity)), { narrationVersion: 3, title, content });
       assert.equal(app.calls.cacheWrite.length, 1);
     });
   }
@@ -968,5 +969,20 @@ test('chapter editing endpoints invalidate audio derived from the old text', asy
       assert.equal(response.status, 200);
       assert.deepEqual(calls, ['updated', 'invalidated']);
     });
+  }
+});
+
+
+test('scraped rich-text chapters generate narration from text leaves rather than object strings', async () => {
+  const blocks = [
+    { type: 'paragraph', children: [{ text: 'The ' }, { text: 'opening.', bold: true }] },
+    { type: 'paragraph', children: [{ text: 'The next paragraph.' }] },
+  ];
+  for (const content of [blocks, JSON.stringify(blocks)]) {
+    const app = routeHarness({ content, title: 'Opening', fetch: async () => new Response(Buffer.from('mp3'), { headers: { 'Content-Type': 'audio/mpeg' } }) });
+    const response = await app.get('chapterId=chapter-1&provider=google');
+    assert.equal(response.status, 200);
+    assert.equal(app.calls.google[0].text, 'Opening. The opening. The next paragraph.');
+    assert.equal(app.calls.cacheWrite.length, 1, 'the generated recording is stored for playback');
   }
 });

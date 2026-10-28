@@ -42,7 +42,7 @@ export default function DashboardScreen() {
                     '/finance/calendar': 'expenses',
                     '/finance/budgets': '../finance',
                     '/finance/recurring': '../finance',
-                    '/finance/reports': '../finance',
+                    '/finance/reports': 'expenses',
                     '/books': 'library',
                     '/novelscraper': 'scraper',
                     '/admin': 'admin',

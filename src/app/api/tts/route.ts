@@ -1,3 +1,4 @@
+import { chapterContentParagraphs } from '@/lib/chapter-content';
 import { cleanNarrationText, prependChapterTitle, chapterNarrationIdentity } from '@/lib/chapter-narration';
 import { createHash } from 'node:crypto';
 import type { NarrationSync } from '@/lib/narration-sync';
@@ -138,19 +139,7 @@ export async function GET(request: Request) {
                 }
             }
 
-            try {
-                const parsedContent = typeof chapter.content === 'string'
-                    ? JSON.parse(chapter.content)
-                    : chapter.content;
-
-                if (Array.isArray(parsedContent)) {
-                    contentArray = parsedContent;
-                } else {
-                    contentArray = [String(chapter.content)];
-                }
-            } catch (e) {
-                contentArray = [String(chapter.content)];
-            }
+            contentArray = chapterContentParagraphs(chapter.content);
         } else if (searchParams.get('sync') === '1') {
             return NextResponse.json({ sync: null, audioId: null }, { headers: { 'Cache-Control': 'private, no-store' } });
         } else if (questionId && questionField) {

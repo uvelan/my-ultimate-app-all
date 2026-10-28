@@ -1,5 +1,6 @@
 'use client';
 
+import { useBookProgressSync } from '@/hooks/useBookProgressSync';
 import { useChapterWindow } from '@/hooks/useChapterWindow';
 
 import { chapterParagraphs } from '@/lib/chapter-paragraphs';
@@ -82,6 +83,11 @@ export default function ReadBookPage() {
     const resumePlayAfterGrammarRef = useRef(false);
 
     const isSwitchingRef = useRef(false);
+    useBookProgressSync(book?.id, currentChapterIndex, isPlaying, (chapter, paragraph) => {
+        if (!book?.chapters.length) return;
+        setCurrentChapterIndex(Math.min(chapter, book.chapters.length - 1));
+        setCurrentParagraphIndex(paragraph);
+    });
     const hasBookLoadedRef = useRef(false); // tracks whether the book has been loaded at least once
 
     const contentRef = useRef<HTMLDivElement>(null);
@@ -585,39 +591,11 @@ export default function ReadBookPage() {
                 setBook(cachedBook as Book);
                 setLoading(false);
 
-                // Initialize Progress from DB/Local even if cached
-                let finalChapterIndex = typeof cachedBook.chapterId === 'number' ? cachedBook.chapterId : 0;
-                let finalSentenceIndex = typeof cachedBook.sentenceId === 'number' ? cachedBook.sentenceId : 0;
-                let needsDbUpdate = false;
+                // Cached content remains available offline; progress is reconciled by the network read.
+                setCurrentChapterIndex(typeof cachedBook.chapterId === 'number' ? cachedBook.chapterId : 0);
+                setCurrentParagraphIndex(typeof cachedBook.sentenceId === 'number' ? cachedBook.sentenceId : 0);
 
-                const savedProgress = localStorage.getItem(`book-progress-${id}`);
-                if (savedProgress) {
-                    try {
-                        const parsed = JSON.parse(savedProgress);
-                        const localChapterId = typeof parsed.chapterId === 'number' ? parsed.chapterId : 0;
-                        const localSentenceId = typeof parsed.sentenceId === 'number' ? parsed.sentenceId : 0;
-
-                        if (localChapterId > finalChapterIndex || (localChapterId === finalChapterIndex && localSentenceId > finalSentenceIndex)) {
-                            finalChapterIndex = localChapterId;
-                            finalSentenceIndex = localSentenceId;
-                            needsDbUpdate = true;
-                        }
-                    } catch (e) {
-                        console.error("Parse error for cache read progress", e);
-                    }
-                }
-
-                setCurrentChapterIndex(finalChapterIndex);
-                setCurrentParagraphIndex(finalSentenceIndex);
-
-                if (needsDbUpdate) {
-                    fetch(`/api/books/${id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: finalSentenceIndex })
-                    }).catch(console.error);
-                }
-
+                // Refresh progress from the server before allowing any writes.
                 // Optional: Trigger background update
                 fetchBookNetwork(id);
                 return;
@@ -651,38 +629,9 @@ export default function ReadBookPage() {
                 window.speechSynthesis.cancel();
                 setIsPlaying(false);
 
-                // Initialize Progress from DB vs Local Storage
-                let finalChapterIndex = typeof data.chapterId === 'number' ? data.chapterId : 0;
-                let finalSentenceIndex = typeof data.sentenceId === 'number' ? data.sentenceId : 0;
-                let needsDbUpdate = false;
-
-                const savedProgress = localStorage.getItem(`book-progress-${id}`);
-                if (savedProgress) {
-                    try {
-                        const parsed = JSON.parse(savedProgress);
-                        const localChapterId = typeof parsed.chapterId === 'number' ? parsed.chapterId : 0;
-                        const localSentenceId = typeof parsed.sentenceId === 'number' ? parsed.sentenceId : 0;
-
-                        if (localChapterId > finalChapterIndex || (localChapterId === finalChapterIndex && localSentenceId > finalSentenceIndex)) {
-                            finalChapterIndex = localChapterId;
-                            finalSentenceIndex = localSentenceId;
-                            needsDbUpdate = true;
-                        }
-                    } catch (e) {
-                        console.error("Parse error for read progress", e);
-                    }
-                }
-
-                setCurrentChapterIndex(finalChapterIndex);
-                setCurrentParagraphIndex(finalSentenceIndex);
-
-                if (needsDbUpdate) {
-                    fetch(`/api/books/${id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: finalSentenceIndex })
-                    }).catch(console.error);
-                }
+                // The latest server selection can be earlier than a cached chapter.
+                setCurrentChapterIndex(typeof data.chapterId === 'number' ? data.chapterId : 0);
+                setCurrentParagraphIndex(typeof data.sentenceId === 'number' ? data.sentenceId : 0);
                 // Mark book as fully loaded so progress-save effect can now fire
                 hasBookLoadedRef.current = true;
             } else {

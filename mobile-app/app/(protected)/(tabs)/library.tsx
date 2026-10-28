@@ -1,3 +1,4 @@
+import { bookProgress } from '@/src/lib/book-progress';
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity } from 'react-native';
 import { AppCard } from '@/src/components/ui/AppCard';
@@ -160,7 +161,7 @@ export default function LibraryScreen() {
                             name={item.title}
                             description={item.author || 'Unknown Author'}
                             image={item.cover}
-                            onPress={() => router.push(`/reader/${item.id}?chapterId=${item.chapterId ?? 0}` as any)}
+                            onPress={() => router.push(`/reader/${item.id}?chapterId=${bookProgress.getChapter(item.id, item.chapterId ?? 0)}` as any)}
                             onListen={() => router.push(`/listen/${item.id}` as any)}
                             onDownload={() => handleDownload(item)}
                             onSync={() => handleSync(item)}

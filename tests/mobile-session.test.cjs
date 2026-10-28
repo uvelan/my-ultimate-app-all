@@ -230,3 +230,18 @@ test('missing native storage has a usable development fallback and legacy MMKV d
   } } });
   legacy.cacheService.delete('old'); assert.equal(deleted, 'old');
 });
+
+
+test('audiobook and profile requests share session renewal when the access token expires', async () => {
+  const gate = deferred();
+  const app = sessionHarness({ refresh: () => gate.promise });
+  const requests = Promise.all([app.api.get('/books/book'), app.api.get('/auth/profile')]);
+  const outcome = requests.then(value => ({ value }), error => ({ error }));
+  await new Promise(resolve => setImmediate(resolve));
+  gate.resolve({ data: { accessToken: 'new-access' } });
+  const result = await outcome;
+  assert.equal(result.error, undefined, 'profile must renew the session just like the book request');
+  assert.equal(result.value.length, 2);
+  assert.equal(app.refreshRequests.length, 1);
+  assert.equal(app.requests.filter(request => request.retry && request.token === 'Bearer new-access').length, 2);
+});

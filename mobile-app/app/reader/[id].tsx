@@ -1,19 +1,22 @@
+import { bookProgress } from '@/src/lib/book-progress';
+import { chapterContentParagraphs } from '@/src/lib/chapter-content';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, Pressable, ActivityIndicator,
     Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList, TextInput, Alert, AppState,
 } from 'react-native';
-import { useKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
     ChevronLeft, ChevronRight, Settings, Headphones, CloudOff, Sun, Moon,
     Wand2, X, Plus, Minus, BookOpen, List,
     SkipBack, SkipForward, Play, Pause as PauseIcon, Trash2,
 } from 'lucide-react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { bookService, ChapterMeta } from '@/src/services/book.service';
 import { offlineService } from '@/src/services/offline.service';
 import { ttsService } from '@/src/services/tts.service';
 import { cacheService } from '@/src/lib/storage';
+import { ChapterIndexList } from '@/src/components/ChapterIndexList';
 import { usePlaybackStore } from '@/src/store/playbackStore';
 import { playbackNotificationService, registerTtsControls } from '@/src/services/playback-notification.service';
 import { prepareReaderChapter, readerChapterQueue, type PreparedReaderChapter } from '@/src/lib/reader-speech';
@@ -28,8 +31,9 @@ export default function ReaderScreen() {
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
 
     const chapterIdParam = useLocalSearchParams().chapterId;
+    const [progressReady, setProgressReady] = useState(false);
     const [chapterId, setChapterId] = useState<string>(
-        Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0')
+        String(bookProgress.getChapter(String(id || ''), Number(Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0'))))
     );
     const readerSelectionRef = useRef({ bookId: String(id || ''), chapterId });
     readerSelectionRef.current = { bookId: String(id || ''), chapterId };
@@ -37,9 +41,29 @@ export default function ReaderScreen() {
 
     // Sync state when URL param changes
     useEffect(() => {
-        const newVal = Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0');
+        const newVal = String(bookProgress.getChapter(String(id || ''), Number(Array.isArray(chapterIdParam) ? chapterIdParam[0] : (chapterIdParam ?? '0'))));
         if (newVal !== chapterId) setChapterId(newVal);
     }, [chapterIdParam]);
+
+    useFocusEffect(useCallback(() => {
+        if (!id) return;
+        let active = true;
+        const refresh = () => {
+            const selected = readerSelectionRef.current.chapterId;
+            setProgressReady(false);
+            void bookService.syncProgress(id).catch(() => bookProgress.getChapter(id, Number(readerSelectionRef.current.chapterId)))
+                .then(saved => {
+                    if (!active) return;
+                    if (readerSelectionRef.current.chapterId === selected) setChapterId(String(saved));
+                    setProgressReady(true);
+                });
+        };
+        refresh();
+        const subscription = AppState.addEventListener('change', state => {
+            if (state === 'active' && !isSpeakingRef.current) refresh();
+        });
+        return () => { active = false; subscription.remove(); };
+    }, [id]));
 
     // Chapter list (for sidebar)
     const [chapterList, setChapterList] = useState<{ order: number; title: string }[]>([]);
@@ -62,7 +86,8 @@ export default function ReaderScreen() {
     useEffect(() => {
         const theme = cacheService.get('reader-theme');
         const savedModel = cacheService.get('reader-ai-model');
-        if (savedModel) setAiModel(savedModel);
+        if (savedModel && savedModel !== 'gemini-2.5-flash') setAiModel(savedModel);
+        else if (savedModel) cacheService.set('reader-ai-model', 'OFF');
         if (theme === 'light') setIsLightMode(true);
     }, []);
 
@@ -116,6 +141,7 @@ export default function ReaderScreen() {
     const [sleepTimer, setSleepTimer] = useState<any>(null);
     const [selectedTimerMinutes, setSelectedTimerMinutes] = useState<number | null>(null);
     const [loadError, setLoadError] = useState<string>('');
+    const [cacheNotice, setCacheNotice] = useState('');
     const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
     // TTS Sentence States
@@ -187,8 +213,15 @@ export default function ReaderScreen() {
         }
     }, []);
 
-    // Keep the JS thread alive and screen on while reading/TTS is active
-    useKeepAwake();
+    // Keep the display awake only while Reader is visible, not behind Listen/settings.
+    useFocusEffect(useCallback(() => {
+        const tag = 'reader-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+        let focused = true;
+        void activateKeepAwakeAsync(tag).then(() => {
+            if (!focused) void deactivateKeepAwake(tag).catch(() => {});
+        }).catch(() => {});
+        return () => { focused = false; void deactivateKeepAwake(tag).catch(() => {}); };
+    }, []));
 
     // AppState: resume TTS if it was interrupted when app went to background
     useEffect(() => {
@@ -264,8 +297,8 @@ export default function ReaderScreen() {
         setBookMetadataTitle({ bookId: id, title: cached.title || '' });
         // Chapter-list responses need not include their parent book relation.
         // Fetch real book metadata separately without delaying cached reading.
-        void bookService.getBook(id).then(book => {
-            const merged = mergeReaderBookMetadata(cacheService.getObject(`book_meta_${id}`), { title: book?.title });
+        void bookService.getBook(id, true).then(book => {
+            const merged = mergeReaderBookMetadata(cacheService.getObject(`book_meta_${id}`), { title: book?.title, ...(Array.isArray(book?.chapters) ? { chapters: book.chapters } : {}) });
             cacheService.setObject(`book_meta_${id}`, merged);
             if (active && readerSelectionRef.current.bookId === id) setBookMetadataTitle({ bookId: id, title: merged.title || '' });
         }).catch(() => { /* Offline reading retains the last known title. */ });
@@ -301,13 +334,7 @@ export default function ReaderScreen() {
     }, []);
 
     // ─── Helpers ────────────────────────────────────────────────────────────────
-    const toStr = (val: any): any => {
-        if (!val) return '';
-        // If it's an array, return it as is to preserve paragraph structure
-        if (Array.isArray(val)) return val;
-        if (typeof val === 'object') return JSON.stringify(val);
-        return String(val);
-    };
+    const toStr = (val: unknown): string => chapterContentParagraphs(val).join('\n');
 
     const goToNextChapter = useCallback(() => {
         const nextNum = parseInt(chapterId) + 1;
@@ -334,7 +361,7 @@ export default function ReaderScreen() {
             // In the real app, we might store the book/chapter list in cacheService too.
             const bookMeta = cacheService.getObject<any>(`book_meta_${bookId}`);
             if (bookMeta?.chapters) {
-                setChapterList(bookMeta.chapters);
+                setChapterList(bookMeta.chapters.map((chapter: any, position: number) => ({ order: position, title: chapter.title })));
                 setTotalChapters(bookMeta.chapters.length);
                 return;
             }
@@ -347,7 +374,7 @@ export default function ReaderScreen() {
             if (chapters && chapters.length > 0) {
                 await offlineService.saveAllChapters(bookId, chapters);
                 const list = chapters.map(c => ({ order: c.order, title: c.title || `Chapter ${c.order + 1}` }));
-                setChapterList(list);
+                setChapterList(list.map((chapter, position) => ({ ...chapter, order: position })));
                 setTotalChapters(chapters.length);
                 setIsOffline(false);
                 
@@ -370,29 +397,30 @@ export default function ReaderScreen() {
     }, []);
 
     // ─── Load a single chapter from cache ───────────────────────────────────────
-    const loadChapterFromCache = useCallback(async (bookId: string, chapId: string) => {
+    const loadChapterFromCache = useCallback(async (bookId: string, chapId: string, refresh = false) => {
         if (readerSelectionRef.current.bookId !== bookId || readerSelectionRef.current.chapterId !== chapId) return;
         const request = ++chapterLoadRef.current;
         const current = () => request === chapterLoadRef.current
             && readerSelectionRef.current.bookId === bookId && readerSelectionRef.current.chapterId === chapId;
         setLoading(true);
-        setLoadError('');
-        setRawContent(''); // Clear old content completely to trigger auto-skip logic correctly
+        setLoadError(''); setCacheNotice('');
+        if (!refresh) setRawContent(''); // Clear old content completely to trigger auto-skip logic correctly
         try {
-            const cached = await offlineService.getChapter(bookId, chapId);
+            const cached = refresh ? null : await offlineService.getChapter(bookId, chapId);
             if (!current()) return;
             if (cached) {
                 setRawContent(toStr(cached));
             } else {
                 // Fallback: individual network request if somehow not in cache
                 console.warn(`[Reader] Cache miss for chapter ${chapId}, fetching individually`);
-                const data = await bookService.getChapterContent(bookId, chapId);
+                const data = await bookService.getChapterContent(bookId, chapId, refresh);
                 if (!current()) return;
                 if (typeof data?.title === 'string' && data.title.trim()) setLoadedChapterTitle({ bookId, chapterId: chapId, title: data.title });
                 const liveContent = toStr(data?.content) || '';
                 setRawContent(liveContent);
                 if (liveContent) {
-                    await offlineService.saveChapter(bookId, chapId, liveContent).catch(() => {});
+                    await offlineService.saveChapter(bookId, chapId, liveContent);
+                    if (current() && refresh) setCacheNotice('Chapter cache refreshed.');
                 } else {
                     setLoadError(`Chapter ${chapId} not found in cache or network.`);
                 }
@@ -405,6 +433,12 @@ export default function ReaderScreen() {
             if (current()) setLoading(false);
         }
     }, []);
+
+    const refreshCachedChapter = () => {
+        if (!id || loading) return;
+        stopTTS();
+        void loadChapterFromCache(String(id), chapterId, true);
+    };
 
     // ─── On book change: bulk fetch, then load first/current chapter ─────────────
     useEffect(() => {
@@ -436,7 +470,7 @@ export default function ReaderScreen() {
 
     // ─── Auto-skip empty chapters ───────────────────────────────────────────────
     useEffect(() => {
-        if (loading || isFirstMount.current) return;
+        if (loading || loadError || isFirstMount.current) return;
         if (!id || !chapterId) return;
 
         let isEmpty = false;
@@ -456,7 +490,7 @@ export default function ReaderScreen() {
                 setChapterId(String(nextSkip));
             }
         }
-    }, [loading, rawContent, chapterId, totalChapters, id]);
+    }, [loading, loadError, rawContent, chapterId, totalChapters, id]);
 
     const fetchReplacements = async () => {
         try {
@@ -531,12 +565,20 @@ export default function ReaderScreen() {
         return () => clearTimeout(timer);
     }, [flatSentences, loading, id, chapterId]);
 
+    // Persist chapter selection immediately, before a user can switch screens.
+    useEffect(() => {
+        if (progressReady && id && Number.isInteger(Number(chapterId))) {
+            void bookService.updateProgress(id, Number(chapterId)).catch(() => {});
+        }
+    }, [id, chapterId, progressReady]);
+
     // Progress sync
     useEffect(() => {
+        if (!progressReady) return;
         const timer = setTimeout(() => {
             if (id && chapterId) {
                 const cIndex = parseInt(chapterId);
-                if (!isNaN(cIndex)) {
+                if (!isNaN(cIndex) && bookProgress.getChapter(String(id), cIndex) === cIndex) {
                     const paragraphIndex = currentSentenceIndex >= 0 ? flatSentences[currentSentenceIndex]?.paraIdx || 0 : 0;
                     if (currentSentenceIndex >= 0) cacheService.setObject(`reader-progress-${id}`, { chapterIndex: cIndex, sentenceIndex: currentSentenceIndex });
                     bookService.updateProgress(id as string, cIndex, paragraphIndex)
@@ -545,7 +587,7 @@ export default function ReaderScreen() {
             }
         }, 1500);
         return () => clearTimeout(timer);
-    }, [id, chapterId, currentSentenceIndex]);
+    }, [id, chapterId, currentSentenceIndex, progressReady]);
 
     // ─── TTS ────────────────────────────────────────────────────────────────────
     
@@ -969,6 +1011,13 @@ export default function ReaderScreen() {
             </View>
 
             {/* Content */}
+            <View className={`px-4 py-2 border-b ${th.border}`}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Refresh cached chapter" onPress={refreshCachedChapter} disabled={loading} className="self-end py-1">
+                    <Text className="text-accent font-bold">{loading ? 'Loading chapter…' : 'Refresh cached chapter'}</Text>
+                </Pressable>
+                {!!loadError && <Text accessibilityRole="alert" className="text-red-500 mt-1">{loadError}</Text>}
+                {!!cacheNotice && <Text accessibilityLiveRegion="polite" className="text-accent mt-1">{cacheNotice}</Text>}
+            </View>
             {loading ? (
                 <View className="flex-1 items-center justify-center">
                     <ActivityIndicator color="#8b5cf6" />
@@ -1150,11 +1199,11 @@ export default function ReaderScreen() {
 
                     {/* Chapter list */}
                     {chapterList.length > 0 ? (
-                        <FlatList
+                        <ChapterIndexList
                             data={chapterList}
+                            open={isSidebarOpen}
+                            selectedIndex={chapterList.findIndex(item => item.order === currentChapterNum)}
                             keyExtractor={(item) => String(item.order)}
-                            initialScrollIndex={Math.max(0, currentChapterNum - 2)}
-                            getItemLayout={(_, index) => ({ length: 52, offset: 52 * index, index })}
                             renderItem={({ item }) => {
                                 const isActive = item.order === currentChapterNum;
                                 return (
@@ -1164,7 +1213,8 @@ export default function ReaderScreen() {
                                             setChapterId(String(item.order));
                                             closeSidebar();
                                         }}
-                                        className={`px-4 py-3 border-b border-border/20 ${isActive ? 'bg-accent/20 border-l-2 border-l-accent pl-3' : ''}`}
+                                        style={{ flex: 1, justifyContent: 'center' }}
+                                        className={`px-4 border-b border-border/20 ${isActive ? 'bg-accent/20 border-l-2 border-l-accent pl-3' : ''}`}
                                         activeOpacity={0.6}
                                     >
                                         <Text
@@ -1268,13 +1318,13 @@ export default function ReaderScreen() {
                         <View className="border-t border-border/30 pt-4 mb-6">
                             <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>AI Model</Text>
                             <View className="flex-row flex-wrap gap-2">
-                                {['OFF', 'gemini-2.5-flash', 'gpt-4o-mini', 'pollinations', 'ollama'].map(m => (
+                                {['OFF', 'gpt-4o-mini', 'pollinations', 'ollama'].map(m => (
                                     <TouchableOpacity 
                                         key={m}
                                         onPress={() => changeAiModel(m)}
                                         className={`px-3 py-2 rounded-lg border ${aiModel === m ? 'bg-accent border-accent' : `${th.bg} ${th.border}`}`}
                                     >
-                                        <Text className={`font-bold ${aiModel === m ? 'text-white' : th.textSec}`}>{m === 'OFF' ? 'Disabled' : m.replace('gemini-2.5-flash', 'Gemini Flash').replace('gpt-4o-mini', 'GPT-4o Mini').replace('ollama', 'Local (Ollama)')}</Text>
+                                        <Text className={`font-bold ${aiModel === m ? 'text-white' : th.textSec}`}>{m === 'OFF' ? 'Disabled' : m.replace('gpt-4o-mini', 'GPT-4o Mini').replace('ollama', 'Local (Ollama)')}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
@@ -1283,6 +1333,7 @@ export default function ReaderScreen() {
 
                         <View className="border-t border-border/30 pt-4">
                             <Text className={`text-xl font-bold ${th.text} font-serif mb-4`}>Speech Settings</Text>
+                        <Pressable accessibilityRole="button" onPress={() => { setIsSettingsOpen(false); router.push('/diagnostics' as any); }} className="py-3 mb-4"><Text className="text-accent font-bold">Diagnostics · crash reports and debug logs</Text></Pressable>
                             <Text className={`${th.textSec} font-bold mb-3`}>Device voice</Text>
                             <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled className="mb-4">
                                 {[{ identifier: '', label: 'System default' }, ...readableReaderVoices(speechVoices)].map(voice => (

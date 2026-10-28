@@ -1,5 +1,6 @@
 'use client';
 
+import { useBookProgressSync } from '@/hooks/useBookProgressSync';
 import { useChapterWindow } from '@/hooks/useChapterWindow';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -81,6 +82,9 @@ export default function ListenPage() {
 
     // Player State
     const [isPlaying, setIsPlaying] = useState(false);
+    useBookProgressSync(book?.id, currentChapterIndex, isPlaying, chapter => {
+        if (book?.chapters.length) setCurrentChapterIndex(Math.min(chapter, book.chapters.length - 1));
+    });
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [narration, setNarration] = useState<{ source: string; sync: NarrationSync | null } | null>(null);
@@ -212,38 +216,7 @@ export default function ListenPage() {
                     chapters: data.chapters || []
                 });
 
-                let finalChapterIndex = 0;
-                let needsDbUpdate = false;
-
-                if (typeof data.chapterId === 'number') {
-                    finalChapterIndex = data.chapterId;
-                }
-
-                // Check stored progress
-                const savedProgress = localStorage.getItem(`listen-progress-${id}`);
-                if (savedProgress) {
-                    try {
-                        const parsed = JSON.parse(savedProgress);
-                        if (typeof parsed.chapterIndex === 'number') {
-                            if (parsed.chapterIndex > finalChapterIndex) {
-                                finalChapterIndex = parsed.chapterIndex;
-                                needsDbUpdate = true;
-                            }
-                        }
-                    } catch (e) {
-                        console.error("Parse error for listen progress", e);
-                    }
-                }
-
-                setCurrentChapterIndex(finalChapterIndex);
-
-                if (needsDbUpdate) {
-                    authenticatedFetch(`/api/books/${id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chapterId: finalChapterIndex, sentenceId: 0 })
-                    }).catch(console.error);
-                }
+                setCurrentChapterIndex(typeof data.chapterId === 'number' ? data.chapterId : 0);
             } else {
                 toast.error('Failed to load book');
             }

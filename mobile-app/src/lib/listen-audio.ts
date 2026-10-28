@@ -1,10 +1,13 @@
-export type AudioProvider = 'gemini' | 'xiaomi' | 'google';
+export type AudioProvider = 'kokoro' | 'google';
 export const AUDIO_VOICES: Record<AudioProvider, string[]> = {
-    gemini: ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'],
-    xiaomi: ['mimo_default', 'Mia', 'Chloe', 'Milo', 'Dean'],
+    kokoro: ['af_heart', 'af_bella'],
     google: ['en', 'en-US', 'en-GB', 'en-AU', 'en-IN', 'en-NG'],
 };
-export const AUDIO_LABELS = { gemini: 'Gemini', xiaomi: 'Xiaomi MiMo', google: 'Google (free)' };
+export const AUDIO_LABELS = { kokoro: 'Kokoro (offline)', google: 'Google (online)' };
+export function mobileAudioSettings(provider?: string | null, voice?: string | null) {
+    const selected: AudioProvider = provider === 'google' && !voice?.startsWith('gemini-') ? 'google' : 'kokoro';
+    return { provider: selected, voice: AUDIO_VOICES[selected].includes(voice || '') ? voice! : selected === 'kokoro' ? 'af_heart' : 'en' };
+}
 interface NativeLockScreenMetadata {
     title: string; artist: string; albumTitle: string; artworkUrl?: string;
 }
@@ -36,11 +39,12 @@ export function prepareNativeChapterPlayback(player: NativeChapterPlayer, uri: s
 }
 export interface NativeAudioIdentity {
     userId: string; bookId: string; chapterId: string; title: string; content?: unknown;
-    provider: AudioProvider; voice: string; grammarModel: string;
+    provider: AudioProvider; voice: string; grammarModel: string; chunkTarget?: number;
 }
 export function audioIdentityKey(identity: NativeAudioIdentity): string {
-    const text = JSON.stringify(['v3', identity.userId, identity.bookId, identity.chapterId, identity.title,
-        identity.content, identity.provider, identity.voice, identity.grammarModel]);
+    const text = JSON.stringify(['v4', identity.userId, identity.bookId, identity.chapterId, identity.title,
+        identity.content, identity.provider, identity.voice, identity.grammarModel,
+        ...(identity.provider === 'kokoro' ? ['paragraph-chunks-v1', identity.chunkTarget || 1000] : [])]);
     let first = 2166136261; let second = 3339675911;
     for (let index = 0; index < text.length; index++) {
         first = Math.imul(first ^ text.charCodeAt(index), 16777619);
@@ -65,9 +69,10 @@ export function readerSpeechText(value: string): string {
 }
 export function actualAudioSelection(headers: Record<string, unknown>, identity: NativeAudioIdentity) {
     const candidate = String(headers['x-tts-provider'] || identity.provider);
-    const provider: AudioProvider = candidate === 'gemini' || candidate === 'xiaomi' || candidate === 'google' ? candidate : identity.provider;
+    if (candidate !== 'kokoro' && candidate !== 'google') throw new Error('This audio provider is no longer supported on mobile.');
+    const provider: AudioProvider = candidate;
     const requested = String(headers['x-tts-voice'] || (provider === identity.provider ? identity.voice : ''));
-    const voice = AUDIO_VOICES[provider].includes(requested) ? requested : provider === 'gemini' ? 'Kore' : provider === 'xiaomi' ? 'Mia' : 'en';
+    const voice = AUDIO_VOICES[provider].includes(requested) ? requested : provider === 'kokoro' ? 'af_heart' : 'en';
     return { provider, voice, fallback: String(headers['x-tts-fallback'] || '') };
 }
 export function bytesToBase64(bytes: Uint8Array): string {

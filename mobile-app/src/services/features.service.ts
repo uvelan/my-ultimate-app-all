@@ -1,3 +1,4 @@
+import { financeDateRange, financeDay, financeRangeSeries } from '../lib/finance-range';
 import { api } from '../lib/api-client';
 import { financeService } from './finance.service';
 
@@ -13,22 +14,42 @@ export const expenseService = {
         const { data } = await api.get('/mobile/finance', { params: { resource: 'stats', startDate, endDate } });
         return {
             totalIncome: data.totalIncome / 100, totalExpense: data.totalExpense / 100, balance: data.netSavings / 100,
-            categorySplit: data.categories.filter((cat: any) => !cat.parentId).map((cat: any) => ({ name: cat.name, value: (data.categorySpending[cat.id] || 0) / 100, color: cat.color })).filter((cat: any) => cat.value > 0),
+            categorySplit: data.categories.filter((cat: any) => !cat.parentId && cat.type !== 'INCOME').map((cat: any) => ({
+                name: cat.name, value: (data.categorySpending[cat.id] || 0) / 100, color: cat.color,
+                children: data.categories.filter((child: any) => child.parentId === cat.id)
+                    .map((child: any) => ({ name: child.name, color: child.color, value: (data.categorySpending[child.id] || 0) / 100 }))
+                    .filter((child: any) => child.value > 0).sort((a: any, b: any) => b.value - a.value),
+            })).filter((cat: any) => cat.value > 0).sort((a: any, b: any) => b.value - a.value),
             methodSplit: Object.entries(data.methodSpending).map(([name, value], index) => ({ name, value: Number(value) / 100, color: ['#8b5cf6', '#10b981', '#60a5fa', '#f59e0b'][index % 4] })),
         };
     },
 
-    getHistorical: async (grouping = 'month', groupBy = 'category') => {
-        const end = new Date();
+    getCashFlow: async (start: string, end: string) => {
+        const range = financeDateRange(start, end);
+        if (!range) throw new Error('Choose a valid date range.');
+        const transactions = await financeService.transactions({ startDate: range.startDate, endDate: range.endDate });
+        const daily: Record<string, { income: number; expense: number }> = {};
+        for (const item of transactions) {
+            const day = financeDay(new Date(item.transactionDate));
+            const row = daily[day] || (daily[day] = { income: 0, expense: 0 });
+            if (item.type === 'INCOME') row.income += item.amountPaise;
+            else if (item.type === 'EXPENSE') row.expense += item.amountPaise;
+        }
+        return { chartData: financeRangeSeries(start, end, daily).map(row => ({ period: row.label, income: row.income / 100, expense: row.expense / 100 })) };
+    },
+    getHistorical: async (grouping = 'month', groupBy = 'category', anchor?: string) => {
+        const selected = anchor ? new Date(anchor) : new Date();
+        const end = new Date(selected.getFullYear(), selected.getMonth() + 1, 0, 23, 59, 59, 999);
         const start = new Date(end.getFullYear(), end.getMonth() - 11, 1);
-        const transactions = await financeService.transactions({ startDate: start.toISOString(), endDate: end.toISOString(), type: 'EXPENSE' });
+        const transactions = await financeService.transactions({ startDate: start.toISOString(), endDate: end.toISOString() });
         const groups = new Map<string, { name: string; color: string }>();
         const periods = new Map<string, any>();
-        for (let date = new Date(start); date <= end; date.setMonth(date.getMonth() + 1)) periods.set(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`, { period: date.toLocaleDateString('en', { month: 'short', year: '2-digit' }), expense: 0 });
+        for (let date = new Date(start); date <= end; date.setMonth(date.getMonth() + 1)) periods.set(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`, { period: date.toLocaleDateString('en', { month: 'short' }), expense: 0, income: 0 });
         for (const item of transactions) {
             const date = new Date(item.transactionDate);
             const period = periods.get(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
             if (!period) continue;
+            if (item.type === 'INCOME') { period.income += item.amountPaise / 100; continue; }
             const name = groupBy === 'method' ? item.paymentMethod : item.category?.name || 'Other';
             groups.set(name, { name, color: item.category?.color || '#8b5cf6' });
             period.expense += item.amountPaise / 100;

@@ -58,7 +58,7 @@ function inspect(node) {
   if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'bookTitleCache') titleExpression = node.initializer.getText(ast);
   if (ts.isCallExpression(node) && node.expression.getText(ast) === 'useEffect') {
     const body = node.arguments[0].getText(ast);
-    if (body.includes('bookService.getBook(id)')) loadTitle = body;
+    if (body.includes('bookService.getBook(id, true)')) loadTitle = body;
     if (body.includes('playbackNotificationService.showNotification(title, chapter')) notify = body;
   }
   ts.forEachChild(node, inspect);

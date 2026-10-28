@@ -16,6 +16,14 @@ export async function GET(
 
         const { id } = await params;
 
+        if (req.nextUrl.searchParams.get('progress') === '1') {
+            const progress = await prisma.book.findUnique({
+                where: { id }, select: { id: true, chapterId: true, sentenceId: true, updatedAt: true },
+            });
+            if (!progress) return NextResponse.json({ error: 'Book not found' }, { status: 404 });
+            return NextResponse.json(progress, { headers: { 'Cache-Control': 'private, no-store' } });
+        }
+
         const book = await prisma.book.findUnique({
             where: { id: id },
             include: {

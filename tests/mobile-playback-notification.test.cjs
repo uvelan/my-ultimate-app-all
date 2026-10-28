@@ -21,3 +21,15 @@ test('reader handler ownership survives old unmount; audiobook actions retain st
 test('foreground task remains pending during playback and resolves on explicit stop', async () => { const h = harness(); let finished = false; const task = h.runner().then(() => finished = true); await Promise.resolve(); assert.equal(finished, false); await h.playbackNotificationService.showNotification('Real Book', 'Opening', true, 'tts', 1.5); assert.equal(finished, false); await h.playbackNotificationService.stopNotification(); await task; assert.equal(finished, true); const show = h.calls.find(c => c[0] === 'show')[1]; assert.equal(show.android.asForegroundService, true); assert.deepEqual(Array.from(show.android.foregroundServiceTypes), [2]); assert.ok(h.calls.some(c => c[0] === 'native' && c[1] === 'Real Book' && c[4] === 1.5)); });
 test('stale stop cannot cancel a new reader notification and initialization is idempotent', async () => { const h = harness(); await Promise.all([h.playbackNotificationService.initialize(), h.playbackNotificationService.initialize()]); const stop = h.playbackNotificationService.stopNotification(); const show = h.playbackNotificationService.showNotification('New Book', 'Chapter', true, 'tts'); await Promise.all([stop, show]); assert.equal(h.calls.filter(c => c[0] === 'channel').length, 1); assert.equal(h.calls.some(c => c[0] === 'stop'), false); assert.equal(h.calls.at(-1)[0], 'show'); });
 test('audio notifications deactivate reader media session and early entry registers background handlers', async () => { const h = harness(); await h.playbackNotificationService.showNotification('Book', 'Audio', true, 'audio'); assert.ok(h.calls.some(c => c[0] === 'deactivate')); assert.equal(h.calls.some(c => c[0] === 'native'), false); const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../mobile-app/package.json'))); assert.equal(pkg.main, 'index.js'); const entry = fs.readFileSync(path.resolve(__dirname, '../mobile-app/index.js'), 'utf8'); assert.ok(entry.indexOf('playback-notification.service') < entry.indexOf('expo-router/entry')); });
+
+test('Listen removes its legacy notification once and lets Expo own the single media card', async () => {
+  const h = harness();
+  await h.playbackNotificationService.showNotification('Book', 'Passage 1', true, 'audio');
+  await h.playbackNotificationService.showNotification('Book', 'Passage 2', true, 'audio');
+  await h.playbackNotificationService.showNotification('Book', 'Passage 2', false, 'audio');
+  assert.equal(h.calls.filter(call => call[0] === 'show').length, 0);
+  assert.equal(h.calls.filter(call => call[0] === 'stop').length, 1);
+  assert.equal(h.calls.filter(call => call[0] === 'cancel').length, 1);
+  await h.playbackNotificationService.showNotification('Book', 'Reader', true, 'tts');
+  assert.equal(h.calls.filter(call => call[0] === 'show').length, 1, 'Reader retains its foreground TTS service');
+});

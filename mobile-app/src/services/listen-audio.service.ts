@@ -1,7 +1,11 @@
+import { listenResumeService } from './listen-resume.service';
+import { localSyncService } from './local-sync.service';
+import { kokoroService, type KokoroContinuation, type KokoroChunk, type KokoroProgress } from './kokoro.service';
+import { generateNativeGoogleAudio } from '../lib/google-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import { api } from '../lib/api-client';
 import { cacheService } from '../lib/storage';
-import { actualAudioSelection, assertAudioActive, audioIdentityKey, bytesToBase64, retryNativeAudio, NativeAudioIdentity } from '../lib/listen-audio';
+import { AUDIO_VOICES, actualAudioSelection, assertAudioActive, audioIdentityKey, bytesToBase64, retryNativeAudio, NativeAudioIdentity } from '../lib/listen-audio';
 import { validNarrationSync, NarrationSync } from '../lib/narration-sync';
 
 const DIRECTORY = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}listen-audio-v3/`;
@@ -12,12 +16,13 @@ export interface NativeAudioFile {
     key: string; requestKey: string; uri: string; bytes: number; created: number; used: number;
     provider: NativeAudioIdentity['provider']; voice: string; fallback: string; chapterId: string;
     contentType: string; source: 'device' | 'database' | 'generated';
-    audioId?: string; sync?: NarrationSync | null;
+    audioId?: string; sync?: NarrationSync | null; mixedVoice?: boolean;
 }
 let queue: Promise<unknown> = Promise.resolve();
 let allowed = new Set<string>();
 let protectedIds = new Set<string>();
 const evictionListeners = new Set<(uri: string) => void>();
+const progressListeners = new Set<(chapterId: string, event: KokoroProgress) => void>();
 const syncListeners = new Set<(file: NativeAudioFile) => void>();
 const syncing = new Set<string>();
 function locked<T>(operation: () => Promise<T>): Promise<T> {
@@ -25,13 +30,13 @@ function locked<T>(operation: () => Promise<T>): Promise<T> {
 }
 function readIndex(): NativeAudioFile[] { try { return cacheService.getObject<NativeAudioFile[]>(INDEX) || []; } catch { return []; } }
 async function remove(entry: NativeAudioFile) {
-    await FileSystem.deleteAsync(entry.uri, { idempotent: true }).catch(() => {});
+    if (!listenResumeService.isPinned(entry.uri)) await FileSystem.deleteAsync(entry.uri, { idempotent: true }).catch(() => {});
     evictionListeners.forEach(listener => listener(entry.uri));
 }
 function hydrateSync(file: NativeAudioFile, identity: NativeAudioIdentity, signal: AbortSignal): void {
     // Legacy files lack a byte fingerprint, so new server metadata cannot safely
     // describe them. Optional timing requests must never gate audio playback.
-    if (!file.audioId || file.sync !== undefined || signal.aborted || syncing.has(file.uri)) return;
+    if (identity.provider === 'kokoro' || !file.audioId || file.sync !== undefined || signal.aborted || syncing.has(file.uri)) return;
     syncing.add(file.uri);
     void (async () => {
     try {
@@ -54,6 +59,15 @@ function hydrateSync(file: NativeAudioFile, identity: NativeAudioIdentity, signa
     })();
 }
 export const listenAudioService = {
+    releaseOffline: () => kokoroService.release(),
+    joinOfflinePrefix: kokoroService.joinPrefix,
+    changeOfflineVoice: kokoroService.changeVoice,
+    splitOfflinePrefix: kokoroService.splitPrefix,
+    setOfflineDemand: (key: string, playing: boolean, index: number) => kokoroService.setDemand(key, playing, index),
+    subscribeProgress: (listener: (chapterId: string, event: KokoroProgress) => void) => {
+        progressListeners.add(listener);
+        return () => { progressListeners.delete(listener); };
+    },
     subscribeSync: (listener: (file: NativeAudioFile) => void) => {
         syncListeners.add(listener);
         return () => { syncListeners.delete(listener); };
@@ -72,11 +86,16 @@ export const listenAudioService = {
         }
         cacheService.setObject(INDEX, kept);
     }),
+    invalidateChapter: (chapterId: string) => locked(async () => {
+        const entries = readIndex();
+        for (const entry of entries.filter(item => item.chapterId === chapterId)) await remove(entry);
+        cacheService.setObject(INDEX, entries.filter(item => item.chapterId !== chapterId));
+    }),
     get: (identity: NativeAudioIdentity) => locked(async (): Promise<NativeAudioFile | null> => {
         const key = audioIdentityKey(identity);
         const entries = readIndex();
         const entry = entries.find(item => item.key === key || item.requestKey === key);
-        if (!entry || Date.now() - entry.created >= AGE) return null;
+        if (!entry || !AUDIO_VOICES[entry.provider]?.includes(entry.voice) || Date.now() - entry.created >= AGE) return null;
         const info = await FileSystem.getInfoAsync(entry.uri);
         if (!info.exists || info.size !== entry.bytes) return null;
         entry.used = Date.now(); cacheService.setObject(INDEX, entries);
@@ -85,7 +104,12 @@ export const listenAudioService = {
     activate: (chapterId: string, windowStart: string, signal: AbortSignal) => retryNativeAudio(async () => {
         await api.get('/tts', { params: { chapterId, windowStart, windowOnly: '1' }, signal });
     }, signal),
-    load: async (identity: NativeAudioIdentity, windowStart: () => string, signal: AbortSignal, prefetch = false, bypass = false): Promise<NativeAudioFile> => {
+    load: async (identity: NativeAudioIdentity, windowStart: () => string, signal: AbortSignal, prefetch = false, bypass = false, onChunk?: (chunk: KokoroChunk, sync: NarrationSync) => void, continuation?: KokoroContinuation): Promise<NativeAudioFile> => {
+        // Retry may bypass the ordinary cache, but a verified PC chapter is already
+        // published independently. Re-cache explicitly invalidates it first.
+        const synced = await localSyncService.get(identity);
+        assertAudioActive(signal);
+        if (synced) return synced;
         if (!bypass) {
             const cached = await listenAudioService.get(identity);
             assertAudioActive(signal);
@@ -94,16 +118,33 @@ export const listenAudioService = {
                 return cached;
             }
         }
-        const response = await retryNativeAudio(async attempt => {
-            const response = await api.get('/tts', { params: { chapterId: identity.chapterId, provider: identity.provider,
-                voice: identity.voice, grammarModel: identity.grammarModel, windowStart: windowStart(),
-                ...(prefetch ? { prefetch: '1' } : {}), ...(bypass && attempt === 0 ? { bypassCache: '1' } : {}) },
-                responseType: 'arraybuffer', signal, timeout: 300000 });
-            const length = Number(response.headers['content-length']);
-            const bytes = new Uint8Array(response.data);
-            if (!bytes.length || (Number.isFinite(length) && length > 0 && bytes.length !== length)) throw new Error('Incomplete audio download');
-            return response;
-        }, signal);
+        // Offline synthesis never calls the production TTS API or a cloud fallback.
+        let local: Awaited<ReturnType<typeof kokoroService.generate>> | undefined;
+        if (identity.provider === 'kokoro') {
+            const settings = localSyncService.settings();
+            if (settings.enabled && !settings.phoneFallback) throw localSyncService.waitingError();
+            local = await kokoroService.generate(identity, signal, event => progressListeners.forEach(listener => listener(identity.chapterId, event)), onChunk, continuation);
+        }
+        const directAllowed = identity.provider === 'google' && identity.grammarModel === 'OFF';
+        let directSync: NarrationSync | undefined;
+        let response;
+        try {
+            response = local ? { data: new ArrayBuffer(0), headers: { 'content-type': 'audio/wav', 'x-tts-provider': 'kokoro', 'x-tts-voice': identity.voice } as Record<string, string> } : await retryNativeAudio(async attempt => {
+                const response = await api.get('/tts', { params: { chapterId: identity.chapterId, provider: identity.provider,
+                    voice: identity.voice, grammarModel: identity.grammarModel, windowStart: windowStart(),
+                    ...(prefetch ? { prefetch: '1' } : {}), ...(bypass ? { bypassCache: '1' } : {}) },
+                    responseType: 'arraybuffer', signal, timeout: directAllowed ? 25000 : 300000 });
+                const length = Number(response.headers['content-length']);
+                const bytes = new Uint8Array(response.data);
+                if (!bytes.length || (Number.isFinite(length) && length > 0 && bytes.length !== length)) throw new Error('Incomplete audio download');
+                return response;
+            }, signal, directAllowed ? [] : undefined);
+        } catch (error: any) {
+            assertAudioActive(signal); const status = error?.response?.status;
+            if (!directAllowed || status && status < 500 && status !== 408 && status !== 429) throw error;
+            const direct = await generateNativeGoogleAudio(identity, signal); response = direct; directSync = direct.sync;
+        }
+        if (signal.aborted && local) await FileSystem.deleteAsync(local.uri, { idempotent: true }).catch(() => {});
         assertAudioActive(signal);
         const selection = actualAudioSelection(response.headers as Record<string, unknown>, identity);
         const actualKey = audioIdentityKey({ ...identity, provider: selection.provider, voice: selection.voice });
@@ -111,13 +152,19 @@ export const listenAudioService = {
         const contentType = String(response.headers['content-type'] || 'audio/mpeg');
         if (!contentType.startsWith('audio/')) throw new Error('The server did not return playable audio.');
         const bytes = new Uint8Array(response.data);
-        await FileSystem.makeDirectoryAsync(DIRECTORY, { intermediates: true });
-        const uri = `${DIRECTORY}${actualKey}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${contentType.includes('wav') ? 'wav' : 'mp3'}`;
-        try { await FileSystem.writeAsStringAsync(uri, bytesToBase64(bytes), { encoding: FileSystem.EncodingType.Base64 }); }
+        const uri = local?.uri || `${DIRECTORY}${actualKey}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${contentType.includes('wav') ? 'wav' : 'mp3'}`;
+        try {
+            if (!local) {
+                await FileSystem.makeDirectoryAsync(DIRECTORY, { intermediates: true });
+                await FileSystem.writeAsStringAsync(uri, bytesToBase64(bytes), { encoding: FileSystem.EncodingType.Base64 });
+            }
+        }
         catch (error) { await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {}); throw error; }
-        const entry: NativeAudioFile = { key: actualKey, requestKey: audioIdentityKey(identity), uri, bytes: bytes.length,
-            chapterId: identity.chapterId, created: Date.now(), used: Date.now(), contentType, audioId, ...selection,
+        const entry: NativeAudioFile = { key: actualKey, requestKey: audioIdentityKey(identity), uri, bytes: local?.bytes || bytes.length,
+            chapterId: identity.chapterId, created: Date.now(), used: Date.now(), contentType, audioId, ...(local?.sync || directSync ? { sync: local?.sync || directSync } : {}), ...selection,
             source: response.headers['x-tts-cache'] === 'database' ? 'database' : 'generated' };
+        // A mixed-voice session must never overwrite a uniform-voice cache entry.
+        if (local?.mixedVoice) return { ...entry, mixedVoice: true };
         const saved = await locked(async () => {
             if (signal.aborted || (!allowed.has(entry.key) && !allowed.has(entry.requestKey))) {
                 await remove(entry); assertAudioActive(signal); throw new Error('Audio selection changed.');

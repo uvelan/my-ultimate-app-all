@@ -1,15 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, StatusBar, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 import { financeService, FinanceSnapshot } from '@/src/services/finance.service';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { ArrowLeft } from 'lucide-react-native';
 import { PAYMENT_METHODS } from '@/src/lib/payment-methods';
 
 const money = (value: number) => `₹${(value / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-const inputStyle = { color: '#f5f5f0', backgroundColor: '#211f24', padding: 12, borderRadius: 8, marginBottom: 12 };
+const inputStyle = { color: '#041b3c', backgroundColor: '#fff', padding: 12, borderRadius: 8, marginBottom: 12 };
 export default function FinanceScreen() {
     const router = useRouter();
-    const [tab, setTab] = useState<'budgets' | 'recurring' | 'reports'>('budgets');
+    useFocusEffect(React.useCallback(() => {
+        StatusBar.setBarStyle('dark-content');
+        return () => StatusBar.setBarStyle('light-content');
+    }, []));
+    const { tab: requestedTab } = useLocalSearchParams<{ tab?: string }>();
+    const [tab, setTab] = useState<'budgets' | 'recurring'>(requestedTab === 'recurring' ? 'recurring' : 'budgets');
     const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
     const [data, setData] = useState<FinanceSnapshot & { aggregates?: any } | null>(null);
     const [loading, setLoading] = useState(true);
@@ -51,28 +57,22 @@ export default function FinanceScreen() {
         }
     };
     const remove = (resource: 'budgets' | 'recurring', id: string) => Alert.alert('Delete entry?', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => mutate(() => financeService.remove(resource, id)) }]);
-    const chip = (label: string, active: boolean, onPress: () => void) => <TouchableOpacity key={label} onPress={onPress} style={{ padding: 10, borderRadius: 8, marginRight: 8, marginBottom: 8, backgroundColor: active ? '#7c3aed' : '#28252e' }}><Text style={{ color: '#fff' }}>{label}</Text></TouchableOpacity>;
+    const chip = (label: string, active: boolean, onPress: () => void) => <TouchableOpacity key={label} onPress={onPress} style={{ padding: 10, borderRadius: 8, marginRight: 8, marginBottom: 8, backgroundColor: active ? '#001642' : '#e8eeff' }}><Text style={{ color: active ? '#fff' : '#001642' }}>{label}</Text></TouchableOpacity>;
     const categories = (data?.categories || []).filter(item => item.type === (tab === 'budgets' ? 'EXPENSE' : type));
-    return <View className="flex-1 bg-background">
-        <View className="pt-12 px-5 pb-4 flex-row items-center"><SidebarToggle /><Text className="text-white text-2xl font-bold ml-3">Finance planning</Text></View>
-        <View className="flex-row px-5">{(['budgets', 'recurring', 'reports'] as const).map(item => chip(item, item === tab, () => { setTab(item); setEditing(undefined); setAmount(''); setCategoryId(''); }))}</View>
+    if (requestedTab === 'reports') return <Redirect href="/(protected)/(tabs)/expenses" />;
+    return <View className="flex-1 bg-[#f9f9ff]">
+        <View className="pt-12 px-5 pb-4 flex-row items-center"><TouchableOpacity accessibilityLabel="Back to Finance" onPress={() => router.back()}><ArrowLeft size={24} color="#001642" /></TouchableOpacity><Text className="text-[#041b3c] text-2xl font-bold ml-3">Finance planning</Text></View>
+        <View className="flex-row px-5">{(['budgets', 'recurring'] as const).map(item => chip(item, item === tab, () => { setTab(item); setEditing(undefined); setAmount(''); setCategoryId(''); }))}</View>
         <View className="px-5">{chip('Manage income & expense categories', false, () => router.push('/(protected)/categories' as any))}</View>
         <ScrollView contentContainerStyle={{ padding: 20 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
-            <Text className="text-white mb-2">Month (YYYY-MM)</Text><TextInput accessibilityLabel="Finance month" style={inputStyle} value={month} onChangeText={setMonth} />
+            <Text className="text-[#041b3c] mb-2">Month (YYYY-MM)</Text><TextInput accessibilityLabel="Finance month" style={inputStyle} value={month} onChangeText={setMonth} />
             {!!error && <Text className="text-red-400 mb-4">{error}</Text>}
-            {loading && !data ? <ActivityIndicator color="#8b5cf6" /> : tab === 'reports' ? <>
-                <Text className="text-white text-xl mb-3">Monthly cash flow</Text>
-                {[['Income', data?.aggregates?.totalIncome || 0], ['Expenses', data?.aggregates?.totalExpense || 0], ['Net savings', data?.aggregates?.netSavings || 0]].map(([label, value]) => <View key={String(label)} className="flex-row justify-between py-3"><Text className="text-white">{label}</Text><Text className="text-white">{money(Number(value))}</Text></View>)}
-                <Text className="text-white text-xl mt-5 mb-3">By payment method</Text>
-                {Object.entries(data?.aggregates?.methodSpending || {}).map(([name, value]) => <View key={name} className="flex-row justify-between py-2"><Text className="text-white">{name}</Text><Text className="text-white">{money(Number(value))}</Text></View>)}
-                <Text className="text-white text-xl mt-5 mb-3">Daily income / expense</Text>
-                {Object.entries(data?.aggregates?.dailyCashFlow || {}).sort(([a], [b]) => a.localeCompare(b)).map(([date, values]: any) => <View key={date} className="flex-row justify-between py-2"><Text className="text-white">{date}</Text><Text className="text-white">{money(values.income)} / {money(values.expense)}</Text></View>)}
-            </> : <>
+            {loading && !data ? <ActivityIndicator color="#8b5cf6" /> : <>
                 {(tab === 'budgets' ? data?.budgets : data?.recurring)?.map(item => {
                     const spent = item.categoryId ? data?.aggregates?.categorySpending?.[item.categoryId] || 0 : data?.aggregates?.methodSpending?.[item.paymentMethod] || 0;
-                    return <View key={item.id} className="bg-background-surface p-4 rounded-xl mb-3">
-                        <Text className="text-white font-bold">{item.category?.name || item.paymentMethod} · {money(item.amountPaise)}</Text>
-                        <Text className="text-gray-300 mt-2">{tab === 'budgets' ? `${money(spent)} spent · ${Math.round(spent / item.amountPaise * 100)}% · alert at ${item.alertThreshold}%` : `${item.type} · ${item.frequency} · ${item.isActive ? 'Active' : 'Paused'}`}</Text>
+                    return <View key={item.id} className="bg-white p-4 rounded-xl mb-3">
+                        <Text className="text-[#041b3c] font-bold">{item.category?.name || item.paymentMethod} · {money(item.amountPaise)}</Text>
+                        <Text className="text-[#444650] mt-2">{tab === 'budgets' ? `${money(spent)} spent · ${Math.round(spent / item.amountPaise * 100)}% · alert at ${item.alertThreshold}%` : `${item.type} · ${item.frequency} · ${item.isActive ? 'Active' : 'Paused'}`}</Text>
                         <View className="flex-row mt-3">
                             {chip('Edit', false, () => { setEditing(item.id); setAmount(String(item.amountPaise / 100)); setCategoryId(item.categoryId || ''); setMethod(item.paymentMethod || 'UPI'); setThreshold(String(item.alertThreshold || 80)); setBudgetBy(item.categoryId ? 'category' : 'method'); if (tab === 'recurring') { setType(item.type); setDescription(item.description || ''); setFrequency(item.frequency); setStartDate(item.startDate.slice(0, 10)); setEndDate(item.endDate?.slice(0, 10) || ''); } })}
                             {tab === 'recurring' && chip(item.isActive ? 'Pause' : 'Resume', false, () => mutate(() => financeService.save('recurring', { type: item.type, amountPaise: item.amountPaise, categoryId: item.categoryId, paymentMethod: item.paymentMethod, description: item.description || '', frequency: item.frequency, startDate: item.startDate, endDate: item.endDate, isActive: !item.isActive }, item.id)))}
@@ -80,7 +80,7 @@ export default function FinanceScreen() {
                         </View>
                     </View>;
                 })}
-                <Text className="text-white text-xl mt-5 mb-4">{editing ? 'Edit' : 'Add'} {tab === 'budgets' ? 'budget' : 'recurring transaction'}</Text>
+                <Text className="text-[#041b3c] text-xl mt-5 mb-4">{editing ? 'Edit' : 'Add'} {tab === 'budgets' ? 'budget' : 'recurring transaction'}</Text>
                 <TextInput placeholder="Amount (₹)" placeholderTextColor="#999" keyboardType="decimal-pad" style={inputStyle} value={amount} onChangeText={setAmount} />
                 <View className="flex-row flex-wrap">{tab === 'budgets' ? ['category', 'method'].map(item => chip(item, budgetBy === item, () => setBudgetBy(item as any))) : ['EXPENSE', 'INCOME'].map(item => chip(item, type === item, () => { setType(item as any); setCategoryId(''); }))}</View>
                 {(tab === 'recurring' || budgetBy === 'category') && <View className="flex-row flex-wrap">{categories.map(item => chip(item.name, categoryId === item.id, () => setCategoryId(item.id)))}</View>}
@@ -91,7 +91,7 @@ export default function FinanceScreen() {
                     <TextInput placeholder="Start date YYYY-MM-DD" placeholderTextColor="#999" style={inputStyle} value={startDate} onChangeText={setStartDate} />
                     <TextInput placeholder="End date YYYY-MM-DD (optional)" placeholderTextColor="#999" style={inputStyle} value={endDate} onChangeText={setEndDate} />
                 </>}
-                <TouchableOpacity disabled={saving} onPress={save} className="p-4 bg-accent rounded-xl mt-2"><Text className="text-white text-center font-bold">{saving ? 'Saving…' : 'Save'}</Text></TouchableOpacity>
+                <TouchableOpacity disabled={saving} onPress={save} className="p-4 bg-[#9df5c5] rounded-xl mt-2"><Text className="text-[#041b3c] text-center font-bold">{saving ? 'Saving…' : 'Save'}</Text></TouchableOpacity>
             </>}
         </ScrollView>
     </View>;

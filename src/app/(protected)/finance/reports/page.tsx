@@ -1,49 +1,15 @@
-import { verifyAuth } from '@/lib/auth-server'
 import { redirect } from 'next/navigation'
-import { getDashboardAggregates } from '@/actions/transaction'
-import { getCategories } from '@/actions/category'
-import ReportsClient from './ReportsClient'
+import { financeDateRange } from '@/lib/finance-range'
 
-export const metadata = {
-    title: 'Reports | Finance Tracker',
-    description: 'Analytics and export for your transactions',
-}
-
-interface SearchParams {
-  month?: string
-}
-
-export default async function ReportsPage(props: { searchParams: Promise<SearchParams> }) {
-    const { isAuthenticated, user } = await verifyAuth()
-
-    if (!isAuthenticated || !user) {
-        redirect('/login')
-    }
-
-    const searchParams = await props.searchParams
-
-    const now = new Date()
-    const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const month = searchParams.month || defaultMonth
-
-    const start = new Date(`${month}-01T00:00:00.000Z`)
-    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999)
-
-    const [aggregates, categories] = await Promise.all([
-        getDashboardAggregates(start, end),
-        getCategories(true)
-    ])
-
-    const categoryMap: Record<string, { name: string, color: string, parentId?: string | null }> = {}
-    categories.forEach(c => {
-        categoryMap[c.id] = { name: c.name, color: c.color, parentId: c.parentId }
-    })
-
-    return (
-        <ReportsClient 
-            aggregates={aggregates} 
-            categoryMap={categoryMap} 
-            currentMonth={month} 
-        />
-    )
+// Preserve bookmarked monthly reports while keeping a single finance overview.
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+  const { month } = await searchParams
+  if (month && /^\d{4}-\d{2}$/.test(month) && financeDateRange(`${month}-01`, `${month}-01`)) {
+    const last = new Date(`${month}-01T00:00:00Z`)
+    last.setUTCMonth(last.getUTCMonth() + 1)
+    last.setUTCDate(0)
+    const params = new URLSearchParams({ period: 'custom', startDate: `${month}-01`, endDate: last.toISOString().slice(0, 10) })
+    redirect(`/finance/dashboard?${params}`)
+  }
+  redirect('/finance/dashboard')
 }

@@ -1,44 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Modal, TextInput } from 'react-native';
-import { StatCard } from '@/src/components/ui/StatCard';
-import { ExpensePieChart } from '@/src/components/ui/ExpensePieChart';
-import { ExpenseTrendChart } from '@/src/components/ui/ExpenseTrendChart';
-import { TrendingDown, Wallet, PieChart as PieIcon, LineChart, History as HistoryIcon, Plus, X, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Trash2, Pencil } from 'lucide-react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { financeDateRange, financeDay } from '@/src/lib/finance-range';
+import { financePeriodRange, moveFinancePeriod, FinancePeriod } from '@/src/lib/finance-period';
+import { financeService } from '@/src/services/finance.service';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, RefreshControl, StatusBar, ActivityIndicator, TouchableOpacity, Modal, TextInput } from 'react-native';
+import { FinanceDashboard } from '@/src/components/finance/FinanceDashboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+
+import { Menu, LayoutDashboard, ReceiptText, Shapes, Wallet, PieChart as PieIcon, LineChart, History as HistoryIcon, Plus, X, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Trash2, Pencil } from 'lucide-react-native';
 import { Card } from '@/src/components/ui/Card';
 import { expenseService, incomeService, categoryService } from '@/src/services/features.service';
-import { SidebarToggle } from '@/src/components/ui/Sidebar';
-import { useRouter } from 'expo-router';
+import { useSidebar } from '@/src/components/ui/Sidebar';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { PAYMENT_METHODS } from '@/src/lib/payment-methods';
 
 type Segment = 'overview' | 'history' | 'income' | 'categories' | 'calendar';
 
 export default function ExpensesScreen() {
     const router = useRouter();
+    useFocusEffect(React.useCallback(() => {
+        StatusBar.setBarStyle('dark-content');
+        return () => StatusBar.setBarStyle('light-content');
+    }, []));
+    const { toggle: toggleSidebar } = useSidebar();
+    const insets = useSafeAreaInsets();
+    const financeRequest = useRef(0);
     const [loadError, setLoadError] = useState('');
     const [activeSegment, setActiveSegment] = useState<Segment>('overview');
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [stats, setStats] = useState<any>(null);
-    const [historical, setHistorical] = useState<any>([]);
-    const [breakdown, setBreakdown] = useState<any>([]);
+    const [dashboardTransactions, setDashboardTransactions] = useState<any[]>([]);
+    const [dashboardCategories, setDashboardCategories] = useState<any[]>([]);
     const [expenses, setExpenses] = useState<any[]>([]);
     const [incomes, setIncomes] = useState<any[]>([]);
     const [categories, setCategories] = useState<any[]>([]);
     
     const [groupingMode, setGroupingMode] = useState<'category' | 'method'>('category');
-    const [historicalCategories, setHistoricalCategories] = useState<{name: string, color: string}[]>([]);
     const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
-    const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
-
-    const toggleCategory = (name: string) => {
-        setHiddenCategories(prev => {
-            const next = new Set(prev);
-            if (next.has(name)) next.delete(name);
-            else next.add(name);
-            return next;
-        });
-    };
-
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddIncomeModalOpen, setIsAddIncomeModalOpen] = useState(false);
     const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
@@ -55,6 +54,24 @@ export default function ExpensesScreen() {
     const [historyFilterMethod, setHistoryFilterMethod] = useState<string>('All');
 
     const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [period, setPeriod] = useState<FinancePeriod | 'custom'>('month');
+    const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
+    const [rangeOpen, setRangeOpen] = useState(false);
+    const [rangeStart, setRangeStart] = useState(financeDay(new Date()));
+    const [rangeEnd, setRangeEnd] = useState(financeDay(new Date()));
+    const [rangeError, setRangeError] = useState('');
+    const [pickerField, setPickerField] = useState<'start' | 'end' | null>(null);
+    const rangeEnabled = activeSegment === 'overview' && (dateRange !== null || period !== 'month');
+    const dashboardRange = dateRange ? financeDateRange(dateRange.start, dateRange.end)! : financePeriodRange(period === 'custom' ? 'month' : period, currentMonth);
+    const openRange = () => {
+        setRangeStart(dashboardRange.start);
+        setRangeEnd(dashboardRange.end);
+        setRangeError(''); setPickerField(null); setRangeOpen(true);
+    };
+    const applyRange = () => {
+        if (!financeDateRange(rangeStart, rangeEnd)) { setRangeError('Start date must be on or before the end date.'); return; }
+        setDateRange({ start: rangeStart, end: rangeEnd }); setCurrentMonth(new Date(rangeStart + 'T12:00:00+05:30')); setPeriod('custom'); setRangeOpen(false); setPickerField(null);
+    };
     const [selectedDay, setSelectedDay] = useState<Date | null>(null);
     const [isDayModalOpen, setIsDayModalOpen] = useState(false);
 
@@ -84,56 +101,46 @@ export default function ExpensesScreen() {
         return days;
     };
 
-    const nextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-    const prevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-    const goToday = () => setCurrentMonth(new Date());
+    const navigatePeriod = (direction: number) => {
+        const selected = activeSegment === 'overview' && period !== 'custom' ? period : 'month';
+        setDateRange(null);
+        if (period === 'custom') setPeriod('month');
+        setCurrentMonth(moveFinancePeriod(selected, currentMonth, direction));
+    };
+    const nextMonth = () => navigatePeriod(1);
+    const prevMonth = () => navigatePeriod(-1);
+    const goToday = () => { setDateRange(null); setPeriod('month'); setCurrentMonth(new Date()); };
 
     const fetchData = async () => {
+        const request = ++financeRequest.current;
+        setRefreshing(true);
         setLoadError('');
         try {
-            const year = currentMonth.getFullYear();
-            const month = currentMonth.getMonth();
-            const startDate = new Date(year, month, 1).toISOString();
-            const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
-
-            const [statsRes, trendRes, listRes, listInc, listCat] = await Promise.all([
-                expenseService.getStats(startDate, endDate),
-                expenseService.getHistorical('month', groupingMode),
-                expenseService.getExpenses(startDate, endDate),
-                incomeService.getIncomes(startDate, endDate),
-                categoryService.getCategories()
+            const selectedRange = activeSegment === 'overview' ? dashboardRange : financePeriodRange('month', currentMonth);
+            const [transactions, allCategories] = await Promise.all([
+                financeService.transactions({ startDate: selectedRange.startDate, endDate: selectedRange.endDate }),
+                financeService.categories(true),
             ]);
-
-            if (statsRes) {
-                setStats(statsRes);
-                setBreakdown(groupingMode === 'category' ? (statsRes.categorySplit || []) : (statsRes.methodSplit || []));
-            }
-            if (trendRes) {
-                setHistorical(trendRes.chartData || []);
-                setHistoricalCategories(trendRes.categories || []);
-            }
-            if (listRes) {
-                setExpenses(listRes);
-            }
-            if (listInc) {
-                setIncomes(listInc);
-            }
-            if (listCat) {
-                setCategories(listCat);
-            }
-
+            if (request !== financeRequest.current) return;
+            const legacy = (item: any) => ({ ...item, amount: item.amountPaise / 100, date: item.transactionDate, notes: item.description, source: item.category?.name || item.description || 'Income' });
+            setDashboardTransactions(transactions);
+            setDashboardCategories(allCategories);
+            setExpenses(transactions.filter(item => item.type === 'EXPENSE').map(legacy));
+            setIncomes(transactions.filter(item => item.type === 'INCOME').map(legacy));
+            setCategories(allCategories.filter(item => item.type === 'EXPENSE' && !item.isArchived));
         } catch (error: any) {
+            if (request !== financeRequest.current) return;
             console.error('Expense Fetch Error:', error.message);
             setLoadError(error.response?.data?.error || 'Unable to load finance. Pull down to retry.');
         } finally {
-            setLoading(false);
-            setRefreshing(false);
+            if (request === financeRequest.current) { setLoading(false); setRefreshing(false); }
         }
     };
 
     useEffect(() => {
         fetchData();
-    }, [currentMonth, groupingMode]);
+        return () => { financeRequest.current++; };
+    }, [currentMonth, period, dateRange, activeSegment === 'overview']);
 
     const onRefresh = () => {
         setRefreshing(true);
@@ -262,204 +269,75 @@ export default function ExpensesScreen() {
 
     if (loading) {
         return (
-            <View className="flex-1 bg-background items-center justify-center">
+            <View className="flex-1 bg-[#f9f9ff] items-center justify-center">
                 <ActivityIndicator size="large" color="#8b5cf6" />
             </View>
         );
     }
 
     return (
-        <View className="flex-1 bg-background">
-            <View className="px-6 pt-12 pb-4 bg-background/50 border-b border-border">
-                <View className="flex-row justify-between items-center">
-                    <View className="flex-row items-center">
-                        <SidebarToggle />
-                        <Text className="text-3xl font-bold text-text-primary font-serif ml-3">Financials</Text>
-                    </View>
-                    <View className="flex-row items-center gap-2">
-                        <TouchableOpacity 
-                            onPress={() => activeSegment === 'income' ? setIsAddIncomeModalOpen(true) : setIsAddModalOpen(true)} 
-                            className="bg-accent p-2 rounded-full shadow-lg"
-                        >
-                            <Plus size={20} color="#ffffff" />
-                        </TouchableOpacity>
+        <View style={{ flex: 1, backgroundColor: '#f9f9ff' }}>
+            <View style={{ backgroundColor: '#fff', paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#e8eeff' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><TouchableOpacity accessibilityLabel="Open app menu" onPress={toggleSidebar}><Menu size={24} color="#001642" /></TouchableOpacity><Text style={{ fontSize: 24, fontWeight: '800', color: '#001642' }}>Finance</Text></View>
+                    <TouchableOpacity accessibilityLabel={activeSegment === 'income' ? 'Add income' : 'Add transaction'} onPress={() => activeSegment === 'income' ? setIsAddIncomeModalOpen(true) : setIsAddModalOpen(true)} style={{ backgroundColor: '#001642', padding: 9, borderRadius: 24 }}><Plus size={22} color="#fff" /></TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}><CalendarIcon size={18} color="#444650" /><Text style={{ fontSize: rangeEnabled ? 11 : 15, fontWeight: '700', color: '#041b3c', flexShrink: 1 }}>{rangeEnabled ? dashboardRange.start + ' – ' + dashboardRange.end : currentMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</Text></View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f3ff', borderRadius: 12 }}>
+                        <TouchableOpacity accessibilityLabel="Previous period" onPress={prevMonth} style={{ padding: 9 }}><ChevronLeft size={18} color="#001642" /></TouchableOpacity>
+                        <TouchableOpacity onPress={goToday} style={{ paddingHorizontal: 5 }}><Text style={{ fontSize: 11, color: '#001642', fontWeight: '700' }}>Today</Text></TouchableOpacity>
+                        <TouchableOpacity accessibilityLabel="Next period" onPress={nextMonth} style={{ padding: 9 }}><ChevronRight size={18} color="#001642" /></TouchableOpacity>
                     </View>
                 </View>
-
-                {/* Segment Switcher */}
-                <TouchableOpacity onPress={() => router.push('/(protected)/finance' as any)} className="mt-4 py-3 rounded-lg bg-accent/20"><Text className="text-white text-center font-bold">Budgets · Recurring · Reports</Text></TouchableOpacity>
-                {!!loadError && <Text className="text-red-400 mt-3">{loadError}</Text>}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-6">
-                    <View className="flex-row bg-background rounded-xl p-1 border border-border min-w-full">
-                        <TouchableOpacity
-                            onPress={() => setActiveSegment('overview')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'overview' ? 'bg-accent' : ''}`}
-                        >
-                            <Text className={`font-bold ${activeSegment === 'overview' ? 'text-text-primary' : 'text-text-muted'}`}>Overview</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => setActiveSegment('history')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'history' ? 'bg-accent' : ''}`}
-                        >
-                            <Text className={`font-bold ${activeSegment === 'history' ? 'text-text-primary' : 'text-text-muted'}`}>History</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => setActiveSegment('income')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'income' ? 'bg-accent' : ''}`}
-                        >
-                            <Text className={`font-bold ${activeSegment === 'income' ? 'text-text-primary' : 'text-text-muted'}`}>Income</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => setActiveSegment('calendar')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'calendar' ? 'bg-accent' : ''}`}
-                        >
-                            <Text className={`font-bold ${activeSegment === 'calendar' ? 'text-text-primary' : 'text-text-muted'}`}>Calendar</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => setActiveSegment('categories')}
-                            className={`flex-1 px-4 py-2 rounded-lg items-center ${activeSegment === 'categories' ? 'bg-accent' : ''}`}
-                        >
-                            <Text className={`font-bold ${activeSegment === 'categories' ? 'text-text-primary' : 'text-text-muted'}`}>Categories</Text>
-                        </TouchableOpacity>
-                    </View>
-                </ScrollView>
-
-                {/* Global Month Selector */}
-                <View className="flex-row justify-between items-center mt-4">
-                    <View className="flex-row items-center gap-2">
-                        <CalendarIcon size={20} color="#8b5cf6" />
-                        <Text className="text-text-primary font-bold text-xl font-serif">
-                            {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                        </Text>
-                    </View>
-                    <View className="flex-row items-center bg-background rounded-lg border border-border p-1">
-                        <TouchableOpacity onPress={prevMonth} className="px-2 py-1">
-                            <ChevronLeft size={18} color="#a39b98" />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={goToday} className="px-3 py-1">
-                            <Text className="text-text-primary font-bold text-xs uppercase tracking-wider">Today</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={nextMonth} className="px-2 py-1">
-                            <ChevronRight size={18} color="#a39b98" />
-                        </TouchableOpacity>
-                    </View>
+                <View style={{ flexDirection: 'row', gap: 20, marginTop: 14, flexWrap: 'wrap' }}>
+                    {activeSegment === 'overview' && <TouchableOpacity accessibilityLabel="Choose dashboard date range" onPress={openRange}><Text style={{ fontSize: 12, fontWeight: '700', color: '#001642' }}>{dateRange ? 'Edit range' : 'Date range'}</Text></TouchableOpacity>}
+                    {rangeEnabled && <TouchableOpacity accessibilityLabel="Reset dashboard date range" onPress={() => { setDateRange(null); setPeriod('month'); }}><Text style={{ fontSize: 12, fontWeight: '600', color: '#444650' }}>Reset</Text></TouchableOpacity>}
+                    <TouchableOpacity onPress={() => router.push('/(protected)/finance?tab=budgets' as any)}><Text style={{ fontSize: 12, fontWeight: '600', color: '#026c47' }}>Budgets</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/(protected)/finance?tab=recurring' as any)}><Text style={{ fontSize: 12, fontWeight: '600', color: '#026c47' }}>Recurring</Text></TouchableOpacity>
+                    {activeSegment === 'history' && <TouchableOpacity onPress={() => setActiveSegment('income')}><Text style={{ fontSize: 12, fontWeight: '600', color: '#001642' }}>View income</Text></TouchableOpacity>}
+                    {activeSegment === 'income' && <TouchableOpacity onPress={() => setActiveSegment('history')}><Text style={{ fontSize: 12, fontWeight: '600', color: '#001642' }}>View expenses</Text></TouchableOpacity>}
                 </View>
+                {activeSegment === 'overview' && <View accessibilityLabel="Dashboard period" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                    {([{ value: 'month', label: 'Month' }, { value: 'quarter', label: 'Quarter' }, { value: 'halfYear', label: 'Half-year' }, { value: 'year', label: 'Year' }, { value: 'custom', label: 'Custom' }] as const).map(option => <TouchableOpacity key={option.value} accessibilityRole="button" accessibilityState={{ selected: period === option.value }} onPress={() => { if (option.value === 'custom') openRange(); else { setPeriod(option.value); setDateRange(null); } }} style={{ borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: period === option.value ? '#001642' : '#f1f3ff' }}><Text style={{ fontSize: 12, fontWeight: '600', color: period === option.value ? '#fff' : '#001642' }}>{option.label}</Text></TouchableOpacity>)}
+                </View>}
+                {!!loadError && <Text accessibilityRole="alert" style={{ color: '#ba1a1a', marginTop: 12 }}>{loadError}</Text>}
             </View>
 
             <ScrollView
-                className="flex-1"
+                style={{ flex: 1, backgroundColor: '#f9f9ff' }}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />}
             >
                 {activeSegment === 'overview' ? (
-                    <View className="p-6">
-                        <View className="flex-row justify-between gap-3 mb-8">
-                            <StatCard
-                                label="Balance"
-                                value={`₹${stats?.balance?.toLocaleString() || '0'}`}
-                                icon={Wallet}
-                                color="#60a5fa"
-                            />
-                            <StatCard
-                                label="Income"
-                                value={`₹${stats?.totalIncome?.toLocaleString() || '0'}`}
-                                icon={Wallet}
-                                color="#10b981"
-                            />
-                            <StatCard
-                                label="Spent"
-                                value={`₹${stats?.totalExpense?.toLocaleString() || '0'}`}
-                                icon={TrendingDown}
-                                color="#ef4444"
-                            />
-                        </View>
-
-                        <View className="flex-row items-center justify-between mb-4">
-                            <View className="flex-row items-center gap-2">
-                                <PieIcon size={20} color="#8b5cf6" />
-                                <Text className="text-text-primary font-bold text-xl font-serif">Breakdown</Text>
-                            </View>
-                            <View className="flex-row bg-background rounded-lg border border-border p-1">
-                                <TouchableOpacity onPress={() => setGroupingMode('category')} className={`px-2 py-1 ${groupingMode === 'category' ? 'bg-accent/30 rounded-md' : ''}`}>
-                                    <Text className="text-text-primary text-xs font-bold uppercase">Category</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setGroupingMode('method')} className={`px-2 py-1 ${groupingMode === 'method' ? 'bg-accent/30 rounded-md' : ''}`}>
-                                    <Text className="text-text-primary text-xs font-bold uppercase">Method</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                        <Card className="p-6 mb-8">
-                            <ExpensePieChart data={breakdown} hiddenCategories={hiddenCategories} onToggleCategory={toggleCategory} />
-                        </Card>
-
-                        <View className="flex-row items-center mb-4 gap-2">
-                            <LineChart size={20} color="#8b5cf6" />
-                            <Text className="text-text-primary font-bold text-xl font-serif">Trends</Text>
-                        </View>
-                        <Card className="p-4 pt-8 mb-8">
-                            <ExpenseTrendChart data={historical} categories={historicalCategories} hiddenCategories={hiddenCategories} />
-                        </Card>
-
-                        {/* Expense Summary Table */}
-                        <View className="flex-row items-center mb-4 gap-2">
-                            <Wallet size={20} color="#8b5cf6" />
-                            <Text className="text-text-primary font-bold text-xl font-serif">Summary</Text>
-                        </View>
-                        <Card className="p-4 mb-8">
-                            <View className="flex-row justify-between py-2 border-b border-border">
-                                <Text className="text-text-secondary font-bold text-xs uppercase">{groupingMode === 'category' ? 'Category' : 'Method'}</Text>
-                                <Text className="text-text-secondary font-bold text-xs uppercase">Amount</Text>
-                            </View>
-                            {breakdown
-                                .filter((item: any) => !hiddenCategories.has(item.name))
-                                .sort((a: any, b: any) => b.value - a.value)
-                                .map((item: any, idx: number) => (
-                                    <View key={idx} className="flex-row justify-between items-center py-3 border-b border-border/30">
-                                        <View className="flex-row items-center">
-                                            <View className="w-2.5 h-2.5 rounded-full mr-2" style={{ backgroundColor: item.color || '#6c757d' }} />
-                                            <Text className="text-text-primary font-bold text-sm">{item.name}</Text>
-                                        </View>
-                                        <Text className="text-[#ef4444] font-bold text-sm">-₹{item.value.toLocaleString()}</Text>
-                                    </View>
-                                ))}
-                            <View className="flex-row justify-between py-3 mt-1">
-                                <Text className="text-text-primary font-bold text-sm">Total Expenses</Text>
-                                <Text className="text-[#ef4444] font-bold text-sm">
-                                    -₹{breakdown
-                                        .filter((item: any) => !hiddenCategories.has(item.name))
-                                        .reduce((sum: number, item: any) => sum + item.value, 0)
-                                        .toLocaleString()}
-                                </Text>
-                            </View>
-                        </Card>
-                    </View>
+                    <FinanceDashboard transactions={dashboardTransactions} categories={dashboardCategories} grouping={groupingMode} onGrouping={setGroupingMode} rangeStart={dashboardRange.start} rangeEnd={dashboardRange.end} busy={refreshing || !!loadError} />
                 ) : activeSegment === 'history' ? (
                     <View className="p-6">
                         <View className="flex-row items-center mb-4 gap-2">
                             <HistoryIcon size={20} color="#8b5cf6" />
-                            <Text className="text-text-primary font-bold text-xl font-serif">History</Text>
+                            <Text className="text-[#041b3c] font-bold text-xl font-serif">History</Text>
                         </View>
 
                         {/* Filters */}
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
-                            <TouchableOpacity onPress={() => setHistoryFilterMethod('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
-                                <Text className={`text-xs font-bold ${historyFilterMethod === 'All' ? 'text-text-primary' : 'text-text-secondary'}`}>All Methods</Text>
+                            <TouchableOpacity onPress={() => setHistoryFilterMethod('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-[#f9f9ff]'}`}>
+                                <Text className={`text-xs font-bold ${historyFilterMethod === 'All' ? 'text-[#041b3c]' : 'text-[#444650]'}`}>All Methods</Text>
                             </TouchableOpacity>
                             {[...new Set([...PAYMENT_METHODS, ...expenses.map(item => item.paymentMethod).filter(Boolean)])].map(m => (
-                                <TouchableOpacity key={m} onPress={() => setHistoryFilterMethod(m)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === m ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
-                                    <Text className={`text-xs font-bold ${historyFilterMethod === m ? 'text-text-primary' : 'text-text-secondary'}`}>{m}</Text>
+                                <TouchableOpacity key={m} onPress={() => setHistoryFilterMethod(m)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterMethod === m ? 'border-accent bg-accent' : 'border-border/60 bg-[#f9f9ff]'}`}>
+                                    <Text className={`text-xs font-bold ${historyFilterMethod === m ? 'text-[#041b3c]' : 'text-[#444650]'}`}>{m}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-6">
-                            <TouchableOpacity onPress={() => setHistoryFilterCategory('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
-                                <Text className={`text-xs font-bold ${historyFilterCategory === 'All' ? 'text-text-primary' : 'text-text-secondary'}`}>All Categories</Text>
+                            <TouchableOpacity onPress={() => setHistoryFilterCategory('All')} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === 'All' ? 'border-accent bg-accent' : 'border-border/60 bg-[#f9f9ff]'}`}>
+                                <Text className={`text-xs font-bold ${historyFilterCategory === 'All' ? 'text-[#041b3c]' : 'text-[#444650]'}`}>All Categories</Text>
                             </TouchableOpacity>
                             {categories.map(c => (
-                                <TouchableOpacity key={c.id} onPress={() => setHistoryFilterCategory(c.id)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === c.id ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}>
+                                <TouchableOpacity key={c.id} onPress={() => setHistoryFilterCategory(c.id)} className={`mr-2 px-3 py-1 rounded-full border ${historyFilterCategory === c.id ? 'border-accent bg-accent' : 'border-border/60 bg-[#f9f9ff]'}`}>
                                     <View className="flex-row items-center">
                                         <View className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: c.color }} />
-                                        <Text className={`text-xs font-bold ${historyFilterCategory === c.id ? 'text-text-primary' : 'text-text-secondary'}`}>{c.name}</Text>
+                                        <Text className={`text-xs font-bold ${historyFilterCategory === c.id ? 'text-[#041b3c]' : 'text-[#444650]'}`}>{c.name}</Text>
                                     </View>
                                 </TouchableOpacity>
                             ))}
@@ -475,27 +353,27 @@ export default function ExpensesScreen() {
                             return (
                                 <>
                                     <View className="flex-row justify-between items-center mb-4 px-2">
-                                        <Text className="text-text-secondary font-bold text-xs uppercase tracking-wider">Count: {filteredHistory.length}</Text>
+                                        <Text className="text-[#444650] font-bold text-xs uppercase tracking-wider">Count: {filteredHistory.length}</Text>
                                         <Text className="text-[#ef4444] font-bold text-lg tracking-tight">Total: -₹{totalFiltered.toLocaleString()}</Text>
                                     </View>
 
                                     {filteredHistory.length === 0 ? (
                                         <View className="mt-8 items-center">
-                                            <Text className="text-text-secondary/40 italic text-center">No transactions found</Text>
+                                            <Text className="text-[#444650]/40 italic text-center">No transactions found</Text>
                                         </View>
                                     ) : (
                                         filteredHistory.map((item) => (
-                                            <Card key={item.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm">
+                                            <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff' }} key={item.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm">
                                                 <View className="flex-1">
-                                                    <Text className="text-text-primary font-bold text-base">{item.notes || item.category?.name || 'Expense'}</Text>
-                                                    <Text className="text-text-secondary/60 text-xs mt-0.5">
+                                                    <Text className="text-[#041b3c] font-bold text-base">{item.notes || item.category?.name || 'Expense'}</Text>
+                                                    <Text className="text-[#444650]/60 text-xs mt-0.5">
                                                         {new Date(item.date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                                                     </Text>
                                                 </View>
                                                 <View className="items-end flex-row gap-3 mt-1">
                                                     <View className="items-end mr-2">
                                                         <Text className="text-[#ef4444] font-bold text-lg">-₹{item.amount.toLocaleString()}</Text>
-                                                        <Text className="text-text-secondary/40 text-[10px] uppercase tracking-tighter">{item.paymentMethod}</Text>
+                                                        <Text className="text-[#444650]/40 text-[10px] uppercase tracking-tighter">{item.paymentMethod}</Text>
                                                     </View>
                                                     <TouchableOpacity onPress={() => handleEditExpense(item)} className="bg-blue-500/10 p-2 rounded-full">
                                                         <Pencil size={16} color="#3b82f6" />
@@ -515,19 +393,19 @@ export default function ExpensesScreen() {
                     <View className="p-6">
                         <View className="flex-row items-center mb-6 gap-2">
                             <Wallet size={20} color="#10b981" />
-                            <Text className="text-text-primary font-bold text-xl font-serif">Income Stream</Text>
+                            <Text className="text-[#041b3c] font-bold text-xl font-serif">Income Stream</Text>
                         </View>
 
                         {incomes.length === 0 ? (
                             <View className="mt-10 items-center">
-                                <Text className="text-text-secondary/40 italic text-center">No income records found</Text>
+                                <Text className="text-[#444650]/40 italic text-center">No income records found</Text>
                             </View>
                         ) : (
                             incomes.map((item) => (
-                                <Card key={item.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#10b981]">
+                                <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff' }} key={item.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#10b981]">
                                     <View className="flex-1">
-                                        <Text className="text-text-primary font-bold text-base">{item.source}</Text>
-                                        <Text className="text-text-secondary/60 text-xs mt-0.5">
+                                        <Text className="text-[#041b3c] font-bold text-base">{item.source}</Text>
+                                        <Text className="text-[#444650]/60 text-xs mt-0.5">
                                             {new Date(item.date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                                         </Text>
                                     </View>
@@ -548,24 +426,24 @@ export default function ExpensesScreen() {
                         <View className="flex-row justify-between items-center mb-6">
                             <View className="flex-row items-center gap-2">
                                 <PieIcon size={20} color="#8b5cf6" />
-                                <Text className="text-text-primary font-bold text-xl font-serif">Categories</Text>
+                                <Text className="text-[#041b3c] font-bold text-xl font-serif">Categories</Text>
                             </View>
                             <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(true)} className="bg-accent/30 px-3 py-1.5 rounded-lg flex-row items-center">
                                 <Plus size={16} color="#ffffff" />
-                                <Text className="text-text-primary font-bold ml-1 text-xs">Add</Text>
+                                <Text className="text-[#041b3c] font-bold ml-1 text-xs">Add</Text>
                             </TouchableOpacity>
                         </View>
 
                         {categories.length === 0 ? (
                             <View className="mt-10 items-center">
-                                <Text className="text-text-secondary/40 italic text-center">No categories found</Text>
+                                <Text className="text-[#444650]/40 italic text-center">No categories found</Text>
                             </View>
                         ) : (
                             <View className="flex-row flex-wrap justify-between">
                                 {categories.map((item) => (
-                                    <Card key={item.id} className="p-4 mb-3 w-[48%] flex-col items-center shadow-sm border border-border">
+                                    <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff' }} key={item.id} className="p-4 mb-3 w-[48%] flex-col items-center shadow-sm border border-border">
                                         <View className="w-8 h-8 rounded-full mb-2" style={{ backgroundColor: item.color }} />
-                                        <Text className="text-text-primary font-bold text-center mb-2">{item.name}</Text>
+                                        <Text className="text-[#041b3c] font-bold text-center mb-2">{item.name}</Text>
                                         <TouchableOpacity onPress={() => handleDeleteCategory(item.id)} className="bg-red-500/10 p-2 rounded-full mt-2">
                                             <X size={14} color="#ef4444" />
                                         </TouchableOpacity>
@@ -576,12 +454,12 @@ export default function ExpensesScreen() {
                     </View>
                 ) : activeSegment === 'calendar' ? (
                     <View className="p-6">
-                        <Card className="p-0 overflow-hidden border-border">
+                        <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff' }} className="p-0 overflow-hidden border-border">
                             {/* Days Header */}
-                            <View className="flex-row border-b border-border/60 bg-background">
+                            <View className="flex-row border-b border-border/60 bg-[#f9f9ff]">
                                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
                                     <View key={i} className="flex-1 py-3 items-center border-r last:border-r-0 border-border/30">
-                                        <Text className="text-text-secondary/80 font-bold text-[10px] uppercase">{d}</Text>
+                                        <Text className="text-[#444650]/80 font-bold text-[10px] uppercase">{d}</Text>
                                     </View>
                                 ))}
                             </View>
@@ -617,7 +495,7 @@ export default function ExpensesScreen() {
                                             className={`w-[14.28%] h-20 border-r border-b border-border/30 p-1 ${isCurrentMonth ? '' : 'bg-black/20'} ${hasActivity ? 'bg-accent/30/10' : ''}`}
                                         >
                                             <View className={`w-5 h-5 rounded-full items-center justify-center mb-1 ${isToday ? 'bg-accent' : ''}`}>
-                                                <Text className={`text-[10px] font-bold ${isToday ? 'text-text-primary' : isCurrentMonth ? 'text-text-secondary' : 'text-text-secondary/30'}`}>
+                                                <Text className={`text-[10px] font-bold ${isToday ? 'text-[#041b3c]' : isCurrentMonth ? 'text-[#444650]' : 'text-[#444650]/30'}`}>
                                                     {day.getDate()}
                                                 </Text>
                                             </View>
@@ -642,70 +520,94 @@ export default function ExpensesScreen() {
                 <View className="h-10" />
             </ScrollView>
 
+            <View style={{ flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e8eeff', paddingTop: 8, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6 }}>
+                {[
+                    { key: 'overview', label: 'Dashboard', Icon: LayoutDashboard },
+                    { key: 'history', label: 'Transactions', Icon: ReceiptText },
+                    { key: 'calendar', label: 'Calendar', Icon: CalendarIcon },
+                    { key: 'budgets', label: 'Budgets', Icon: Wallet },
+                    { key: 'categories', label: 'Categories', Icon: Shapes },
+                ].map(({ key, label, Icon }) => {
+                    const active = activeSegment === key || key === 'history' && activeSegment === 'income';
+                    return <TouchableOpacity key={key} accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={() => key === 'budgets' ? router.push('/(protected)/finance?tab=budgets' as any) : setActiveSegment(key as Segment)} style={{ flex: 1, minHeight: 54, alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: 20, backgroundColor: active ? '#9df5c5' : 'transparent' }}><Icon size={22} color={active ? '#002113' : '#444650'} /><Text numberOfLines={1} style={{ fontSize: 9, fontWeight: '600', color: active ? '#002113' : '#444650' }}>{label}</Text></TouchableOpacity>;
+                })}
+            </View>
+
+            <Modal visible={rangeOpen} transparent animationType="slide" onRequestClose={() => setRangeOpen(false)}>
+                <View style={{ flex: 1, backgroundColor: '#0006', justifyContent: 'flex-end' }}><View style={{ backgroundColor: '#fff', padding: 24, paddingBottom: Math.max(insets.bottom, 24), borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}><Text style={{ fontSize: 22, fontWeight: '800', color: '#001642' }}>Dashboard date range</Text><TouchableOpacity accessibilityLabel="Close date range" onPress={() => setRangeOpen(false)}><X size={24} color="#444650" /></TouchableOpacity></View>
+                    <Text style={{ color: '#444650', marginBottom: 20 }}>Include transactions from the start date through the end date.</Text>
+                    {(['start', 'end'] as const).map(field => <View key={field} style={{ marginBottom: 18 }}><Text style={{ color: '#444650', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>{field === 'start' ? 'From' : 'To'}</Text><TouchableOpacity accessibilityLabel={field === 'start' ? 'Select start date' : 'Select end date'} onPress={() => setPickerField(field)} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#f1f3ff', padding: 14, borderRadius: 12 }}><Text style={{ color: '#041b3c', fontWeight: '600' }}>{field === 'start' ? rangeStart : rangeEnd}</Text><CalendarIcon size={20} color="#001642" /></TouchableOpacity></View>)}
+                    {pickerField && <DateTimePicker mode="date" display="default" value={new Date((pickerField === 'start' ? rangeStart : rangeEnd) + 'T12:00:00+05:30')} onChange={(event, date) => { const field = pickerField; setPickerField(null); if (event.type === 'set' && date) { if (field === 'start') setRangeStart(financeDay(date)); else setRangeEnd(financeDay(date)); setRangeError(''); } }} />}
+                    {!!rangeError && <Text accessibilityRole="alert" style={{ color: '#ba1a1a', marginBottom: 16 }}>{rangeError}</Text>}
+                    <TouchableOpacity accessibilityRole="button" onPress={applyRange} style={{ backgroundColor: '#001642', padding: 16, borderRadius: 12, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700' }}>Apply range</Text></TouchableOpacity>
+                </View></View>
+            </Modal>
+
             {/* Add Expense Modal */}
             <Modal visible={isAddModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-background rounded-t-3xl p-6 min-h-[50%] border-t border-border">
+                    <View className="bg-[#f9f9ff] rounded-t-3xl p-6 min-h-[50%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-text-primary font-serif">Add Expense</Text>
+                            <Text className="text-2xl font-bold text-[#041b3c] font-serif">Add Expense</Text>
                             <TouchableOpacity onPress={() => setIsAddModalOpen(false)}>
                                 <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
-                        <Text className="text-text-secondary font-bold mb-2">Amount (₹)</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Amount (₹)</Text>
                         <TextInput 
                             keyboardType="numeric"
                             value={amount}
                             onChangeText={setAmount}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-4 font-bold text-lg"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-4 font-bold text-lg"
                             placeholderTextColor="#6b7280"
                             placeholder="0.00"
                         />
 
-                        <Text className="text-text-secondary font-bold mb-2">Notes</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Notes</Text>
                         <TextInput 
                             value={notes}
                             onChangeText={setNotes}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-6"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-6"
                             placeholderTextColor="#6b7280"
                             placeholder="E.g. Lunch, Groceries..."
                         />
 
-                        <Text className="text-text-secondary font-bold mb-2">Category</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Category</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
                             {categories.map(cat => (
                                 <TouchableOpacity 
                                     key={cat.id} 
                                     onPress={() => setSelectedCategory(cat.id)}
-                                    className={`mr-3 px-4 py-2 rounded-full border ${selectedCategory === cat.id ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}
+                                    className={`mr-3 px-4 py-2 rounded-full border ${selectedCategory === cat.id ? 'border-accent bg-accent' : 'border-border/60 bg-[#f9f9ff]'}`}
                                 >
                                     <View className="flex-row items-center">
                                         <View className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: cat.color }} />
-                                        <Text className={`font-bold ${selectedCategory === cat.id ? 'text-text-primary' : 'text-text-secondary'}`}>{cat.name}</Text>
+                                        <Text className={`font-bold ${selectedCategory === cat.id ? 'text-[#041b3c]' : 'text-[#444650]'}`}>{cat.name}</Text>
                                     </View>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <Text className="text-text-secondary font-bold mb-2">Payment Method</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Payment Method</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
                             {[...PAYMENT_METHODS, ...(PAYMENT_METHODS.includes(paymentMethod) ? [] : [paymentMethod])].map(method => (
                                 <TouchableOpacity 
                                     key={method} 
                                     onPress={() => setPaymentMethod(method)}
-                                    className={`mr-3 px-4 py-2 rounded-full border ${paymentMethod === method ? 'border-accent bg-accent' : 'border-border/60 bg-background'}`}
+                                    className={`mr-3 px-4 py-2 rounded-full border ${paymentMethod === method ? 'border-accent bg-accent' : 'border-border/60 bg-[#f9f9ff]'}`}
                                 >
-                                    <Text className={`font-bold ${paymentMethod === method ? 'text-text-primary' : 'text-text-secondary'}`}>{method}</Text>
+                                    <Text className={`font-bold ${paymentMethod === method ? 'text-[#041b3c]' : 'text-[#444650]'}`}>{method}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <Text className="text-text-secondary font-bold mb-2">Date (YYYY-MM-DD)</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Date (YYYY-MM-DD)</Text>
                         <TextInput 
                             value={expenseDate}
                             onChangeText={setExpenseDate}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-6 font-bold"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-6 font-bold"
                             placeholderTextColor="#6b7280"
                             placeholder="YYYY-MM-DD"
                         />
@@ -718,7 +620,7 @@ export default function ExpensesScreen() {
                             {submitting ? (
                                 <ActivityIndicator color="#ffffff" />
                             ) : (
-                                <Text className="text-text-primary font-bold text-lg">{editingExpenseId ? 'Update Expense' : 'Save Expense'}</Text>
+                                <Text className="text-[#041b3c] font-bold text-lg">{editingExpenseId ? 'Update Expense' : 'Save Expense'}</Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -728,30 +630,30 @@ export default function ExpensesScreen() {
             {/* Add Category Modal */}
             <Modal visible={isAddCategoryModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-background rounded-t-3xl p-6 min-h-[40%] border-t border-border">
+                    <View className="bg-[#f9f9ff] rounded-t-3xl p-6 min-h-[40%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-text-primary font-serif">Add Category</Text>
+                            <Text className="text-2xl font-bold text-[#041b3c] font-serif">Add Category</Text>
                             <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(false)}>
                                 <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
-                        <Text className="text-text-secondary font-bold mb-2">Category Name</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Category Name</Text>
                         <TextInput 
                             value={newCategoryName}
                             onChangeText={setNewCategoryName}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-4 font-bold text-lg"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-4 font-bold text-lg"
                             placeholderTextColor="#6b7280"
                             placeholder="E.g. Travel, Utilities..."
                         />
                         
-                        <Text className="text-text-secondary font-bold mb-2">Color Code (Hex)</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Color Code (Hex)</Text>
                         <View className="flex-row items-center mb-6">
                            <View className="w-10 h-10 rounded-full mr-3 border border-border" style={{ backgroundColor: newCategoryColor }} />
                            <TextInput 
                                value={newCategoryColor}
                                onChangeText={setNewCategoryColor}
-                               className="flex-1 bg-background text-white p-4 rounded-xl border border-border font-bold"
+                               className="flex-1 bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border font-bold"
                                placeholderTextColor="#6b7280"
                            />
                         </View>
@@ -764,7 +666,7 @@ export default function ExpensesScreen() {
                             {submitting ? (
                                 <ActivityIndicator color="#ffffff" />
                             ) : (
-                                <Text className="text-text-primary font-bold text-lg">Save Category</Text>
+                                <Text className="text-[#041b3c] font-bold text-lg">Save Category</Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -772,14 +674,14 @@ export default function ExpensesScreen() {
             </Modal>
 
             {/* Day Activity Modal */}
-            <Modal visible={isDayModalOpen} animationType="slide" transparent={true}>
+            <Modal visible={isDayModalOpen} animationType="slide" transparent={true} onRequestClose={() => setIsDayModalOpen(false)}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-background rounded-t-3xl p-6 h-[70%] border-t border-border">
+                    <View className="bg-[#f9f9ff] rounded-t-3xl p-6 h-[70%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-xl font-bold text-text-primary font-serif">
+                            <Text className="text-xl font-bold text-[#041b3c] font-serif">
                                 Activity for {selectedDay?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </Text>
-                            <TouchableOpacity onPress={() => setIsDayModalOpen(false)}>
+                            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close day activity" onPress={() => setIsDayModalOpen(false)}>
                                 <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
@@ -804,38 +706,38 @@ export default function ExpensesScreen() {
                                     <>
                                         <View className="flex-row gap-3 mb-6">
                                             <View className="flex-1 bg-[#10b981]/10 p-3 rounded-xl border border-[#10b981]/20">
-                                                <Text className="text-[#10b981]/80 font-bold text-xs mb-1">Income</Text>
-                                                <Text className="text-[#10b981] font-bold text-xl">+₹{totalI}</Text>
+                                                <Text className="text-[#087f5b] font-bold text-xs mb-1">Income</Text>
+                                                <Text className="text-[#087f5b] font-bold text-xl">+₹{totalI}</Text>
                                             </View>
                                             <View className="flex-1 bg-[#ef4444]/10 p-3 rounded-xl border border-[#ef4444]/20">
-                                                <Text className="text-[#ef4444]/80 font-bold text-xs mb-1">Expense</Text>
-                                                <Text className="text-[#ef4444] font-bold text-xl">-₹{totalE}</Text>
+                                                <Text className="text-[#b42331] font-bold text-xs mb-1">Expense</Text>
+                                                <Text className="text-[#b42331] font-bold text-xl">-₹{totalE}</Text>
                                             </View>
                                         </View>
 
                                         {dayInc.map(i => (
-                                            <Card key={i.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#10b981]">
-                                                <View className="flex-1">
-                                                    <View className="flex-row items-center gap-2">
-                                                        <Text className="text-[#10b981] font-bold text-base">{i.source}</Text>
-                                                        <Text className="bg-background-surface text-text-muted text-[10px] px-2 py-0.5 rounded border border-border">Income</Text>
+                                            <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff', borderLeftColor: '#10b981' }} key={i.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#10b981]">
+                                                <View className="flex-1 min-w-0 mr-3">
+                                                    <View className="flex-row flex-wrap items-center gap-2">
+                                                        <Text className="text-[#087f5b] font-bold text-base">{i.source}</Text>
+                                                        <Text className="bg-[#e8eeff] text-[#444650] text-[10px] px-2 py-0.5 rounded border border-[#dce3f4]">Income</Text>
                                                     </View>
-                                                    <Text className="text-text-secondary/60 text-xs mt-1">{i.notes || 'No description'}</Text>
+                                                    <Text className="text-[#444650] text-xs mt-1">{i.notes || 'No description'}</Text>
                                                 </View>
-                                                <Text className="text-[#10b981] font-bold text-lg">+₹{i.amount}</Text>
+                                                <Text className="text-[#087f5b] font-bold text-lg shrink-0">+₹{i.amount}</Text>
                                             </Card>
                                         ))}
 
                                         {dayExp.map(e => (
-                                            <Card key={e.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#ef4444]">
-                                                <View className="flex-1">
-                                                    <View className="flex-row items-center gap-2">
-                                                        <Text className="text-text-primary font-bold text-base">{e.category?.name || 'Expense'}</Text>
-                                                        <Text className="bg-background-surface text-text-muted text-[10px] px-2 py-0.5 rounded border border-border uppercase">{e.paymentMethod}</Text>
+                                            <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff', borderLeftColor: '#ef4444' }} key={e.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#ef4444]">
+                                                <View className="flex-1 min-w-0 mr-3">
+                                                    <View className="flex-row flex-wrap items-center gap-2">
+                                                        <Text className="text-[#041b3c] font-bold text-base">{e.category?.name || 'Expense'}</Text>
+                                                        <Text className="bg-[#e8eeff] text-[#444650] text-[10px] px-2 py-0.5 rounded border border-[#dce3f4] uppercase">{e.paymentMethod}</Text>
                                                     </View>
-                                                    <Text className="text-text-secondary/60 text-xs mt-1">{e.notes || 'No description'}</Text>
+                                                    <Text className="text-[#444650] text-xs mt-1">{e.notes || 'No description'}</Text>
                                                 </View>
-                                                <Text className="text-[#ef4444] font-bold text-lg">-₹{e.amount}</Text>
+                                                <Text className="text-[#b42331] font-bold text-lg shrink-0">-₹{e.amount}</Text>
                                             </Card>
                                         ))}
                                     </>
@@ -848,47 +750,47 @@ export default function ExpensesScreen() {
             {/* Add Income Modal */}
             <Modal visible={isAddIncomeModalOpen} animationType="slide" transparent={true}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-background rounded-t-3xl p-6 min-h-[50%] border-t border-border">
+                    <View className="bg-[#f9f9ff] rounded-t-3xl p-6 min-h-[50%] border-t border-border">
                         <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-text-primary font-serif">Add Income</Text>
+                            <Text className="text-2xl font-bold text-[#041b3c] font-serif">Add Income</Text>
                             <TouchableOpacity onPress={() => setIsAddIncomeModalOpen(false)}>
                                 <X size={24} color="#a39b98" />
                             </TouchableOpacity>
                         </View>
 
-                        <Text className="text-text-secondary font-bold mb-2">Amount (₹)</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Amount (₹)</Text>
                         <TextInput 
                             keyboardType="numeric"
                             value={amount}
                             onChangeText={setAmount}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-4 font-bold text-lg"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-4 font-bold text-lg"
                             placeholderTextColor="#6b7280"
                             placeholder="0.00"
                         />
 
-                        <Text className="text-text-secondary font-bold mb-2">Source</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Source</Text>
                         <TextInput 
                             value={incomeSource}
                             onChangeText={setIncomeSource}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-4"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-4"
                             placeholderTextColor="#6b7280"
                             placeholder="E.g. Salary, Freelance..."
                         />
 
-                        <Text className="text-text-secondary font-bold mb-2">Notes (Optional)</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Notes (Optional)</Text>
                         <TextInput 
                             value={notes}
                             onChangeText={setNotes}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-6"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-6"
                             placeholderTextColor="#6b7280"
                             placeholder="Extra details..."
                         />
 
-                        <Text className="text-text-secondary font-bold mb-2">Date (YYYY-MM-DD)</Text>
+                        <Text className="text-[#444650] font-bold mb-2">Date (YYYY-MM-DD)</Text>
                         <TextInput 
                             value={expenseDate}
                             onChangeText={setExpenseDate}
-                            className="bg-background text-white p-4 rounded-xl border border-border mb-6 font-bold"
+                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-6 font-bold"
                             placeholderTextColor="#6b7280"
                             placeholder="YYYY-MM-DD"
                         />
@@ -901,7 +803,7 @@ export default function ExpensesScreen() {
                             {submitting ? (
                                 <ActivityIndicator color="#ffffff" />
                             ) : (
-                                <Text className="text-text-primary font-bold text-lg">Save Income</Text>
+                                <Text className="text-[#041b3c] font-bold text-lg">Save Income</Text>
                             )}
                         </TouchableOpacity>
                     </View>

@@ -1,5 +1,6 @@
 'use server'
 
+import { financeDay } from '@/lib/finance-range'
 import { prisma } from '@/lib/prisma'
 import { verifyAuth } from '@/lib/auth-server'
 import { z } from 'zod'
@@ -145,7 +146,7 @@ export async function getDashboardAggregates(startDate: Date, endDate: Date) {
 
     const transactions = await prisma.transaction.findMany({
         where: whereClause,
-        select: { type: true, amountPaise: true, categoryId: true, transactionDate: true, paymentMethod: true }
+        select: { id: true, description: true, type: true, amountPaise: true, categoryId: true, transactionDate: true, paymentMethod: true }
     })
 
     let totalIncome = 0
@@ -167,7 +168,7 @@ export async function getDashboardAggregates(startDate: Date, endDate: Date) {
             methodCategorySpending[method][t.categoryId] = (methodCategorySpending[method][t.categoryId] || 0) + t.amountPaise
         }
 
-        const dateStr = t.transactionDate.toISOString().split('T')[0]
+        const dateStr = financeDay(t.transactionDate)
         if (!dailyCashFlow[dateStr]) dailyCashFlow[dateStr] = { income: 0, expense: 0 }
         if (t.type === 'INCOME') dailyCashFlow[dateStr].income += t.amountPaise
         else dailyCashFlow[dateStr].expense += t.amountPaise
@@ -192,6 +193,7 @@ export async function getDashboardAggregates(startDate: Date, endDate: Date) {
         categorySpending,
         methodSpending,
         dailyCashFlow,
-        methodCategorySpending
+        methodCategorySpending,
+        transactions
     }
 }

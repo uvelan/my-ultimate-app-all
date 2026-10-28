@@ -44,3 +44,6 @@ yarn-error.*
 # temp and debug outputs
 *.txt
 *.xml
+
+# Local Fabric rendering test entry (never shipped)
+/render-stress-fixture/
