@@ -19,7 +19,11 @@ def main():
     args = parser.parse_args()
     state = State(args.state_dir)
     engine = KokoroEngine(args.device)
-    server, pin = create_server(args.host, args.port, state, engine)
+    try:
+        server, pin = create_server(args.host, args.port, state, engine)
+    except Exception as error:
+        state.events.exception('startup_failed', f'Unable to start sync service on port {args.port}: {error}', error)
+        raise SystemExit(1) from None
     bundle = 'svc1.' + state.config['id'] + '.' + pin + '.' + state.config['pairSecret']
     (state.root / 'pairing-code.txt').write_text(bundle)
     import qrcode
@@ -29,6 +33,8 @@ def main():
     print('Pairing code (valid for 30 minutes): ' + bundle, flush=True)
     print('QR code: ' + str(state.root / 'pairing.png'), flush=True)
     print('Chapter-wise transfer; GPU model loads on the first job.', flush=True)
+    state.events.emit('service_started', f'Sync service started | port {server.server_port} | device {args.device} | progress every 5s', port=server.server_port, device=args.device)
+    print('Progress and error history: ' + str(state.events.directory), flush=True)
     advertisement = Advertisement(state.config['id'], server.server_port, pin)
     worker = Worker(state, engine)
     worker.thread.start()
@@ -38,6 +44,7 @@ def main():
         pass
     finally:
         worker.stop.set()
+        state.events.emit('service_stopped', 'Sync service stopped; unfinished chapters will resume on restart.')
         advertisement.close()
         server.server_close()
 

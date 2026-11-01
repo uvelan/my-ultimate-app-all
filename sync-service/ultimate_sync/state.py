@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
+from .progress import EventLog
 
 
 def digest(value: str) -> str:
@@ -38,6 +39,7 @@ class State:
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.events = EventLog(self.root)
         self.lock = threading.RLock()
         config = self.root / 'service.json'
         if config.exists():
@@ -87,7 +89,7 @@ class State:
         with self.lock:
             row = self.db.execute('SELECT status FROM jobs WHERE id=?', (job_id,)).fetchone()
             if row and (row['status'] in ('error', 'cancelled') or (row['status'] == 'ready' and not (self.root / (job_id + '.wav')).is_file())):
-                self.db.execute("UPDATE jobs SET status='queued', progress=0, error=NULL WHERE id=?", (job_id,))
+                self.db.execute("UPDATE jobs SET status='queued', progress=0, error=NULL, result=NULL, acknowledged=0 WHERE id=?", (job_id,))
             elif not row:
                 count = self.db.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND status IN ('queued','generating')", (owner,)).fetchone()[0]
                 if count >= 50:
@@ -113,6 +115,10 @@ class State:
                 self.db.commit()
         return dict(row) if row else None
 
+    def pending_jobs(self):
+        with self.lock:
+            return [dict(row) for row in self.db.execute("SELECT id,owner,payload FROM jobs WHERE status IN ('queued','generating') ORDER BY created")]
+
     def update(self, job_id: str, status: str, progress=0, result=None, error=None):
         with self.lock:
             self.db.execute('UPDATE jobs SET status=?,progress=?,result=?,error=? WHERE id=?',
@@ -123,8 +129,11 @@ class State:
         if self.job(owner, job_id)['status'] != 'ready':
             raise ValueError('Chapter is not ready')
         with self.lock:
+            already = self.db.execute('SELECT acknowledged FROM jobs WHERE id=? AND owner=?', (job_id, owner)).fetchone()[0]
             self.db.execute('UPDATE jobs SET acknowledged=1 WHERE id=? AND owner=?', (job_id, owner))
             self.db.commit()
+        if not already:
+            self.events.emit('chapter_verified', f'Phone verified and saved chapter job {job_id[:8]}', job_id=job_id)
 
     def audio(self, owner: str, job_id: str) -> Path:
         if self.job(owner, job_id)['status'] != 'ready':

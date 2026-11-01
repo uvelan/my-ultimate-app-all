@@ -330,6 +330,30 @@ export default function ListenScreen() {
         userId, bookId: book!.id, chapterId: chapter.id, title: chapter.title, content: chapter.content,
         provider: selectedProvider, voice, chunkTarget: selectedProvider === 'kokoro' ? sessionChunkTarget : undefined, grammarModel: selectedProvider === 'kokoro' ? 'OFF' : grammarModel,
     });
+    const [offlineChapterIds, setOfflineChapterIds] = useState<Set<string>>(new Set());
+    useEffect(() => {
+        setOfflineChapterIds(new Set());
+        if (!isSidebarOpen || !book || !userId) return;
+        let cancelled = false, checking = false;
+        const refresh = async () => {
+            if (checking) return;
+            checking = true;
+            try {
+                const imported = provider === 'kokoro'
+                    ? await localSyncService.cachedChapterIds(userId, book.id, currentVoice) : [];
+                // Only loaded text can produce a reliable content-based cache identity.
+                const generated = await Promise.all(book.chapters.filter(c => c.content !== undefined).map(async c => {
+                    const file = await listenAudioService.get(identityFor(c));
+                    return file && file.provider === provider && file.voice === currentVoice ? c.id : null;
+                }));
+                if (!cancelled) setOfflineChapterIds(new Set([...imported, ...generated.filter((id): id is string => id !== null)]));
+            } catch { /* Retry on the next refresh; never interrupt playback. */ }
+            finally { checking = false; }
+        };
+        void refresh();
+        const timer = setInterval(() => { void refresh(); }, 5000);
+        return () => { cancelled = true; clearInterval(timer); };
+    }, [isSidebarOpen, book, userId, provider, currentVoice, sessionChunkTarget, grammarModel]);
     const failAudioLoad = (error: unknown) => {
         if (!alive.current) return;
         if ((error as { code?: string })?.code === 'LOCAL_SYNC_PENDING') waitingForPcIntent.current = playIntent.current || waitingForPcIntent.current;
@@ -1374,9 +1398,13 @@ export default function ListenScreen() {
                                     style={{ flex: 1, justifyContent: 'center' }}
                                     className={`px-4 border-b border-border/20 ${isActive ? 'bg-accent/20 border-l-2 border-l-accent pl-3' : ''}`}
                                 >
-                                    <Text className={`text-sm font-serif ${isActive ? 'text-accent font-bold' : th.textSec}`} numberOfLines={2}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <Text style={{ flex: 1 }} className={`text-sm font-serif ${isActive ? 'text-accent font-bold' : th.textSec}`} numberOfLines={2}>
                                         {index + 1}. {item.title}
                                     </Text>
+                                    {offlineChapterIds.has(item.id) && <Text accessibilityLabel="Audio saved on this device"
+                                        style={{ color: isLightMode ? '#047857' : '#6ee7b7', fontSize: 11, fontWeight: '600' }}>● Offline</Text>}
+                                    </View>
                                 </TouchableOpacity>
                             );
                         }}

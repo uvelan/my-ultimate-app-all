@@ -118,7 +118,11 @@ class LocalChapterQueue(private val context: Context, private val player: ExoPla
         val entry = current() ?: return
         val now = System.currentTimeMillis()
         if (!force && now - lastSaved < 2000 && lastChapter == entry.optString("chapterId")) return
+        val chapterChanged = lastChapter != entry.optString("chapterId")
         lastSaved = now; lastChapter = entry.optString("chapterId")
+        // ExoPlayer must not retain playlist references to files removed by retention.
+        val removeBefore = player.currentMediaItemIndex - 10
+        if (removeBefore > 0) player.removeMediaItems(0, removeBefore)
         val value = JSONObject().put("userId", cfg.getString("userId")).put("bookId", cfg.getString("bookId"))
             .put("chapterId", entry.getString("chapterId")).put("chapterIndex", entry.getInt("chapterIndex"))
             .put("voice", entry.getString("voice")).put("uri", entry.getString("uri"))
@@ -126,6 +130,8 @@ class LocalChapterQueue(private val context: Context, private val player: ExoPla
         writer.execute {
             try { val target = File(context.filesDir, "local-pc-playback.json"); val temp = File(target.path + ".tmp")
                 temp.writeText(value.toString()); check(temp.renameTo(target))
+                if (chapterChanged) context.sendBroadcast(android.content.Intent().setClassName(context.packageName,
+                    context.packageName + ".LocalSyncRetentionReceiver"))
             } catch (_: Exception) { }
         }
     }

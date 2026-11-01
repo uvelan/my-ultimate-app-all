@@ -12,6 +12,7 @@ import time
 import zipfile
 import shutil
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -50,6 +51,10 @@ class SyncServer(ThreadingHTTPServer):
         self.bundle_lock = threading.Lock()
         super().__init__(address, Handler)
 
+    def handle_error(self, request, client_address):
+        error = sys.exc_info()[1]
+        self.state.events.exception('connection_error', f'Connection handler failed: {error}', error)
+
 
 def chapter_bundle(server, owner, ids):
     if not isinstance(ids, list) or not 1 <= len(ids) <= 50 or any(not isinstance(value, str) for value in ids) or len(set(ids)) != len(ids):
@@ -64,6 +69,8 @@ def chapter_bundle(server, owner, ids):
     record = path.with_suffix('.json')
     with server.bundle_lock:
         if not path.exists() or not record.exists():
+            started = time.monotonic()
+            server.state.events.emit('archive_started', f'Packaging batch {bundle_id[:8]} | {len(jobs)} chapters', bundle_id=bundle_id, chapters=len(jobs))
             size = sum(job['manifest']['bytes'] for job in jobs)
             if size > 2_000_000_000:
                 raise ValueError('This batch exceeds 2 GB. Choose fewer chapters.')
@@ -84,6 +91,8 @@ def chapter_bundle(server, owner, ids):
                 temp = record.with_suffix('.tmp')
                 temp.write_text(json.dumps({'owner': owner, 'manifest': manifest}), encoding='utf-8')
                 os.replace(temp, record)
+                server.state.events.emit('archive_ready', f'Batch {bundle_id[:8]} archive ready in {time.monotonic() - started:.1f}s | {manifest["bytes"] / 1_000_000:.1f} MB',
+                                         bundle_id=bundle_id, chapters=len(jobs), bytes=manifest['bytes'], elapsed_seconds=round(time.monotonic() - started, 2))
             finally:
                 partial.unlink(missing_ok=True)
         return json.loads(record.read_text(encoding='utf-8'))['manifest']
@@ -148,6 +157,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(400, {'error': str(error)})
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
+        except Exception as error:
+            self.server.state.events.exception('request_error', f'Request failed: {error}', error)
+            self.reply(500, {'error': 'PC service error. Check the terminal and history log, then retry.'})
 
     def stream_file(self, path, content_type):
         size, start = path.stat().st_size, 0
@@ -163,10 +175,27 @@ class Handler(BaseHTTPRequestHandler):
         if start:
             self.send_header('Content-Range', f'bytes {start}-{size-1}/{size}')
         self.end_headers()
-        with path.open('rb') as stream:
-            stream.seek(start)
-            while data := stream.read(65536):
-                self.wfile.write(data)
+        began = time.monotonic()
+        last_print = began
+        sent = start
+        self.server.state.events.emit('transfer_started', f'Sending {path.name} | {size / 1_000_000:.1f} MB | resume at {start / 1_000_000:.1f} MB', file=path.name, bytes=size, resume_offset=start)
+        try:
+            with path.open('rb') as stream:
+                stream.seek(start)
+                while data := stream.read(65536):
+                    self.wfile.write(data)
+                    sent += len(data)
+                    now = time.monotonic()
+                    if now - last_print >= 5:
+                        self.server.state.events.emit('transfer_progress', f'Sending {path.name} | {sent / size * 100:.0f}% | {now - began:.1f}s elapsed',
+                                                      file=path.name, progress=sent / size, bytes_sent=sent - start, elapsed_seconds=round(now - began, 2))
+                        last_print = now
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            self.server.state.events.emit('transfer_interrupted', f'Transfer interrupted after {time.monotonic() - began:.1f}s; phone can resume {path.name}',
+                                          file=path.name, bytes_sent=sent - start, elapsed_seconds=round(time.monotonic() - began, 2))
+            raise
+        self.server.state.events.emit('transfer_sent', f'Sent {path.name} in {time.monotonic() - began:.1f}s; awaiting phone verification',
+                                      file=path.name, bytes_sent=sent - start, elapsed_seconds=round(time.monotonic() - began, 2))
 
     def do_POST(self):
         try:
@@ -207,6 +236,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(400, {'error': str(error)})
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
+        except Exception as error:
+            self.server.state.events.exception('request_error', f'Request failed: {error}', error)
+            self.reply(500, {'error': 'PC service error. Check the terminal and history log, then retry.'})
 
 
 def create_server(host, port, state, engine):

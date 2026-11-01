@@ -43,6 +43,8 @@ function dashboardHarness() {
     const module=load('mobile-app/src/components/finance/FinanceDashboard.tsx',{
         react,'react/jsx-runtime':{jsx,jsxs:jsx},'react-native':native,'victory-native':{VictoryPie:'Pie'},'lucide-react-native':{},
         '@/src/lib/finance-dashboard':dashboard,'@/src/lib/finance-csv':csv,
+        '@/src/lib/finance-image':load('mobile-app/src/lib/finance-image.ts'),
+        './FinanceBreakdownImage':{FinanceBreakdownImage:'ImagePreview'},
         '@/src/services/finance-export.service':{shareFinanceCsv:async(...args)=>shares.push(args)},
     });
     const categories=[{id:'food',name:'Food',color:'#059669',parentId:null},{id:'home',name:'Home',color:'#9333ea',parentId:null}];
@@ -81,7 +83,24 @@ test('mobile breakdown stacks below the chart and expands to individual items',(
     let rendered=app.renderBranch(branch);
     assert.ok(!text(rendered).includes('Lunch'));
     nodes(rendered).find(node=>node.props?.accessibilityLabel==='Expand Food').props.onPress();
-    rendered=app.renderBranch(branch);assert.ok(text(rendered).includes('Lunch'));assert.ok(text(rendered).includes('UPI'));
+    const updated=nodes(app.render()).find(node=>typeof node.type==='function'&&node.props?.node?.id==='food');
+    rendered=app.renderBranch(updated);assert.ok(text(rendered).includes('Lunch'));assert.ok(text(rendered).includes('UPI'));
+});
+
+test('breakdown image snapshots the selected period, current filters, and expanded rows',()=>{
+    const app=dashboardHarness();let tree=app.render();
+    nodes(tree).find(node=>node.props?.accessibilityLabel?.startsWith('Home, included')).props.onPress();
+    tree=app.render();
+    const branch=nodes(tree).find(node=>typeof node.type==='function'&&node.props?.node?.id==='food');
+    nodes(app.renderBranch(branch)).find(node=>node.props?.accessibilityLabel==='Expand Food').props.onPress();
+    tree=app.render();
+    nodes(tree).find(node=>node.props?.accessibilityLabel==='Export breakdown image with selected date range').props.onPress();
+    const preview=nodes(app.render()).find(node=>node.type==='ImagePreview');
+    assert.equal(preview.props.snapshot.rangeStart,'2026-10-01');
+    assert.equal(preview.props.snapshot.rangeEnd,'2026-10-31');
+    assert.equal(preview.props.snapshot.totalExpense,200);
+    assert.equal(preview.props.snapshot.hidden,'Home');
+    assert.deepEqual(Array.from(preview.props.snapshot.rows,row=>row.name),['Food','Lunch']);
 });
 test('native CSV export writes a file and opens the system share sheet',async()=>{
     const calls=[];

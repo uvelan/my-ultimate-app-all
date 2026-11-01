@@ -140,6 +140,27 @@ class ServiceTests(unittest.TestCase):
             worker.stop.set()
             worker.thread.join(2)
 
+    def test_ready_chapters_transfer_while_other_chapters_are_still_queued(self):
+        import io
+        import zipfile
+        token = self.pair()
+        ids = [json.loads(self.request('/v1/chapters', {**PAYLOAD, 'chapterId': str(index), 'requestKey': f'{index:016x}'}, token)[1])['id'] for index in range(3)]
+        worker = Worker(self.state, self.engine)
+        worker._process(self.state.next_job())
+        owner = self.state.owner('Bearer ' + token)
+        self.assertEqual([self.state.job(owner, job)['status'] for job in ids], ['ready', 'queued', 'queued'])
+        manifest = json.loads(self.request('/v1/bundles', {'jobs': ids[:1]}, token)[1])
+        raw = self.request('/v1/bundles/' + manifest['id'] + '/audio', token=token)[1]
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            self.assertEqual(archive.namelist(), [ids[0] + '.wav'])
+        worker._process(self.state.next_job())
+        # A later ready chapter must not change the archive ID/bytes being resumed.
+        again = json.loads(self.request('/v1/bundles', {'jobs': ids[:1]}, token)[1])
+        self.assertEqual(again, manifest)
+        remainder = self.request('/v1/bundles/' + manifest['id'] + '/audio', token=token, headers={'Range': 'bytes=123-'})[1]
+        self.assertEqual(remainder, raw[123:])
+        self.assertEqual(self.state.job(owner, ids[2])['status'], 'queued')
+
     def test_other_paired_phone_cannot_read_jobs(self):
         owner, other = self.pair(), self.pair()
         job_id = json.loads(self.request('/v1/chapters', PAYLOAD, owner)[1])['id']

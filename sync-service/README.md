@@ -35,7 +35,65 @@ Pairing uses a pinned TLS certificate, and paired tokens are encrypted with Andr
 
 Downloaded chapter WAV files persist on Android until explicitly re-cached or app data is removed. PC audio persists in `.state`; monitor free disk space for large libraries. Chapters are limited to 250,000 characters and 200 MB of PCM audio. Pause stops mobile transfers; an already generating PC chapter may finish and be reused on resume. This is a LAN service; do not expose its port to the internet.
 
+## Terminal progress and history
+
+Run `./start.ps1` to see an in-place terminal progress bar updated every five seconds, including model startup,
+current chapter/passages, chapter and batch percentages, elapsed time, ready/failed counts,
+and queued chapters. A generation batch groups the queued chapters for one phone, book,
+and voice; more queued chapters join while it runs. A batch summary records total time.
+Failed chapters count as attempted work in the batch percentage and are listed separately.
+Progress refreshes the same line and fits the terminal width. Chapter titles, completions,
+warnings, and errors print once as ordinary messages. Redirected output keeps these
+milestones without carriage-return bars or repeated progress lines; history files still
+retain every progress update.
+
+The service also logs archive packaging, transfer progress/resumes, and the phone's
+verification acknowledgement. "Sent" means the PC finished sending; "verified" is only
+printed after the phone acknowledges the saved chapter.
+
+History is appended to daily files inside `.state/logs/`:
+
+- `sync-YYYY-MM-DD.log`: readable terminal events and full error tracebacks.
+- `history-YYYY-MM-DD.jsonl`: structured timestamps, durations, progress, and outcomes.
+
+Times use Asia/Kolkata. Files persist across restarts and are excluded from Git.
+They contain chapter titles and identifiers, but never paragraph bodies, bearer tokens,
+or pairing secrets. The pairing code remains a terminal-only startup message and its
+existing dedicated pairing file. Monitor disk usage if keeping history indefinitely.
+
+The known upstream PyTorch single-layer dropout and legacy weight-normalization warnings
+are recorded as brief non-fatal compatibility notices. Inference behavior is unchanged;
+unexpected warnings remain visible, and actual errors include tracebacks in the history.
+After updating service code, restart it after the active generation finishes to enable
+the new output. Completed audio and pairing credentials are retained.
+
+## CUDA memory on small GPUs
+
+The service returns unused CUDA allocator cache at passage boundaries on GPUs with
+6 GB or less VRAM, and under high reserved-memory pressure on larger GPUs. It also
+cleans unused cache at chapter boundaries. Model weights remain loaded. This avoids
+unused allocations accumulating past the dedicated-memory budget on Windows and
+slowing generation through shared system memory. Voice, precision, speed, sample
+rate and chapter publication remain unchanged.
+
+Chapter completion history includes `gpu_memory` diagnostics: live and reserved MiB,
+peak allocations, cache cleanup count/time, and any cleanup error. Cache management
+failure is recorded without discarding otherwise completed audio. See PERFORMANCE.md
+for the full-chapter reproduction and measured results.
+
+## Independent Google Colab conversion
+
+Upload [Drive_Chapter_Audio.ipynb](colab/Drive_Chapter_Audio.ipynb) to Colab to convert
+EPUB books or TXT/JSON chapters from Google Drive and save verified WAV/MP3 audio back to Drive.
+The self-contained notebook prompts for chapter range, voice and output format,
+shows progress bars, saves history and skips completed chapters when rerun.
+See [input examples and instructions](colab/README.md). No running PC sync service
+or mobile pairing is required; this does not import audio into the app cache.
+
 ## Verification
+
+See [the measured performance investigation](PERFORMANCE.md) for CPU/GPU timings,
+tested inference settings, delivery bottlenecks, and the isolated `benchmark.py` tool.
 
 ```powershell
 .venv/Scripts/python.exe -m unittest discover -s tests -v
@@ -47,8 +105,31 @@ The HTTPS tests cover pairing/authentication, whole-chapter publication, range t
 
 Listen queues contiguous verified PC chapters in Android's existing media session. A native watcher adds newly downloaded chapters while the screen is locked, without a JavaScript screen controller. Playback-scoped CPU wake management, lock-screen metadata and private chapter/time checkpoints support background playback. Listen adopts the playing chapter and measured text cues when reopened. Explicit Pause and sleep timers are respected. Force-stop or leaving the Listen route ends the player.
 
-A gap of less than 4 chapters from the current chapter uses individual downloads. At a gap of 4 or more, the PC generates the distant batch first, then transfers one resumable ZIP. If playback catches up while generation is pending, nearby chapters return to individual delivery. Every extracted chapter still passes identity, timing, WAV and SHA-256 verification before publication. Re-queue older pending transfers through Sync to apply this policy.
+A gap of less than 4 chapters from the current chapter uses individual downloads. Android 1.1.21 transfers ready distant chapters in resumable ZIP groups of up to three while the PC generates the remaining chapters. Archive membership is persisted so a reconnect resumes the same bytes even when additional chapters become ready. If playback catches up while generation is pending, nearby chapters return to individual delivery. Every extracted chapter still passes identity, timing, WAV and SHA-256 verification before publication.
 
 Batch status uses one small request every three seconds. Archives are limited to 2 GB and need temporary storage on both devices. Reduce chapter count if storage is insufficient. Pause preserves the partial archive. PC archives persist in .state; monitor disk usage for large libraries.
 
 The screen shows overall and current generation/download progress, saved/remaining counts, voice and a chapter queue. Saved means the complete chapter is verified on Android. Connection management collapses after pairing. Whole-chapter publication remains unchanged.
+
+## Android 1.1.21 connection and retention
+
+Pairing and reachability are displayed separately. While the sync screen is open,
+short authenticated health checks run every ten seconds and when the app returns
+to the foreground. Failed connections show retry timing; network failures retry
+after 5, 10 and 20 seconds before waiting for the next scheduled attempt or manual
+reconnect. Authentication failures require pairing again; storage/generation errors
+are shown separately from network disconnects. Reconnect reuses the saved credentials,
+rediscovers a changed PC address, and resumes queued/partial transfers without
+enabling automatic sync. An optional manual IP can be entered in connection details.
+
+The completion percentage counts verified files only. Chapter generation, download
+bytes and verification have separate status. Preferences do not overwrite a transfer
+status, and book/account/voice scopes prevent unrelated jobs from driving its progress.
+
+Phone retention follows actual native playback checkpoints, including playback with
+the screen locked: retain the current chapter, its previous ten chapters, and every
+downloaded chapter ahead. For example, while playing chapter 25, chapters 15–24 and
+25 onward are retained; chapters 1–14 can be removed. Cleanup is scoped to that
+account and book, across voices, and only deletes files in the owned audio directory.
+Other books and PC-side cached audio are retained. The currently playing file is
+protected even if its metadata index disagrees. The screen reports offline storage.

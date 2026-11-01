@@ -19,6 +19,10 @@ interface Props {
 function fmt(paise: number) {
   return '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+const openDatePicker = (event: React.MouseEvent<HTMLInputElement>) => {
+  // Keep native keyboard editing in browsers without the picker API.
+  try { event.currentTarget.showPicker?.() } catch { event.currentTarget.focus() }
+}
 
 export default function DashboardClient({
   transactions, categories, currentPeriod = 'month', rangeStart, rangeEnd,
@@ -101,10 +105,10 @@ export default function DashboardClient({
 
       <form onSubmit={applyRange} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12, background: 'var(--ft-surface-low)', padding: 16, borderRadius: 16 }}>
         <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--ft-on-surface)', flex: '1 1 150px' }}>From
-          <input aria-label="Range start date" type="date" required value={startInput} max={endInput || undefined} onChange={e => setStartInput(e.target.value)} style={{ padding: 10, minWidth: 0, border: '1px solid var(--ft-outline-variant)', borderRadius: 10, background: 'var(--ft-glass-bg)', color: 'var(--ft-on-surface)' }} />
+          <input aria-label="Range start date" type="date" required value={startInput} max={endInput || undefined} onClick={openDatePicker} onChange={e => setStartInput(e.target.value)} style={{ padding: 10, minWidth: 0, border: '1px solid var(--ft-outline-variant)', borderRadius: 10, background: 'var(--ft-glass-bg)', color: 'var(--ft-on-surface)', colorScheme: 'light', cursor: 'pointer' }} />
         </label>
         <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--ft-on-surface)', flex: '1 1 150px' }}>To
-          <input aria-label="Range end date" type="date" required value={endInput} min={startInput || undefined} onChange={e => setEndInput(e.target.value)} style={{ padding: 10, minWidth: 0, border: '1px solid var(--ft-outline-variant)', borderRadius: 10, background: 'var(--ft-glass-bg)', color: 'var(--ft-on-surface)' }} />
+          <input aria-label="Range end date" type="date" required value={endInput} min={startInput || undefined} onClick={openDatePicker} onChange={e => setEndInput(e.target.value)} style={{ padding: 10, minWidth: 0, border: '1px solid var(--ft-outline-variant)', borderRadius: 10, background: 'var(--ft-glass-bg)', color: 'var(--ft-on-surface)', colorScheme: 'light', cursor: 'pointer' }} />
         </label>
         <button type="submit" style={{ border: 0, background: 'var(--ft-primary)', color: '#fff', padding: '11px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Apply range</button>
         <button type="button" onClick={exportCsv} title="Export the applied date range and visible legend selection" style={{ border: '1px solid var(--ft-outline-variant)', background: 'var(--ft-surface-low)', color: 'var(--ft-primary)', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Export CSV</button>
@@ -209,7 +213,9 @@ export default function DashboardClient({
             {legendGroups.length === 0 && <p style={{ color: 'var(--ft-on-surface-variant)', fontSize: 13 }}>No expense categories for these dates.</p>}
           </div>
           </section>
-          <ExpandableBreakdown groups={groups} categories={categories} view={breakdownView} total={totalExpense} />
+          <ExpandableBreakdown groups={groups} categories={categories} view={breakdownView} total={totalExpense}
+            rangeStart={rangeStart} rangeEnd={rangeEnd}
+            hidden={[...categoryFilter.map(id => categories.find(item => item.id === id)?.name || 'Other'), ...methodFilter].join(', ')} />
         </div>
       </section>
 

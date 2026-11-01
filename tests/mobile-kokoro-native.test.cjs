@@ -43,6 +43,10 @@ before(() => {
   const result = spawnSync(java, ['-cp', classpath, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
     '-jvm-target', '17', '-classpath', classpath, '-d', temporary,
     path.join(root, 'mobile-app/plugins/kokoro/KokoroGenerationGate.kt'), path.join(root, 'mobile-app/plugins/kokoro/KokoroFiles.kt'), path.join(root, 'mobile-app/plugins/kokoro/KokoroCallback.kt'),
+    path.join(root, 'mobile-app/plugins/kokoro/LocalSyncRetention.kt'),
+    path.join(root, 'mobile-app/plugins/kokoro/SyncTransferControl.kt'),
+    path.join(root, 'mobile-app/plugins/kokoro/DriveAudioChecks.kt'),
+    path.join(root, 'mobile-app/plugins/kokoro/DriveRange.kt'),
     path.join(__dirname, 'fixtures/kokoro/Main.kt')], { encoding: 'utf8', timeout: 60000 });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
 });
@@ -65,6 +69,9 @@ test('native PCM produces a valid mono WAV with clipping, sample rate and exact 
   assert.equal(bytes.readUInt16LE(34), 16); assert.equal(bytes.readUInt32LE(40), 10);
   assert.deepEqual(Array.from({ length: 5 }, (_, index) => bytes.readInt16LE(44 + index * 2)), [-32767, -16383, 0, 16383, 32767]);
 });
+
+test('Drive import natively rejects corrupted, truncated and unsupported WAV audio', nativeOptions,
+  () => assert.match(invoke('drive-audio'), /Drive audio verified/));
 test('native model extraction rejects traversal, symlinks, incomplete archives and cancellation', nativeOptions, () => {
   assert.match(invoke('extract', 'traversal'), /Unsafe/);
   assert.match(invoke('extract', 'symlink'), /Invalid model archive/);
@@ -77,6 +84,15 @@ test('native extractor installs the actual verified Kokoro package and rejects c
 }, () => assert.match(invoke('real', archive), /verified, extracted, corruption rejected/));
 
 test('native generation gate sleeps while paused, hot or buffered and wakes on resume/cancel/checkpoint', nativeOptions, () => assert.match(invoke('gate'), /gate verified/));
+
+test('sync retention deletes only owned audio more than ten chapters behind actual playback', nativeOptions,
+  () => assert.match(invoke('retention'), /retention verified/));
+
+test('pause interrupts a blocked native read, preserves files and rejects stale work after rapid resume', nativeOptions,
+  () => assert.match(invoke('transfer-pause'), /transfer pause verified/));
+
+test('concurrent sync starts reuse one worker, including pending resume and idle handoff', nativeOptions,
+  () => assert.match(invoke('single-run'), /single run verified/));
 
 test('voice continuation preserves exact prefix PCM samples and replaces only subsequent samples', nativeOptions, () => {
   const bytes = fs.readFileSync(invoke('prefix'));

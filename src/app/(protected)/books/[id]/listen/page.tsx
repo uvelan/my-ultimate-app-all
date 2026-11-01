@@ -1,5 +1,6 @@
 'use client';
 
+import { DriveAudioControls, useDriveAudio } from '@/hooks/useDriveAudio';
 import { useBookProgressSync } from '@/hooks/useBookProgressSync';
 import { useChapterWindow } from '@/hooks/useChapterWindow';
 
@@ -72,6 +73,8 @@ export default function ListenPage() {
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [grammarModel, setGrammarModel] = useState("OFF");
     const [ttsVoice, setTtsVoice] = useState("en");
+    const [audioSource, setAudioSource] = useState<'generated' | 'drive'>('generated');
+    const driveSelected = audioSource === 'drive';
     const [ttsProvider, setTtsProvider] = useState<TtsProvider>('google');
     const [mimoVoice, setMimoVoice] = useState<MimoVoice>('Mia');
     const [geminiVoice, setGeminiVoice] = useState<GeminiVoice>('Kore');
@@ -113,6 +116,7 @@ export default function ListenPage() {
     const currentChapter = book?.chapters[currentChapterIndex];
     const bookId = book?.id;
     const chapterId = currentChapter?.id;
+    const drive = useDriveAudio(driveSelected && preferencesReady, cacheUserId, bookId, chapterId);
     const selectedVoice = ttsProvider === 'gemini' ? geminiVoice : ttsProvider === 'xiaomi' ? mimoVoice : ttsVoice;
     const chapterContent = currentChapter?.content;
     const chapterTitle = currentChapter?.title;
@@ -138,7 +142,7 @@ export default function ListenPage() {
     useEffect(() => {
         const key = activeAudioKeyRef.current;
         const task = key ? audioTasksRef.current.get(key) : null;
-        if (!audioUrl || !task?.loaded || task.objectUrl !== audioUrl || task.identity.chapterId !== chapterId) return;
+        if (driveSelected || !audioUrl || !task?.loaded || task.objectUrl !== audioUrl || task.identity.chapterId !== chapterId) return;
         const source = audioUrl;
         const identity = { ...task.identity };
         const loaded = task.loaded;
@@ -167,10 +171,10 @@ export default function ListenPage() {
         })().catch(() => { /* Legacy or unavailable metadata uses the weighted text fallback. */ })
             .finally(() => clearTimeout(timeout));
         return () => { controller.abort(); clearTimeout(timeout); };
-    }, [audioUrl, chapterId, grammarModel, ttsProvider, selectedVoice, retryCount, cacheUserId]);
+    }, [audioUrl, chapterId, grammarModel, ttsProvider, selectedVoice, retryCount, cacheUserId, driveSelected]);
 
     const activeTask = activeAudioKeyRef.current ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
-    const playbackMatchesChapter = !!audioUrl && activeTask?.objectUrl === audioUrl && !!chapterId
+    const playbackMatchesChapter = driveSelected ? !!drive.url && audioUrl === drive.url : !!audioUrl && activeTask?.objectUrl === audioUrl && !!chapterId
         && audioIdentityKey(activeTask.identity) === audioIdentityKey({ userId: cacheUserId, chapterId,
             title: chapterTitle, content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel });
     const currentSync = playbackMatchesChapter && narration?.source === audioUrl ? narration.sync : null;
@@ -318,7 +322,7 @@ export default function ListenPage() {
 
     // Keep the current chapter and four successors, on disk and in memory.
     useEffect(() => {
-        if (!bookId || !chapterId || !preferencesReady || chapterWindow.loading || chapterWindow.error || chapterContent === undefined) return;
+        if (driveSelected || !bookId || !chapterId || !preferencesReady || chapterWindow.loading || chapterWindow.error || chapterContent === undefined) return;
 
         let active = true;
         const windowController = new AbortController();
@@ -526,7 +530,41 @@ export default function ListenPage() {
             active = false;
             windowController.abort();
         };
-    }, [currentChapterIndex, chapterId, chapterTitle, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount, chapterWindow.loading, chapterWindow.error]);
+    }, [currentChapterIndex, chapterId, chapterTitle, bookId, book, grammarModel, ttsProvider, selectedVoice, preferencesReady, cacheUserId, chapterContent, retryCount, chapterWindow.loading, chapterWindow.error, driveSelected]);
+
+    // Drive URLs stream through the same audio element; generated Blob caching is bypassed.
+    useEffect(() => {
+        if (!driveSelected) return;
+        for (const task of Array.from(audioTasksRef.current.values())) {
+            task.controller.abort();
+            if (task.objectUrl) URL.revokeObjectURL(task.objectUrl);
+        }
+        audioTasksRef.current.clear(); refillWindowRef.current = () => {};
+        activeAudioKeyRef.current = null; promotedAudioKeyRef.current = null;
+        switchingAudioRef.current = true;
+        const audio = audioRef.current;
+        audio?.pause();
+        setIsPlaying(false); setCurrentTime(0); setDuration(0);
+        setAudioUrl(drive.url || null);
+        setNarration(drive.url ? { source: drive.url, sync: drive.sync } : null);
+        if (audio) {
+            if (drive.url) { audio.src = drive.url; audio.load(); }
+            else { audio.removeAttribute('src'); audio.load(); }
+        }
+        return () => { audio?.pause(); };
+    }, [driveSelected, drive.url, drive.sync, bookId, chapterId]);
+    useEffect(() => {
+        if (!driveSelected) return;
+        setIsGenerating(drive.busy && !drive.url);
+        setAudioError(drive.error || null);
+    }, [driveSelected, drive.busy, drive.error, drive.url]);
+    useEffect(() => {
+        if (driveSelected && bookId && chapterId && preferencesReady) void saveProgressToDb(currentChapterIndex);
+    }, [driveSelected, bookId, chapterId, preferencesReady]);
+
+    const matchesSelectedAudio = (audio: HTMLAudioElement) => driveSelected
+        ? !!drive.url && audio.src === new URL(drive.url, window.location.origin).href
+        : audioTasksRef.current.get(activeAudioKeyRef.current || '')?.objectUrl === audio.src;
 
     const handlePlaybackError = (error: unknown, requestedSource: string) => {
         const audio = audioRef.current;
@@ -545,7 +583,7 @@ export default function ListenPage() {
         const audio = audioRef.current;
         if (!audio || !playIntentRef.current || !audio.getAttribute('src')) return;
         const task = activeAudioKeyRef.current ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
-        if (task?.objectUrl !== audio.src) return;
+        if (!matchesSelectedAudio(audio)) return;
         const requestedSource = audio.src;
         void audio.play().catch(error => handlePlaybackError(error, requestedSource));
     };
@@ -553,7 +591,7 @@ export default function ListenPage() {
     const updatePlaybackClock = () => {
         const audio = audioRef.current;
         const task = activeAudioKeyRef.current ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
-        if (!audio || task?.objectUrl !== audio.src || audio.currentSrc !== audio.src) return;
+        if (!audio || !matchesSelectedAudio(audio) || audio.currentSrc !== audio.src) return;
         setCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
         setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
     };
@@ -561,6 +599,16 @@ export default function ListenPage() {
     // --- Audio Event Handlers ---
     const handleAudioEnded = () => {
         const audio = audioRef.current;
+        if (driveSelected) {
+            if (!audio?.ended || !matchesSelectedAudio(audio)) return;
+            if (sleepTimer === 'EOC') {
+                playIntentRef.current = false; setIsPlaying(false); setSleepTimer(null);
+                toast('End of chapter reached. Timer stopped.');
+            } else if (playIntentRef.current && book && currentChapterIndexRef.current < book.chapters.length - 1) {
+                setCurrentChapterIndex(currentChapterIndexRef.current + 1);
+            } else { playIntentRef.current = false; setIsPlaying(false); }
+            return;
+        }
         if (!audio?.ended || !activeAudioKeyRef.current) return;
         const endedTask = audioTasksRef.current.get(activeAudioKeyRef.current);
         if (endedTask?.objectUrl !== audio.src || audio.currentSrc !== audio.src) return;
@@ -610,6 +658,7 @@ export default function ListenPage() {
     };
 
     const retryCurrentAudio = (forceRegenerate = false) => {
+        if (driveSelected) { drive.retry(); return; }
         const key = activeAudioKeyRef.current || (chapterId ? audioIdentityKey({
             userId: cacheUserId, chapterId, title: chapterTitle, content: chapterContent,
             provider: ttsProvider, voice: selectedVoice, grammarModel,
@@ -636,7 +685,7 @@ export default function ListenPage() {
             lastResumeAttemptRef.current = Date.now();
             const currentKey = audioIdentityKey({ userId: cacheUserId, chapterId: chapterId || '',
                 title: chapterTitle, content: chapterContent, provider: ttsProvider, voice: selectedVoice, grammarModel });
-            if (audio?.ended && activeAudioKeyRef.current === currentKey) {
+            if (audio?.ended && (driveSelected || activeAudioKeyRef.current === currentKey)) {
                 handleAudioEnded();
                 return;
             }
@@ -644,7 +693,7 @@ export default function ListenPage() {
                 retryCurrentAudio();
             } else if (audio?.paused && !audio.ended && audio.readyState >= 2) {
                 attemptPlayback();
-            } else if (audio && (audio.error || (mediaStalledRef.current && audio.readyState < 2)) && activeAudioKeyRef.current) {
+            } else if (audio && (audio.error || (mediaStalledRef.current && audio.readyState < 2)) && (driveSelected || activeAudioKeyRef.current)) {
                 switchingAudioRef.current = true;
                 audio.load();
                 attemptPlayback();
@@ -662,7 +711,7 @@ export default function ListenPage() {
             window.removeEventListener('pageshow', resume);
             window.removeEventListener('online', resume);
         };
-    }, [audioError, audioUrl, chapterId, chapterTitle, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book]);
+    }, [audioError, audioUrl, chapterId, chapterTitle, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book, driveSelected, drive.url]);
 
     // Timer logic
     useEffect(() => {
@@ -728,6 +777,7 @@ export default function ListenPage() {
         } catch {
             // Missing identity disables persistent caching, without blocking playback.
         }
+        setAudioSource(new URLSearchParams(window.location.search).get('source') === 'drive' || localStorage.getItem('listen-audio-source') === 'drive' ? 'drive' : 'generated');
         const storedSpeed = localStorage.getItem('listen-playback-speed');
         if (storedSpeed) {
             setPlaybackSpeed(parseFloat(storedSpeed));
@@ -798,7 +848,7 @@ export default function ListenPage() {
                 setIsPlaying(false);
             });
         }
-    }, [book, currentChapter]);
+    }, [book, currentChapter, driveSelected, drive.url]);
 
 
     // --- Navigation Handlers ---
@@ -875,6 +925,7 @@ export default function ListenPage() {
             <div className="flex flex-col h-dvh min-h-0 bg-[#1a202c] text-white font-sans overflow-hidden [--color-bg:#1a202c] [--color-border:#718096] [--color-muted:#a0aec0]" style={{ colorScheme: 'dark' }}>
 
                 {/* Header Navbar */}
+
                 <header className="bg-[#2d3748] border-b border-[#4a5568] px-4 sm:px-6 py-3 shadow-md shrink-0 z-20 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex w-full min-w-0 items-center gap-2 md:gap-3 xl:w-auto">
                         <Link href="/books" className={iconBtnStyle} title="Back to Library">
@@ -903,23 +954,29 @@ export default function ListenPage() {
 
                     <div id="listen-playback-settings" className={`${settingsOpen ? 'grid' : 'hidden'} min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 lg:grid xl:flex xl:flex-wrap xl:justify-end [&>select]:min-w-0 [&>select]:w-full [&>select]:h-10 [&>select]:text-xs [&>select]:px-3 xl:[&>select]:w-auto`}>
                         <select
-                            value={ttsProvider}
+                            value={driveSelected ? 'drive' : ttsProvider}
                             onChange={(e) => {
+                                resetManualChapterPlayback(); playIntentRef.current = false;
+                                const source = e.target.value === 'drive' ? 'drive' : 'generated';
+                                setAudioSource(source); localStorage.setItem('listen-audio-source', source);
+                                if (source === 'drive') return;
                                 const provider = e.target.value as TtsProvider;
                                 setTtsProvider(provider);
                                 localStorage.setItem('listen-tts-provider', provider);
                             }}
                             className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
                             title="Automatic fallback: Gemini → Xiaomi MiMo → Google (free)"
-                            aria-label="TTS provider"
+                            aria-label="Audio source"
                         >
+                            <option value="drive">Google Drive (Colab)</option>
                             <option value="gemini">Gemini</option>
                             <option value="xiaomi">Xiaomi MiMo</option>
                             <option value="google">Google (free)</option>
                         </select>
                         <select
-                            value={selectedVoice}
+                            value={driveSelected ? drive.voice : selectedVoice}
                             onChange={(e) => {
+                                if (driveSelected) { drive.setVoice(e.target.value); return; }
                                 if (ttsProvider === 'gemini') {
                                     setGeminiVoice(e.target.value as GeminiVoice);
                                     localStorage.setItem('listen-gemini-voice', e.target.value);
@@ -933,9 +990,9 @@ export default function ListenPage() {
                             }}
                             className="bg-[#4a5568] border border-[#718096] text-[#e2e8f0] text-[10px] sm:text-xs md:text-sm px-1 sm:px-2 py-1 sm:py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-[#a0aec0] cursor-pointer min-w-[70px]"
                             title="TTS Voice Accent"
-                            aria-label={`${ttsProviderLabels[ttsProvider]} voice`}
+                            aria-label={driveSelected ? 'Google Drive voice' : `${ttsProviderLabels[ttsProvider]} voice`}
                         >
-                            {ttsProvider === 'gemini' ? geminiVoices.map(voice => (
+                            {driveSelected ? <><option value="af_bella">Voice: Bella</option><option value="af_heart">Voice: Heart</option></> : ttsProvider === 'gemini' ? geminiVoices.map(voice => (
                                 <option key={voice} value={voice}>Voice: {voice}</option>
                             )) : ttsProvider === 'xiaomi' ? mimoVoices.map((voice) => (
                                 <option key={voice} value={voice}>Voice: {voice === 'mimo_default' ? 'Default' : voice}</option>
@@ -949,6 +1006,7 @@ export default function ListenPage() {
                             </>}
                         </select>
                         <select
+                            disabled={driveSelected}
                             value={grammarModel}
                             onChange={(e) => {
                                 setGrammarModel(e.target.value);
@@ -1092,6 +1150,7 @@ export default function ListenPage() {
                         </div>
                         </div>
 
+                            {driveSelected && <DriveAudioControls drive={drive} />}
                             {/* Audio Player */}
                             <div className="shrink-0 bg-[#2d3748] rounded-xl p-3 sm:p-4 md:p-4 shadow-xl border border-[#4a5568] w-full max-w-lg mx-auto">
 
@@ -1107,7 +1166,7 @@ export default function ListenPage() {
                                         const audio = audioRef.current;
                                         const task = activeAudioKeyRef.current
                                             ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
-                                        if (!audio || task?.objectUrl !== audio.src || audio.currentSrc !== audio.src) return;
+                                        if (!audio || !matchesSelectedAudio(audio) || audio.currentSrc !== audio.src) return;
                                         switchingAudioRef.current = false;
                                         mediaStalledRef.current = false;
                                         setAudioError(null);
@@ -1130,7 +1189,7 @@ export default function ListenPage() {
                                     onError={() => {
                                         const task = activeAudioKeyRef.current
                                             ? audioTasksRef.current.get(activeAudioKeyRef.current) : null;
-                                        if (task?.objectUrl === audioRef.current?.src) {
+                                        if (audioRef.current && matchesSelectedAudio(audioRef.current)) {
                                             setAudioError('Audio playback failed. Retry this chapter to continue.');
                                             setIsPlaying(false);
                                         }
@@ -1144,7 +1203,7 @@ export default function ListenPage() {
                                 ) : isGenerating ? (
                                     <div className="flex flex-col items-center justify-center py-4">
                                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4fd1c5] mb-3"></div>
-                                        <p className="text-sm text-[#a0aec0]">Generating High-Quality Audio...</p>
+                                        <p className="text-sm text-[#a0aec0]">{driveSelected ? 'Loading Drive audio…' : 'Generating High-Quality Audio...'}</p>
                                     </div>
                                 ) : audioUrl ? (
                                     <div className="flex flex-col items-center gap-2 w-full">

@@ -5,6 +5,8 @@ import { Wallet, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Download }
 import { DashboardCategory, DashboardTransaction, dashboardView, dashboardCategoryTree } from '@/src/lib/finance-dashboard';
 import { financeCsv } from '@/src/lib/finance-csv';
 import { shareFinanceCsv } from '@/src/services/finance-export.service';
+import { financeBreakdownImageRows } from '@/src/lib/finance-image';
+import { FinanceBreakdownImage, type FinanceImageSnapshot } from './FinanceBreakdownImage';
 
 interface Props {
     transactions: DashboardTransaction[];
@@ -19,11 +21,13 @@ type Node = ReturnType<typeof dashboardCategoryTree>[number];
 const money = (paise: number) => '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const percentage = (amount: number, total: number) => total > 0 ? (amount / total * 100).toLocaleString('en-IN', { maximumFractionDigits: 1 }) : '0';
 
-function BreakdownBranch({ node, total }: { node: Node; total: number }) {
-    const [open, setOpen] = useState(false);
+function BreakdownBranch({ node, total, expanded, onToggle, path = [] }: {
+    node: Node; total: number; expanded: ReadonlySet<string>; onToggle(id: string): void; path?: string[];
+}) {
+    const branch = [...path, node.id], id = JSON.stringify(branch), open = expanded.has(id);
     const Chevron = open ? ChevronDown : ChevronRight;
     return <View style={s.branch}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel={(open ? 'Collapse ' : 'Expand ') + node.name} accessibilityState={{ expanded: open }} onPress={() => setOpen(value => !value)} style={{ paddingVertical: 8 }}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel={(open ? 'Collapse ' : 'Expand ') + node.name} accessibilityState={{ expanded: open }} onPress={() => onToggle(id)} style={{ paddingVertical: 8 }}>
             <View style={s.row}>
                 <View style={[s.name, { flex: 1 }]}><Chevron size={14} color="#001642" /><View style={[s.dot, { backgroundColor: node.color }]} /><Text style={s.rowName}>{node.name}</Text></View>
                 <Text style={s.amount}>{money(node.amountPaise)} · {percentage(node.amountPaise, total)}%</Text>
@@ -31,7 +35,7 @@ function BreakdownBranch({ node, total }: { node: Node; total: number }) {
             <View style={s.track}><View style={[s.fill, { width: (total > 0 ? Math.min(100, node.amountPaise / total * 100) : 0) + '%' as any, backgroundColor: node.color }]} /></View>
         </TouchableOpacity>
         {open && <View style={s.children}>
-            {node.children.map(child => <BreakdownBranch key={child.id} node={child} total={node.amountPaise} />)}
+            {node.children.map(child => <BreakdownBranch key={child.id} node={child} total={node.amountPaise} expanded={expanded} onToggle={onToggle} path={branch} />)}
             {[...node.items].sort((a, b) => b.transactionDate.localeCompare(a.transactionDate)).map(item => <View key={item.id} style={[s.row, { paddingVertical: 8 }]}>
                 <View style={{ flex: 1 }}><Text style={s.rowName}>{item.description || 'No description'}</Text><Text style={s.note}>{new Date(item.transactionDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} · {item.paymentMethod || 'Unknown'}</Text></View>
                 <Text style={s.amount}>{money(item.amountPaise)}</Text>
@@ -46,7 +50,15 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
     const [activeSlice, setActiveSlice] = useState<string | null>(null);
     const [panelWidth, setPanelWidth] = useState(0);
     const [exporting, setExporting] = useState(false);
+    const [expandedByView, setExpandedByView] = useState<Record<string, Set<string>>>({});
+    const [imageSnapshot, setImageSnapshot] = useState<FinanceImageSnapshot | null>(null);
     const view = grouping === 'category' ? 'CATEGORY' : 'METHOD';
+    const expanded = expandedByView[view] || new Set<string>();
+    const toggleBranch = (id: string) => setExpandedByView(previous => {
+        const next = new Set(previous[view]);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return { ...previous, [view]: next };
+    });
     const { totalIncome, totalExpense, netSavings, groups, filteredTransactions } = dashboardView(transactions, categories, categoryFilter, methodFilter, view);
     const legends = dashboardView(transactions, categories, [], [], view).groups;
     const excluded = grouping === 'category' ? categoryFilter : methodFilter;
@@ -72,14 +84,21 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
         { label: 'Income in range', value: '+' + money(totalIncome), Icon: TrendingUp, color: '#026c47', accent: false },
         { label: 'Expenses in range', value: '−' + money(totalExpense), Icon: TrendingDown, color: '#ba1a1a', accent: false },
     ];
-    const branches = tree.length ? tree.map(node => <BreakdownBranch key={view + ':' + node.id} node={node} total={totalExpense} />) : <Text style={[s.note, { paddingVertical: 20 }]}>No expenses match this selection.</Text>;
+    const branches = tree.length ? tree.map(node => <BreakdownBranch key={view + ':' + node.id} node={node} total={totalExpense} expanded={expanded} onToggle={toggleBranch} />) : <Text style={[s.note, { paddingVertical: 20 }]}>No expenses match this selection.</Text>;
     return <View style={s.page}>
         <View style={s.metrics}>{metrics.map(({ label, value, Icon, color, accent }) => <View key={label} style={[s.card, s.metric, accent && s.balance]}>
             <View style={s.metricHeading}><Text style={[s.metricLabel, accent && { color: '#c4d1ee' }]}>{label}</Text><Icon size={18} color={color} /></View>
             <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} style={[s.metricValue, { color }]}>{value}</Text>
         </View>)}</View>
         <View style={s.card} onLayout={event => setPanelWidth(event.nativeEvent.layout.width - 32)}>
-            <View style={s.headingRow}><Text style={s.heading}>Expense breakdown</Text><TouchableOpacity accessibilityRole="button" accessibilityLabel="Export filtered finance CSV" disabled={busy || exporting} onPress={exportCsv} style={[s.exportButton, { opacity: busy || exporting ? 0.5 : 1 }]}><Download size={14} color="#001642" /><Text style={s.choiceText}>{exporting ? 'Exporting…' : 'Export CSV'}</Text></TouchableOpacity></View>
+            <View style={s.headingRow}><Text style={s.heading}>Expense breakdown</Text><View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Export breakdown image with selected date range" disabled={busy || exporting} onPress={() => setImageSnapshot({
+                    rows: financeBreakdownImageRows(tree, totalExpense, expanded), rangeStart, rangeEnd, totalExpense,
+                    grouping: grouping === 'category' ? 'category' : 'payment method',
+                    hidden: [...categoryFilter.map(id => categories.find(item => item.id === id)?.name || 'Other'), ...methodFilter].join(', '),
+                })} style={[s.exportButton, { opacity: busy || exporting ? 0.5 : 1 }]}><Download size={14} color="#001642" /><Text style={s.choiceText}>Export image</Text></TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Export filtered finance CSV" disabled={busy || exporting} onPress={exportCsv} style={[s.exportButton, { opacity: busy || exporting ? 0.5 : 1 }]}><Download size={14} color="#001642" /><Text style={s.choiceText}>{exporting ? 'Exporting…' : 'Export CSV'}</Text></TouchableOpacity>
+            </View></View>
             <View style={s.switcher}>{(['category', 'method'] as const).map(value => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: grouping === value }} onPress={() => { onGrouping(value); setActiveSlice(null); }} style={[s.choice, grouping === value && s.selected]}><Text style={[s.choiceText, grouping === value && { color: '#fff' }]}>{value === 'category' ? 'Category' : 'Payment method'}</Text></TouchableOpacity>)}</View>
             <Text style={[s.note, { marginVertical: 8 }]}>Tap legends to hide or restore items. Tap a slice for its percentage.</Text>
             {(categoryFilter.length > 0 || methodFilter.length > 0) && <View style={[s.row, { marginBottom: 8 }]}>
@@ -105,6 +124,7 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
                 </View>
             </View>
         </View>
+        {imageSnapshot && <FinanceBreakdownImage snapshot={imageSnapshot} onClose={() => setImageSnapshot(null)} />}
     </View>;
 }
 const s = StyleSheet.create({

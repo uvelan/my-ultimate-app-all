@@ -34,6 +34,7 @@ import javax.net.ssl.*
 /** A paired PC is identified by its TLS key and service ID, never its DHCP address. */
 object LocalSyncStore {
     private val lock = Any()
+    @Volatile var active: JSONObject? = null
     private fun file(context: Context, name: String) = File(context.filesDir, name)
     fun read(context: Context, name: String, fallback: String): String = synchronized(lock) {
         try { file(context, name).readText() } catch (_: Exception) { fallback }
@@ -67,6 +68,14 @@ object LocalSyncStore {
     fun queue(context: Context) = JSONArray(read(context, "local-sync-queue.json", "[]"))
     fun artifacts(context: Context) = JSONArray(read(context, "local-sync-artifacts.json", "[]"))
     fun status(context: Context) = JSONObject(read(context, "local-sync-status.json", "{\"phase\":\"idle\"}"))
+    fun connectionStatus(context: Context) = JSONObject(read(context, "local-sync-connection.json", "{\"state\":\"unknown\"}"))
+    fun connectionStatus(context: Context, state: String, message: String = "", host: String = "") = synchronized(lock) {
+        val value = connectionStatus(context).put("state", state).put("message", message).put("checkedAt", System.currentTimeMillis())
+        if (host.isNotEmpty()) value.put("host", host)
+        if (state == "connected") value.put("lastConnectedAt", System.currentTimeMillis())
+        write(context, "local-sync-connection.json", value.toString())
+        LocalSyncModule.emit(JSONObject().put("phase", "connection-changed").put("connection", value))
+    }
     fun paused(context: Context) = context.getSharedPreferences("local-sync", 0).getBoolean("paused", true)
     fun pause(context: Context, value: Boolean) { context.getSharedPreferences("local-sync", 0).edit().putBoolean("paused", value).apply() }
     fun updateQueue(context: Context, transform: (JSONArray) -> Unit) = synchronized(lock) {
@@ -75,7 +84,20 @@ object LocalSyncStore {
     fun updateJob(context: Context, key: String, transform: (JSONObject) -> Unit) = updateQueue(context) { jobs ->
         for (index in 0 until jobs.length()) jobs.getJSONObject(index).let { if (it.getString("requestKey") == key) transform(it) }
     }
+    fun jobState(context: Context, key: String, state: String) = synchronized(lock) {
+        val jobs = queue(context)
+        val entry = (0 until jobs.length()).map { jobs.getJSONObject(it) }.find { it.optString("requestKey") == key }
+        if (entry != null && entry.optString("state") != state) {
+            entry.put("state", state); write(context, "local-sync-queue.json", jobs.toString())
+        }
+    }
     fun publish(context: Context, value: JSONObject) {
+        if (!LocalSyncRunner.transfers.workerIsCurrent()) return
+        if (paused(context) && value.optString("phase") in listOf("queued", "generating", "downloading", "batch-generating", "batch-downloading", "verifying", "chapter-ready", "complete")) return
+        active?.let { scope -> for (key in listOf("userId", "bookId", "voice", "chapterId", "chapterIndex", "rangeStart", "rangeEnd")) {
+            if (!value.has(key) && scope.has(key)) value.put(key, scope.get(key))
+        } }
+        value.put("updatedAt", System.currentTimeMillis())
         write(context, "local-sync-status.json", value.toString())
         LocalSyncModule.emit(value)
     }
@@ -92,7 +114,48 @@ object LocalSyncStore {
         }
         write(context, "local-sync-artifacts.json", kept.toString())
     }
+    /** Retain current/future chapters and exactly ten preceding chapters, across voices. */
+    fun pruneBehindPlayback(context: Context): Int = synchronized(lock) {
+        val playback = JSONObject(read(context, "local-pc-playback.json", "{}"))
+        val cutoff = playback.optInt("chapterIndex", -1) - 10
+        if (cutoff <= 0 || playback.optString("userId").isEmpty() || playback.optString("bookId").isEmpty()) return 0
+        val directory = File(context.filesDir, "local-pc-audio").canonicalFile
+        val entries = artifacts(context); val kept = JSONArray(); val removed = mutableSetOf<String>(); var bytes = 0L
+        val playingUri = android.net.Uri.parse(playback.optString("uri"))
+        if (playingUri.scheme != "file" || playingUri.path == null) return 0
+        val playing = ChapterAudio(playback.getString("userId"), playback.getString("bookId"), playback.getInt("chapterIndex"), File(playingUri.path!!))
+        for (index in 0 until entries.length()) {
+            val item = entries.getJSONObject(index)
+            val uri = android.net.Uri.parse(item.optString("uri"))
+            val file = if (uri.scheme == "file" && uri.path != null) File(uri.path!!) else null
+            if (file != null && LocalSyncRetention.removeOlder(directory, ChapterAudio(item.optString("userId"), item.optString("bookId"),
+                    item.optInt("chapterIndex", -1), file), playing)) {
+                removed.add(item.getString("key")); bytes += item.optLong("bytes")
+            } else kept.put(item)
+        }
+        if (removed.isNotEmpty()) {
+            write(context, "local-sync-artifacts.json", kept.toString())
+            val queue = queue(context); val retained = JSONArray()
+            for (index in 0 until queue.length()) {
+                val entry = queue.getJSONObject(index)
+                if (entry.optString("state") != "complete" || entry.optString("requestKey") !in removed) retained.put(entry)
+            }
+            write(context, "local-sync-queue.json", retained.toString())
+            write(context, "local-sync-cleanup.json", JSONObject().put("chapters", removed.size).put("bytes", bytes)
+                .put("updatedAt", System.currentTimeMillis()).toString())
+        }
+        removed.size
+    }
 }
+
+class LocalSyncRetentionReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val pending = goAsync()
+        LocalSyncRunner.executor.execute { try { LocalSyncStore.pruneBehindPlayback(context) } catch (_: Exception) { /* Retry on the next checkpoint/snapshot. */ } finally { pending.finish() } }
+    }
+}
+
+class SyncHttpException(val status: Int, message: String) : IOException(message)
 
 object LocalSyncNet {
     private val main = Handler(Looper.getMainLooper())
@@ -141,7 +204,7 @@ object LocalSyncNet {
         if (!latch.await(8, TimeUnit.SECONDS)) main.post { finish() }
         return synchronized(result) { JSONArray(result.toString()) }
     }
-    fun connection(config: JSONObject, path: String): HttpsURLConnection {
+    fun connection(config: JSONObject, path: String, transfer: Boolean = false): HttpsURLConnection {
         val host = config.getString("host")
         check(host.matches(Regex("[0-9.]+"))) { "Use a local IPv4 address" }
         val address = InetAddress.getByName(host)
@@ -163,10 +226,13 @@ object LocalSyncNet {
             instanceFollowRedirects = false; connectTimeout = 10000; readTimeout = 30000
             setRequestProperty("Connection", "close")
             if (config.has("token")) setRequestProperty("Authorization", "Bearer ${config.getString("token")}")
+            if (transfer) LocalSyncRunner.transfers.track(this)
         }
     }
     fun request(config: JSONObject, path: String, body: JSONObject? = null): JSONObject {
-        val request = connection(config, path)
+        val transfer = path != "/v1/health" && path != "/v1/pair" && path != "/v1/jobs/" + "0".repeat(40)
+        val request = connection(config, path, transfer)
+        if (path == "/v1/health" || path == "/v1/jobs/" + "0".repeat(40)) { request.connectTimeout = 3000; request.readTimeout = 5000 }
         if (path == "/v1/bundles") request.readTimeout = 120_000
         try {
             if (body != null) {
@@ -182,27 +248,52 @@ object LocalSyncNet {
                 check(bytes.size() + count <= 2_000_000) { "PC response is too large" }; bytes.write(buffer, 0, count)
             } }
             val result = JSONObject(bytes.toString("UTF-8"))
-            check(code in 200..299) { result.optString("error", "PC request failed ($code)") }
+            if (code !in 200..299) throw SyncHttpException(code, result.optString("error", "PC request failed ($code)"))
             return result
-        } finally { request.disconnect() }
+        } finally { if (transfer) LocalSyncRunner.transfers.release(request) else request.disconnect() }
     }
     fun resolve(context: Context, original: JSONObject): JSONObject {
+        var failure: Exception? = null
         try {
-            check(request(original, "/v1/health").getString("id") == original.getString("id")) { "Wrong PC identity" }
+            health(context, original)
             return original
-        } catch (_: Exception) { }
+        } catch (error: Exception) { failure = error }
         val found = discover(context)
         for (index in 0 until found.length()) {
             val peer = found.getJSONObject(index)
             if (peer.getString("id") == original.getString("id")) {
                 val config = JSONObject(original.toString()).put("host", peer.getString("host")).put("port", peer.getInt("port"))
                 try {
-                    check(request(config, "/v1/health").getString("id") == config.getString("id"))
+                    health(context, config)
                     LocalSyncStore.saveConfig(context, config); return config
-                } catch (_: Exception) { /* A PC may advertise several network adapters. */ }
+                } catch (error: Exception) { failure = error /* A PC may advertise several network adapters. */ }
             }
         }
-        error("PC unavailable. Sync will retry automatically when it is reachable.")
+        throw IOException("PC unavailable. Check Wi-Fi and the PC sync service.", failure)
+    }
+    fun health(context: Context, config: JSONObject): JSONObject {
+        val health = request(config, "/v1/health")
+        check(health.getString("id") == config.getString("id")) { "PC identity changed. Pair again using its new code." }
+        // /health is public on older PC services. Confirm the saved token still works.
+        if (config.has("token")) {
+            try { request(config, "/v1/jobs/" + "0".repeat(40)) }
+            catch (error: SyncHttpException) { if (error.status != 404) throw error }
+        }
+        LocalSyncStore.connectionStatus(context, "connected", host = config.getString("host"))
+        return health
+    }
+    fun failure(context: Context, error: Exception) {
+        if (!LocalSyncRunner.transfers.workerIsCurrent()) return
+        val causes = generateSequence<Throwable>(error) { it.cause }.toList()
+        val auth = causes.any { (it is SyncHttpException && it.status == 401) || it is java.security.cert.CertificateException ||
+            it is SSLPeerUnverifiedException || it.message?.contains("identity changed") == true }
+        LocalSyncStore.connectionStatus(context, if (auth) "pairing-required" else "disconnected",
+            if (auth) "PC authentication failed. Pair again using the code on your PC." else "PC disconnected. Check Wi-Fi and that the PC sync service is running.")
+    }
+    fun connectionFailure(error: Exception): Boolean = generateSequence<Throwable>(error) { it.cause }.any {
+        it is java.net.SocketException || it is java.net.SocketTimeoutException || it is java.net.UnknownHostException ||
+            it is SSLException || it is EOFException || (it is SyncHttpException && it.status == 401) ||
+            it.message?.startsWith("PC unavailable.") == true
     }
     fun download(context: Context, config: JSONObject, jobId: String, manifest: JSONObject, stop: () -> Boolean): File {
         check(jobId.matches(Regex("[a-f0-9]{40}")))
@@ -214,28 +305,32 @@ object LocalSyncNet {
         if (partial.length() > size) partial.delete()
         check(directory.usableSpace > size - partial.length() + 30_000_000) { "Not enough free phone storage" }
         if (partial.length() < size) {
-            val request = connection(config, "/v1/jobs/$jobId/audio")
+            check(!stop()) { "Sync paused" }
+            val request = connection(config, "/v1/jobs/$jobId/audio", transfer = true)
             try {
                 val offset = partial.length()
                 if (offset > 0) request.setRequestProperty("Range", "bytes=$offset-")
                 val code = request.responseCode
-                check(code == 200 || code == 206) { "PC audio download failed ($code)" }
+                if (code != 200 && code != 206) throw SyncHttpException(code, "PC audio download failed ($code)")
                 if (code == 206) check(request.getHeaderField("Content-Range")?.startsWith("bytes $offset-") == true)
                 FileOutputStream(partial, code == 206 && offset > 0).use { stream ->
                     request.inputStream.use { input -> val buffer = ByteArray(65536); var total = if (code == 206) offset else 0L
                         while (true) {
-                            check(!stop()) { "Sync paused" }; val count = input.read(buffer); if (count < 0) break
+                            check(!stop()) { "Sync paused" }; val count = input.read(buffer); check(!stop()) { "Sync paused" }; if (count < 0) break
                             total += count; check(total <= size) { "Unexpected audio length" }; stream.write(buffer, 0, count)
                             if (total == size || total % 1048576 < count) LocalSyncStore.publish(context, JSONObject().put("phase", "downloading")
                                 .put("chapterId", manifest.getString("chapterId")).put("progress", total.toDouble() / size).put("downloadedBytes", total).put("totalBytes", size))
                         }
                     }; stream.fd.sync()
                 }
-            } finally { request.disconnect() }
+            } finally { LocalSyncRunner.transfers.release(request) }
         }
         check(partial.length() == size) { "Incomplete chapter transfer" }
+        LocalSyncStore.jobState(context, manifest.getString("requestKey"), "verifying")
+        LocalSyncStore.publish(context, JSONObject().put("phase", "verifying").put("chapterId", manifest.getString("chapterId"))
+            .put("progress", 1).put("downloadedBytes", size).put("totalBytes", size))
         val sha = MessageDigest.getInstance("SHA-256")
-        partial.inputStream().use { input -> val buffer = ByteArray(65536); while (true) { val count = input.read(buffer); if (count < 0) break; sha.update(buffer, 0, count) } }
+        partial.inputStream().use { input -> val buffer = ByteArray(65536); while (true) { check(!stop()) { "Sync paused" }; val count = input.read(buffer); if (count < 0) break; sha.update(buffer, 0, count) } }
         val actual = sha.digest().joinToString("") { "%02x".format(it) }
         if (actual != hash) { partial.delete(); error("Chapter checksum failed. Retry sync.") }
         RandomAccessFile(partial, "r").use { file -> val header = ByteArray(44); file.readFully(header)
@@ -243,6 +338,7 @@ object LocalSyncNet {
             val format = java.nio.ByteBuffer.wrap(header).order(java.nio.ByteOrder.LITTLE_ENDIAN)
             check(format.getShort(20).toInt() == 1 && format.getShort(22).toInt() == 1 && format.getInt(24) == 24000 && format.getShort(34).toInt() == 16 && format.getInt(40).toLong() == size - 44) { "Unsupported PC audio format" }
         }
+        check(!stop()) { "Sync paused" }
         if (output.exists()) output.delete()
         check(partial.renameTo(output)) { "Unable to commit synced audio" }
         return output
@@ -251,8 +347,28 @@ object LocalSyncNet {
 
 object LocalSyncRunner {
     val executor = Executors.newCachedThreadPool()
-    private val running = AtomicBoolean(false)
+    val transfers = SyncTransferControl()
+    private val wakeRetry = AtomicBoolean(false)
+    fun isRunning() = transfers.busy()
     const val JOB = 76214
+    fun start(context: Context, automatic: Boolean, revision: Long): Boolean {
+        var launched = false
+        transfers.resume(revision) {
+            wakeRetry.set(true)
+            LocalSyncStore.pause(context, false); schedule(context, automatic)
+            launched = transfers.requestRun(revision) {
+                val intent = Intent(context, LocalSyncForeground::class.java).putExtra("syncRevision", revision)
+                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+            }
+        }
+        return launched
+    }
+    fun activate(entry: JSONObject) {
+        val payload = entry.getJSONObject("payload")
+        LocalSyncStore.active = JSONObject().put("userId", entry.getString("userId")).put("bookId", payload.getString("bookId"))
+            .put("voice", payload.getString("voice")).put("chapterId", payload.getString("chapterId")).put("chapterIndex", entry.getInt("chapterIndex"))
+        for (key in listOf("rangeStart", "rangeEnd")) if (entry.has(key)) LocalSyncStore.active?.put(key, entry.get(key))
+    }
     fun schedule(context: Context, enabled: Boolean) {
         val manager = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
         if (!enabled) { manager.cancel(JOB); return }
@@ -261,6 +377,7 @@ object LocalSyncRunner {
             .setPeriodic(15 * 60 * 1000L).setPersisted(true).build())
     }
     private fun commitChapter(context: Context, config: JSONObject, entry: JSONObject, manifest: JSONObject, jobId: String, stopped: () -> Boolean) {
+        activate(entry)
         val key = entry.getString("requestKey"); val payload = entry.getJSONObject("payload")
         check(manifest.getString("requestKey") == key && manifest.getString("chapterId") == payload.getString("chapterId") && manifest.getString("bookId") == payload.getString("bookId") && manifest.getString("voice") == payload.getString("voice")) { "Wrong chapter response" }
         check(manifest.getString("model") == "kokoro-v1.0" && manifest.getInt("sampleRate") == 24000)
@@ -272,9 +389,14 @@ object LocalSyncRunner {
             previous = segment.getDouble("end")
         }
         check(kotlin.math.abs(previous - (manifest.getLong("bytes") - 44) / 48000.0) < 0.01) { "Chapter timing does not match audio" }
+        LocalSyncStore.jobState(context, key, "downloading")
         LocalSyncStore.publish(context, JSONObject().put("phase", "downloading").put("chapterId", payload.getString("chapterId")))
         val file = try { LocalSyncNet.download(context, config, jobId, manifest, stopped) }
-            catch (error: Exception) { LocalSyncStore.updateJob(context, key) { it.remove("jobId") }; throw error }
+            catch (error: Exception) {
+                if (error is SyncHttpException && error.status == 404) LocalSyncStore.updateJob(context, key) { it.remove("jobId") }
+                throw error
+            }
+        check(!stopped()) { "Sync paused" }
         val artifact = JSONObject().put("key", key).put("userId", entry.getString("userId")).put("bookId", payload.getString("bookId"))
             .put("chapterId", payload.getString("chapterId")).put("chapterIndex", entry.getInt("chapterIndex")).put("voice", payload.getString("voice"))
             .put("chunkTarget", entry.optInt("chunkTarget", 1000)).put("uri", android.net.Uri.fromFile(file).toString())
@@ -283,21 +405,33 @@ object LocalSyncRunner {
         LocalSyncStore.updateJob(context, key) { it.put("state", "complete"); it.remove("payload") }
         LocalSyncStore.publish(context, JSONObject().put("phase", "chapter-ready").put("key", key).put("chapterId", payload.getString("chapterId")).put("device", manifest.optString("device")))
         try { LocalSyncNet.request(config, "/v1/jobs/$jobId/ack", JSONObject().put("verified", true)) } catch (_: Exception) { }
+        LocalSyncStore.pruneBehindPlayback(context)
     }
-    fun run(context: Context, cancelled: () -> Boolean, deadline: Long = Long.MAX_VALUE) {
-        while (!running.compareAndSet(false, true)) {
-            if (cancelled() || LocalSyncStore.paused(context) || System.currentTimeMillis() > deadline) return
-            Thread.sleep(500)
+    fun run(context: Context, cancelled: () -> Boolean, deadline: Long = Long.MAX_VALUE, revision: Long = transfers.revision(), foreground: Boolean = false) {
+        fun stopped() = !transfers.current(revision) || cancelled() || LocalSyncStore.paused(context) || System.currentTimeMillis() > deadline
+        var run = transfers.enterRun(revision, foreground)
+        while (run == null) {
+            // A repeat call for the current run returns immediately. Only one
+            // requested post-pause generation may wait for its cancelled predecessor.
+            if (stopped() || !foreground || !transfers.pendingRun(revision)) return
+            Thread.sleep(100)
+            run = transfers.enterRun(revision, foreground)
         }
-        fun stopped() = cancelled() || LocalSyncStore.paused(context) || System.currentTimeMillis() > deadline
+        transfers.bind(revision)
+        var retries = 0
         try {
+          while (!stopped()) {
+           wakeRetry.set(false)
+           try {
             var config = LocalSyncStore.config(context) ?: return
+            LocalSyncStore.connectionStatus(context, "checking")
             config = LocalSyncNet.resolve(context, config)
             while (!stopped()) {
-                val jobs = LocalSyncStore.queue(context)
-                var selected: JSONObject? = null
-                for (index in 0 until jobs.length()) if (jobs.getJSONObject(index).optString("state") != "complete") { selected = jobs.getJSONObject(index); break }
-                val entry = selected ?: break
+                val entry = transfers.nextOrFinish(run, {
+                    val jobs = LocalSyncStore.queue(context)
+                    (0 until jobs.length()).map { jobs.getJSONObject(it) }.firstOrNull { it.optString("state") != "complete" }
+                }, { LocalSyncStore.publish(context, JSONObject().put("phase", "complete")) }) ?: break
+                activate(entry)
                 if (entry.optString("batchId").isNotEmpty() && LocalSyncBatch.distant(context, entry)) {
                     LocalSyncBatch.process(context, config, entry, ::stopped) { item, manifest, jobId -> commitChapter(context, config, item, manifest, jobId, ::stopped) }
                     continue
@@ -310,8 +444,11 @@ object LocalSyncRunner {
                     LocalSyncStore.updateJob(context, key) { it.put("jobId", jobId) }
                 }
                 val status = try { LocalSyncNet.request(config, "/v1/jobs/$jobId") } catch (error: Exception) {
-                    LocalSyncStore.updateJob(context, key) { it.remove("jobId") }; throw error
+                    if (error is SyncHttpException && error.status == 404) LocalSyncStore.updateJob(context, key) { it.remove("jobId") }
+                    throw error
                 }
+                retries = 0
+                LocalSyncStore.jobState(context, key, if (status.optString("status") == "ready") "pc-ready" else status.optString("status"))
                 LocalSyncStore.publish(context, JSONObject().put("phase", if (status.optString("status") == "queued") "queued" else "generating")
                     .put("chapterId", payload.getString("chapterId")).put("chapterIndex", entry.getInt("chapterIndex")).put("progress", status.optDouble("progress", 0.0)))
                 when (status.getString("status")) {
@@ -325,18 +462,39 @@ object LocalSyncRunner {
                     else -> { Thread.sleep(2000) }
                 }
             }
-            if (!stopped()) LocalSyncStore.publish(context, JSONObject().put("phase", "complete"))
-        } catch (error: Exception) {
-            if (!stopped()) LocalSyncStore.publish(context, JSONObject().put("phase", "waiting").put("message", error.message ?: "PC sync interrupted; it will retry automatically"))
-        } finally { running.set(false) }
+            break
+           } catch (error: Exception) {
+            if (stopped()) break
+            val network = LocalSyncNet.connectionFailure(error)
+            if (network) LocalSyncNet.failure(context, error)
+            val auth = LocalSyncStore.connectionStatus(context).optString("state") == "pairing-required"
+            val retryable = network || (error is SyncHttpException && (error.status == 404 || error.status == 429 || error.status >= 500))
+            val delay = if (retryable && !auth && retries < 3) 5000L * (1L shl retries++) else 0L
+            val last = LocalSyncStore.status(context)
+            LocalSyncStore.publish(context, JSONObject().put("phase", if (network) "waiting" else "error")
+                .put("message", error.message ?: "PC sync interrupted").put("retryAt", if (delay > 0) System.currentTimeMillis() + delay else 0)
+                .put("retryAttempt", retries).put("progress", last.optDouble("progress", 0.0))
+                .put("chapterId", last.optString("chapterId")).put("chapterIndex", last.optInt("chapterIndex", -1))
+                .put("downloadedBytes", last.optLong("downloadedBytes")).put("totalBytes", last.optLong("totalBytes")))
+            if (delay == 0L) break
+            val until = System.currentTimeMillis() + delay
+            while (!stopped() && !wakeRetry.get() && System.currentTimeMillis() < until) Thread.sleep(250)
+           }
+          }
+        } finally {
+            transfers.unbind()
+            if (transfers.ownsRun(run)) LocalSyncStore.active = null
+            transfers.finishRun(run)
+        }
     }
 }
 
 class LocalSyncForeground : Service() {
     private val cancelled = AtomicBoolean(false)
-    private val working = AtomicBoolean(false)
+    @Volatile private var latestStartId = 0
     override fun onBind(intent: Intent?) = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel("pc-audio-sync", "PC chapter sync", NotificationManager.IMPORTANCE_LOW))
         val launch = packageManager.getLaunchIntentForPackage(packageName)
@@ -344,9 +502,12 @@ class LocalSyncForeground : Service() {
             .setContentTitle("Syncing audiobook chapters from PC").setContentText("Complete chapters are verified and saved on this phone.").setOngoing(true)
         if (launch != null) builder.setContentIntent(PendingIntent.getActivity(this, 76214, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         if (Build.VERSION.SDK_INT >= 29) startForeground(76214, builder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else startForeground(76214, builder.build())
-        if (working.compareAndSet(false, true)) {
-            cancelled.set(false)
-            LocalSyncRunner.executor.execute { LocalSyncRunner.run(applicationContext, { cancelled.get() }); working.set(false); stopSelf() }
+        cancelled.set(false)
+        val revision = intent?.getLongExtra("syncRevision", LocalSyncRunner.transfers.revision()) ?: LocalSyncRunner.transfers.revision()
+        LocalSyncRunner.executor.execute {
+            LocalSyncRunner.run(applicationContext, { cancelled.get() }, revision = revision, foreground = true)
+            val completedStartId = latestStartId
+            if (!LocalSyncRunner.isRunning()) stopSelfResult(completedStartId)
         }
         return START_STICKY
     }
@@ -381,6 +542,10 @@ class LocalSyncModule(context: ReactApplicationContext) : ReactContextBaseJavaMo
     @ReactMethod fun removeListeners(count: Int) {}
     private fun task(promise: Promise, block: () -> Any?) { LocalSyncRunner.executor.execute { try { promise.resolve(block()) } catch (error: Exception) { promise.reject("LOCAL_SYNC", error.message, error) } } }
     @ReactMethod fun discover(promise: Promise) = task(promise) { LocalSyncNet.discover(reactApplicationContext).toString() }
+    @ReactMethod fun openDrivePackage(uri: String, promise: Promise) = task(promise) { DriveAudioImport.open(reactApplicationContext, uri) }
+    @ReactMethod fun driveManifest(token: String, identity: String, promise: Promise) = task(promise) { DriveAudioImport.manifest(token, identity) }
+    @ReactMethod fun importDriveChapter(token: String, request: String, promise: Promise) = task(promise) { DriveAudioImport.importChapter(reactApplicationContext, token, request) }
+    @ReactMethod fun closeDrivePackage(token: String, promise: Promise) = task(promise) { DriveAudioImport.close(token) }
     @ReactMethod fun pair(bundle: String, host: String, port: Int, promise: Promise) = task(promise) {
         val fields = bundle.trim().split('.')
         check(fields.size == 4 && fields[0] == "svc1" && fields[1].matches(Regex("[a-f0-9]{32}")) && fields[2].matches(Regex("[a-f0-9]{64}"))) { "Paste or scan the pairing code displayed on the PC" }
@@ -399,34 +564,79 @@ class LocalSyncModule(context: ReactApplicationContext) : ReactContextBaseJavaMo
         check(verified) { "The paired PC could not be verified at this address" }
         val response = LocalSyncNet.request(config, "/v1/pair", JSONObject().put("secret", fields[3]).put("name", Build.MODEL))
         config.put("token", response.getString("token")); LocalSyncStore.saveConfig(reactApplicationContext, config)
+        LocalSyncNet.health(reactApplicationContext, config)
         JSONObject().put("paired", true).put("id", fields[1]).toString()
     }
     @ReactMethod fun snapshot(promise: Promise) = task(promise) {
-        JSONObject().put("paired", LocalSyncStore.config(reactApplicationContext) != null).put("status", LocalSyncStore.status(reactApplicationContext))
-            .put("artifacts", LocalSyncStore.artifacts(reactApplicationContext)).put("paused", LocalSyncStore.paused(reactApplicationContext))
+        LocalSyncStore.pruneBehindPlayback(reactApplicationContext)
+        val status = LocalSyncStore.status(reactApplicationContext)
+        if (!LocalSyncRunner.isRunning() && !LocalSyncStore.paused(reactApplicationContext) && status.optString("phase") in
+            listOf("queued", "generating", "downloading", "batch-generating", "batch-downloading", "verifying")) {
+            status.put("phase", "resume-needed").put("message", "Transfers are not running. Tap Reconnect to resume.").put("retryAt", 0)
+        }
+        JSONObject().put("paired", LocalSyncStore.config(reactApplicationContext) != null).put("status", status)
+            .put("connection", LocalSyncStore.connectionStatus(reactApplicationContext))
+            .put("cleanup", JSONObject(LocalSyncStore.read(reactApplicationContext, "local-sync-cleanup.json", "{}")))
+            .put("artifacts", JSONArray().apply {
+                val artifacts = LocalSyncStore.artifacts(reactApplicationContext)
+                for (index in 0 until artifacts.length()) {
+                    val item = artifacts.getJSONObject(index); val uri = android.net.Uri.parse(item.optString("uri"))
+                    if (uri.scheme == "file" && uri.path != null && File(uri.path!!).isFile && File(uri.path!!).length() == item.optLong("bytes")) put(item)
+                }
+            }).put("paused", LocalSyncStore.paused(reactApplicationContext))
             .put("queue", JSONArray().apply { val entries = LocalSyncStore.queue(reactApplicationContext)
                 for (index in 0 until entries.length()) { val item = entries.getJSONObject(index); put(JSONObject().put("key", item.getString("requestKey"))
-                    .put("chapterIndex", item.optInt("chapterIndex")).put("userId", item.optString("userId")).put("state", item.optString("state"))) }
+                    .put("chapterIndex", item.optInt("chapterIndex")).put("userId", item.optString("userId")).put("bookId", item.optString("bookId", item.optJSONObject("payload")?.optString("bookId") ?: ""))
+                    .put("voice", item.optString("voice", item.optJSONObject("payload")?.optString("voice") ?: "")).put("state", item.optString("state"))) }
             }).put("playback", JSONObject(LocalSyncStore.read(reactApplicationContext, "local-pc-playback.json", "{}"))).toString()
     }
     @ReactMethod fun health(promise: Promise) = task(promise) {
         val config = LocalSyncStore.config(reactApplicationContext) ?: error("Pair a PC first")
-        LocalSyncNet.request(LocalSyncNet.resolve(reactApplicationContext, config), "/v1/health").toString()
+        try { LocalSyncNet.health(reactApplicationContext, config).toString() }
+        catch (error: Exception) { LocalSyncNet.failure(reactApplicationContext, error); throw error }
     }
-    @ReactMethod fun setAutomatic(enabled: Boolean, promise: Promise) = task(promise) {
-        LocalSyncRunner.schedule(reactApplicationContext, enabled); true
+    @ReactMethod fun reconnect(host: String, automatic: Boolean, promise: Promise) {
+      val revision = LocalSyncRunner.transfers.revision()
+      task(promise) {
+        val context = reactApplicationContext
+        val original = LocalSyncStore.config(context) ?: error("Pair a PC first")
+        LocalSyncStore.connectionStatus(context, "checking")
+        try {
+            val candidate = JSONObject(original.toString())
+            if (host.isNotBlank()) candidate.put("host", host.trim())
+            val config = LocalSyncNet.resolve(context, candidate)
+            LocalSyncStore.saveConfig(context, config)
+            val health = LocalSyncNet.health(context, config)
+            val queue = LocalSyncStore.queue(context)
+            if ((0 until queue.length()).any { queue.getJSONObject(it).optString("state") != "complete" }) LocalSyncRunner.start(context, automatic, revision)
+            health.toString()
+        } catch (error: Exception) { LocalSyncNet.failure(context, error); throw error }
+      }
     }
-    @ReactMethod fun enqueue(batch: String, automatic: Boolean, promise: Promise) = task(promise) {
+    @ReactMethod fun setAutomatic(enabled: Boolean, promise: Promise) {
+      val revision = LocalSyncRunner.transfers.revision()
+      task(promise) {
+        LocalSyncRunner.transfers.ifRevision(revision) { LocalSyncRunner.schedule(reactApplicationContext, enabled && !LocalSyncStore.paused(reactApplicationContext)) }; true
+      }
+    }
+    @ReactMethod fun enqueue(batch: String, automatic: Boolean, promise: Promise) {
+      val revision = LocalSyncRunner.transfers.revision()
+      task(promise) {
         check(LocalSyncStore.config(reactApplicationContext) != null) { "Pair a PC first" }
         val incoming = JSONArray(batch); check(incoming.length() in 1..50)
+        val alreadyRunning = LocalSyncRunner.isRunning()
         LocalSyncStore.updateQueue(reactApplicationContext) { queue ->
             for (index in 0 until incoming.length()) {
                 val entry = incoming.getJSONObject(index); val key = entry.getString("requestKey")
+                entry.put("bookId", entry.getJSONObject("payload").getString("bookId")).put("voice", entry.getJSONObject("payload").getString("voice"))
                 check(key.matches(Regex("[a-f0-9]{16}")))
                 val existing = (0 until queue.length()).map { queue.getJSONObject(it) }.find { it.getString("requestKey") == key }
                 if (existing == null) queue.put(entry.put("state", "queued"))
                 else if (existing.optString("state") != "complete") {
-                    existing.put("batchId", entry.optString("batchId")).put("playbackIndex", entry.optInt("playbackIndex")).put("playbackRevision", entry.optLong("playbackRevision"))
+                    if (!alreadyRunning) {
+                        existing.put("batchId", entry.optString("batchId")).put("playbackIndex", entry.optInt("playbackIndex")).put("playbackRevision", entry.optLong("playbackRevision"))
+                        for (name in listOf("rangeStart", "rangeEnd")) if (entry.has(name)) existing.put(name, entry.get(name))
+                    }
                 }
                 else if (existing.optString("state") == "complete") {
                     val artifacts = LocalSyncStore.artifacts(reactApplicationContext)
@@ -437,15 +647,17 @@ class LocalSyncModule(context: ReactApplicationContext) : ReactContextBaseJavaMo
                 }
             }
         }
-        LocalSyncStore.pause(reactApplicationContext, false); LocalSyncRunner.schedule(reactApplicationContext, automatic)
-        val intent = Intent(reactApplicationContext, LocalSyncForeground::class.java)
-        if (Build.VERSION.SDK_INT >= 26) reactApplicationContext.startForegroundService(intent) else reactApplicationContext.startService(intent)
-        true
+        LocalSyncRunner.start(reactApplicationContext, automatic, revision)
+      }
     }
-    @ReactMethod fun pause(promise: Promise) = task(promise) {
-        LocalSyncStore.pause(reactApplicationContext, true); LocalSyncRunner.schedule(reactApplicationContext, false)
-        reactApplicationContext.stopService(Intent(reactApplicationContext, LocalSyncForeground::class.java))
-        LocalSyncStore.publish(reactApplicationContext, JSONObject().put("phase", "paused")); true
+    @ReactMethod fun pause(promise: Promise) {
+        try {
+            LocalSyncRunner.transfers.pause {
+                LocalSyncStore.pause(reactApplicationContext, true); LocalSyncRunner.schedule(reactApplicationContext, false)
+                LocalSyncStore.publish(reactApplicationContext, JSONObject().put("phase", "paused"))
+            }
+            promise.resolve(true)
+        } catch (error: Exception) { promise.reject("LOCAL_SYNC", error.message, error) }
     }
     @ReactMethod fun invalidateAudio(key: String, promise: Promise) = task(promise) {
         LocalSyncStore.invalidateArtifact(reactApplicationContext, key); true

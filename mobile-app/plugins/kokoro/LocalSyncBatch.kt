@@ -21,7 +21,7 @@ object LocalSyncBatch {
         val all = LocalSyncStore.queue(context)
         val group = (0 until all.length()).map { all.getJSONObject(it) }.filter {
             it.optString("batchId") == selected.optString("batchId") && it.optString("state") != "complete" && it.has("payload")
-        }
+        }.toMutableList()
         for (entry in group) {
             if (stopped()) return
             if (entry.optString("jobId").isEmpty()) {
@@ -30,11 +30,17 @@ object LocalSyncBatch {
             }
         }
         while (!stopped()) {
-            val states = LocalSyncNet.request(config, "/v1/batches/status", JSONObject().put("jobs", JSONArray(group.map { it.getString("jobId") }))).getJSONArray("jobs")
+            val states = try {
+                LocalSyncNet.request(config, "/v1/batches/status", JSONObject().put("jobs", JSONArray(group.map { it.getString("jobId") }))).getJSONArray("jobs")
+            } catch (error: SyncHttpException) {
+                if (error.status == 404) for (entry in group) LocalSyncStore.updateJob(context, entry.getString("requestKey")) { it.remove("jobId") }
+                throw error
+            }
             val results = (0 until states.length()).map { states.getJSONObject(it) }.associateBy { it.getString("id") }
             check(results.size == group.size) { "Wrong batch status response" }
             for (entry in group) {
                 val result = results[entry.getString("jobId")] ?: error("Missing chapter status")
+                LocalSyncStore.jobState(context, entry.getString("requestKey"), if (result.optString("status") == "ready") "pc-ready" else result.optString("status"))
                 if (result.optString("status") in listOf("error", "cancelled")) {
                     LocalSyncStore.updateJob(context, entry.getString("requestKey")) { it.remove("jobId") }
                     error(result.optString("error", "PC generation failed"))
@@ -47,15 +53,28 @@ object LocalSyncBatch {
             val progress = results.values.sumOf { if (it.optString("status") == "ready") 1.0 else it.optDouble("progress", 0.0) } / group.size
             val active = group.firstOrNull { results[it.getString("jobId")]?.optString("status") != "ready" } ?: selected
             LocalSyncStore.publish(context, JSONObject().put("phase", "batch-generating").put("progress", progress)
-                .put("batchTotal", group.size).put("batchReady", ready).put("chapterIndex", active.getInt("chapterIndex")))
-            if (ready == group.size) {
-                val bundle = LocalSyncNet.request(config, "/v1/bundles", JSONObject().put("jobs", JSONArray(group.map { it.getString("jobId") })))
+                .put("batchTotal", group.size).put("batchReady", ready).put("chapterIndex", active.getInt("chapterIndex"))
+                .put("chapterId", active.getJSONObject("payload").getString("chapterId")))
+            if (ready > 0) {
+                // Transfer ready chapters while the PC continues generating the rest.
+                // Persist the exact archive membership so a reconnect resumes the same
+                // bytes even if more chapters become ready while this transfer is paused.
+                val previousPlan = group.firstNotNullOfOrNull { it.optJSONArray("deliveryJobs") }
+                val previousIds = previousPlan?.let { plan -> (0 until plan.length()).map { plan.getString(it) } }
+                val available = if (previousIds != null) group.filter { it.getString("jobId") in previousIds }
+                    else group.filter { results[it.getString("jobId")]?.optString("status") == "ready" }.take(3)
+                val ids = previousIds ?: available.map { it.getString("jobId") }
+                LocalSyncRunner.activate(available.first())
+                if (previousIds == null) for (entry in available) LocalSyncStore.updateJob(context, entry.getString("requestKey")) {
+                    it.put("deliveryJobs", JSONArray(ids))
+                }
+                val bundle = LocalSyncNet.request(config, "/v1/bundles", JSONObject().put("jobs", JSONArray(ids)))
                 val archive = download(context, config, bundle, stopped)
                 try {
                     val manifests = bundle.getJSONArray("chapters")
-                    check(manifests.length() == group.size) { "Wrong batch response" }
+                    check(manifests.length() == ids.size) { "Wrong batch response" }
                     ZipFile(archive).use { zip ->
-                        for (entry in group) {
+                        for (entry in available) {
                             check(!stopped()) { "Sync paused" }
                             val id = entry.getString("jobId")
                             val manifest = (0 until manifests.length()).map { manifests.getJSONObject(it) }.single { it.getString("jobId") == id }
@@ -67,7 +86,7 @@ object LocalSyncBatch {
                             partial.parentFile!!.mkdirs()
                             zip.getInputStream(item).use { input -> FileOutputStream(partial).use { output ->
                                 val buffer = ByteArray(65536); var total = 0L
-                                while (true) { check(!stopped()) { "Sync paused" }; val count = input.read(buffer); if (count < 0) break
+                                while (true) { check(!stopped()) { "Sync paused" }; val count = input.read(buffer); check(!stopped()) { "Sync paused" }; if (count < 0) break
                                     total += count; check(total <= item.size); output.write(buffer, 0, count) }
                                 check(total == item.size); output.fd.sync()
                             } }
@@ -77,7 +96,9 @@ object LocalSyncBatch {
                     }
                     archive.delete()
                 } catch (failure: Exception) { throw failure }
-                return
+                group.removeAll(available.toSet())
+                if (group.isEmpty()) return
+                continue
             }
             Thread.sleep(3000)
         }
@@ -90,27 +111,29 @@ object LocalSyncBatch {
         if (partial.length() > size) partial.delete()
         check(directory.usableSpace > size * 2 - partial.length() + 30_000_000) { "Not enough phone storage for this batch. Choose fewer chapters." }
         if (partial.length() < size) {
-            val request = LocalSyncNet.connection(config, "/v1/bundles/$id/audio")
+            check(!stopped()) { "Sync paused" }
+            val request = LocalSyncNet.connection(config, "/v1/bundles/$id/audio", transfer = true)
             request.readTimeout = 120_000
             try {
                 val offset = partial.length()
                 if (offset > 0) request.setRequestProperty("Range", "bytes=$offset-")
-                val code = request.responseCode; check(code == 200 || code == 206) { "Batch download failed ($code)" }
+                val code = request.responseCode
+                if (code != 200 && code != 206) throw SyncHttpException(code, "Batch download failed ($code)")
                 if (code == 206) check(request.getHeaderField("Content-Range")?.startsWith("bytes $offset-") == true)
                 FileOutputStream(partial, code == 206 && offset > 0).use { output -> request.inputStream.use { input ->
                     var total = if (code == 206) offset else 0L; val buffer = ByteArray(65536)
-                    while (true) { check(!stopped()) { "Sync paused" }; val count = input.read(buffer); if (count < 0) break
+                    while (true) { check(!stopped()) { "Sync paused" }; val count = input.read(buffer); check(!stopped()) { "Sync paused" }; if (count < 0) break
                         total += count; check(total <= size); output.write(buffer, 0, count)
                         if (total == size || total % 1048576 < count) LocalSyncStore.publish(context, JSONObject().put("phase", "batch-downloading").put("progress", total.toDouble() / size)
                             .put("batchTotal", bundle.getJSONArray("chapters").length()).put("downloadedBytes", total).put("totalBytes", size))
                     }
                     check(total == size); output.fd.sync()
                 } }
-            } finally { request.disconnect() }
+            } finally { LocalSyncRunner.transfers.release(request) }
         }
         check(partial.length() == size)
         val digest = MessageDigest.getInstance("SHA-256")
-        partial.inputStream().use { input -> val buffer = ByteArray(65536); while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) } }
+        partial.inputStream().use { input -> val buffer = ByteArray(65536); while (true) { check(!stopped()) { "Sync paused" }; val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) } }
         if (digest.digest().joinToString("") { "%02x".format(it) } != hash) { partial.delete(); error("Batch checksum failed. Retry sync.") }
         return partial
     }

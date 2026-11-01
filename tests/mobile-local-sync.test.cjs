@@ -15,21 +15,74 @@ const content = load('src/lib/chapter-content.ts', {});
 const chapterNarration = load('src/lib/chapter-narration.ts', {});
 const kokoro = load('src/lib/kokoro-text.ts', { './chapter-content': content, './chapter-narration': chapterNarration });
 const identity = { userId: 'u', bookId: 'b', chapterId: 'c', title: 'Chapter', content: ['Text.'], provider: 'kokoro', voice: 'af_heart', grammarModel: 'OFF', chunkTarget: 1000 };
-function harness() {
+function harness(options = {}) {
  const preferences = new Map(), files = new Map(), queued = [];
  const artifact = { key: audio.audioIdentityKey(identity), userId: 'u', bookId: 'b', chapterId: 'c', chapterIndex: 2, voice: 'af_heart', chunkTarget: 1000, uri: 'file:///local-pc-audio/chapter.wav', bytes: 144, sync: { version: 1, title: 'Chapter', paragraphs: ['Text.'], segments: [{ text: 'Text.', start: 0, end: 2 }] } };
  const state = { paired: true, paused: false, status: { phase: 'idle' }, artifacts: [artifact] };
- const bridge = { setAutomatic: async () => true, enqueue: async value => { queued.push(JSON.parse(value)); return true; }, snapshot: async () => JSON.stringify(state), invalidateAudio: async key => { state.artifacts = state.artifacts.filter(a => a.key !== key); } };
- class Emitter { addListener() {} }
+ let emit;
+ const bridge = { pause: async () => { state.paused = true; state.status = { phase: 'paused' }; return true; }, reconnect: async (host, automatic) => { state.connection = { state: 'connected', host }; state.paused = false; return JSON.stringify({ resumed: true, automatic }); }, setAutomatic: async () => true, enqueue: async value => { queued.push(JSON.parse(value)); return true; }, snapshot: async () => JSON.stringify(state), invalidateAudio: async key => { state.artifacts = state.artifacts.filter(a => a.key !== key); } };
+ class Emitter { addListener(name, listener) { emit = listener; } }
  const service = load('src/services/local-sync.service.ts', {
-  './book.service': { bookService: { getChapterContent: async () => { throw Error('Unexpected chapter request'); } } },
+  './book.service': { bookService: { getChapterContent: options.loadChapter || (async () => { throw Error('Unexpected chapter request'); }) } },
   'react-native': { NativeModules: { LocalChapterSync: bridge }, Platform: { OS: 'android' }, NativeEventEmitter: Emitter },
   'expo-file-system/legacy': { getInfoAsync: async uri => files.has(uri) ? { exists: true, size: files.get(uri) } : { exists: false } },
   '../lib/storage': { cacheService: { get: key => preferences.get(key), set: (key, value) => preferences.set(key, String(value)) } },
   '../lib/kokoro-text': kokoro, '../lib/chapter-narration': chapterNarration, '../lib/listen-audio': audio, '../lib/narration-sync': { validNarrationSync: value => value?.version === 1 && value.segments?.length > 0 },
  }).localSyncService;
- return { service, artifact, state, files, queued };
+ return { service, artifact, state, files, queued, bridge, emit: value => emit(JSON.stringify(value)) };
 }
+
+test('offline index indicators require matching account, book, voice and an existing complete file', async () => {
+ const h = harness();
+ h.files.set(h.artifact.uri, h.artifact.bytes);
+ assert.deepEqual(Array.from(await h.service.cachedChapterIds('u', 'b', 'af_heart')), ['c']);
+ for (const scope of [['other', 'b', 'af_heart'], ['u', 'other', 'af_heart'], ['u', 'b', 'af_bella']]) {
+  assert.equal((await h.service.cachedChapterIds(...scope)).length, 0);
+ }
+ h.files.set(h.artifact.uri, h.artifact.bytes - 1);
+ assert.equal((await h.service.cachedChapterIds('u', 'b', 'af_heart')).length, 0);
+ h.files.delete(h.artifact.uri);
+ assert.equal((await h.service.cachedChapterIds('u', 'b', 'af_heart')).length, 0);
+ h.files.set(h.artifact.uri, h.artifact.bytes); h.artifact.sync = null;
+ assert.equal((await h.service.cachedChapterIds('u', 'b', 'af_heart')).length, 0);
+});
+
+test('pause immediately cancels preparation and late progress while the native pause is still pending', async () => {
+ const h = harness(); h.service.setSetting('automatic', true);
+ await h.service.refresh(); const events = []; h.service.subscribe(status => events.push(status.phase));
+ let finish; h.bridge.pause = () => new Promise(resolve => { finish = () => { h.state.paused = true; h.state.status = { phase: 'paused' }; resolve(true); }; });
+ const revision = h.service.preparationRevision();
+ const pending = h.service.pause();
+ assert.equal(h.service.settings().automatic, false);
+ assert.equal(h.service.isPreparationCurrent(revision), false);
+ assert.equal(events.at(-1), 'paused');
+ h.emit({ phase: 'downloading', progress: .9 });
+ assert.equal(events.at(-1), 'paused');
+ await h.service.enqueue([{}], true, revision); assert.equal(h.queued.length, 0);
+ finish(); await pending;
+ await h.service.enqueue([{}], false, h.service.preparationRevision());
+ assert.equal(h.queued.length, 1, 'a fresh explicit Sync can resume');
+});
+
+test('a slow chapter fetch cannot restart transfers after pause, even after automatic sync is re-enabled', async () => {
+ let finish, entered;
+ const loading = new Promise(resolve => { entered = resolve; });
+ const h = harness({ loadChapter: () => { entered(); return new Promise(resolve => { finish = resolve; }); } });
+ h.service.setSetting('enabled', true); h.service.setSetting('count', 1);
+ const preparation = h.service.prepareAhead({ id: 'b', chapters: [{ id: 'new', title: 'New' }] }, 'u', 0, 'af_heart', 1000);
+ await loading; await h.service.pause(); h.service.setSetting('automatic', true);
+ finish({ id: 'new', content: ['Some text.'] }); await preparation;
+ assert.equal(h.queued.length, 0);
+});
+
+test('a snapshot requested before pause cannot overwrite the paused state when it arrives late', async () => {
+ const h = harness(); let finish; const original = h.bridge.snapshot;
+ let first = true;
+ h.bridge.snapshot = () => { if (!first) return original(); first = false; return new Promise(resolve => { finish = resolve; }); };
+ const stale = JSON.stringify({ ...h.state, paused: false, status: { phase: 'generating' } });
+ const read = h.service.refresh(); await h.service.pause(); finish(stale);
+ assert.equal((await read).paused, true); assert.equal((await read).status.phase, 'paused');
+});
 test('only a complete downloaded chapter with matching identity and size becomes playable', async () => {
  const h = harness();
  assert.equal(await h.service.get(identity), null);
@@ -46,6 +99,50 @@ test('successful chapter checkpoints remain scoped to book, user, voice and pass
  h.service.setSetting('count', 51); assert.equal(h.service.settings().count, 5);
  h.service.setSetting('count', 7); assert.equal(h.service.settings().count, 7);
  assert.equal(h.service.waitingError().code, 'LOCAL_SYNC_PENDING');
+});
+
+test('connection events and preference changes preserve the actual transfer status', async () => {
+ const h = harness(); h.state.status = { phase: 'downloading', progress: .4, bookId: 'b' };
+ await h.service.refresh(); const events = []; h.service.subscribe(status => events.push(status));
+ h.emit({ phase: 'connection-changed', connection: { state: 'disconnected' } });
+ h.service.setSetting('count', 10);
+ const current = await h.service.refresh();
+ assert.equal(current.status.phase, 'downloading'); assert.equal(current.status.progress, .4);
+ assert.equal(events[0].phase, 'connection-changed'); assert.equal(events[1].phase, 'settings-changed');
+});
+
+test('reconnect reuses the pairing and resumes without changing automatic-sync preference', async () => {
+ const h = harness(); h.service.setSetting('automatic', false);
+ const result = await h.service.reconnect(' 192.168.1.20 ');
+ assert.equal(result.resumed, true); assert.equal(result.automatic, false);
+ const current = await h.service.refresh();
+ assert.equal(current.connection.host, '192.168.1.20'); assert.equal(current.paused, false);
+ assert.equal(h.service.settings().automatic, false);
+});
+
+test('an upgrade restores legacy completed-queue scopes from matching saved artifacts', async () => {
+ const h = harness();
+ h.state.queue = [{ key: h.artifact.key, userId: 'u', chapterIndex: 2, state: 'complete' }];
+ h.state.status = { phase: 'complete', chapterId: 'c' };
+ const current = await h.service.refresh();
+ assert.equal(current.queue[0].bookId, 'b'); assert.equal(current.queue[0].voice, 'af_heart');
+ assert.equal(current.status.userId, 'u'); assert.equal(current.status.bookId, 'b');
+});
+
+test('adding work to a running sync preserves its real progress instead of announcing a new run', async () => {
+ const h = harness(); h.state.status = { phase: 'downloading', progress: .65, bookId: 'b' };
+ h.bridge.enqueue = async () => false;
+ const events = []; h.service.subscribe(status => events.push(status));
+ await h.service.enqueue([{}], true);
+ assert.equal(events.at(-1).phase, 'downloading'); assert.equal(events.at(-1).progress, .65);
+ assert.ok(!events.some(status => status.phase === 'queued'));
+});
+
+test('automatic preparation skips chapters already pending in the native queue', async () => {
+ const h = harness(); h.service.setSetting('enabled', true); h.service.setSetting('count', 1);
+ h.state.queue = [{ key: 'pending', userId: 'u', bookId: 'b', voice: 'af_heart', chapterIndex: 0, state: 'generating' }];
+ await h.service.prepareAhead({ id: 'b', chapters: [{ id: 'new', title: 'Pending without loaded text' }] }, 'u', 0, 'af_heart', 1000);
+ assert.equal(h.queued.length, 0);
 });
 
 test('completed chapters play while batch is paused despite changed paragraph representation or target', async () => {
@@ -65,6 +162,7 @@ test('automatic sync keeps its window ahead of native background playback withou
  await h.service.prepareAhead(book,'u',3,'af_heart',1000);
  assert.equal(h.queued.length,1);assert.equal(h.queued[0].length,5);
  assert.deepEqual(h.queued[0].map(item=>item.chapterIndex),[3,4,5,6,7]);
+ assert.ok(h.queued[0].every(item => item.rangeStart === 3 && item.rangeEnd === 8), 'native background status must retain the selected sync window');
  assert.equal(h.queued[0][3].batchId,'');assert.ok(h.queued[0][4].batchId);
  h.service.setSetting('automatic',false);await h.service.prepareAhead(book,'u',4,'af_heart',1000);assert.equal(h.queued.length,1);
 });
@@ -74,6 +172,7 @@ test('a one-chapter automatic window requests the next chapter after the native 
  const book={id:'b',chapters:Array.from({length:5},(_,index)=>({id:'c'+index,title:'Chapter '+index,content:['Synthetic '+index]}))};
  await h.service.prepareAhead(book,'u',2,'af_heart',1000,()=>true,undefined,true);
  assert.equal(h.queued[0].length,1);assert.equal(h.queued[0][0].chapterIndex,3);assert.equal(h.queued[0][0].playbackIndex,2);
+ assert.equal(h.queued[0][0].rangeStart,3);assert.equal(h.queued[0][0].rangeEnd,4);
 });
 
 test('background prefetch preserves the pending voice rather than copying the currently playing voice',async()=>{

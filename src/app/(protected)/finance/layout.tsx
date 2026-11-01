@@ -32,6 +32,7 @@ export default function FinanceLayout({ children }: { children: ReactNode }) {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Geist:wght@400;600;700&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 
         .ft-root {
+          color-scheme: light;
           --ft-primary: #001642;
           --ft-primary-container: #00296d;
           --ft-secondary: #026c47;

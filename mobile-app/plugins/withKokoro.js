@@ -25,6 +25,10 @@ function withKokoro(config) {
       if (!manifest['uses-permission'].some(item => item.$['android:name'] === full)) manifest['uses-permission'].push({ $: { 'android:name': full } });
     }
     const app = manifest.application[0]; app.service ||= [];
+    app.receiver ||= [];
+    if (!app.receiver.some(item => item.$['android:name'] === '.LocalSyncRetentionReceiver')) {
+      app.receiver.push({ $: { 'android:name': '.LocalSyncRetentionReceiver', 'android:exported': 'false' } });
+    }
     for (const service of [
       { 'android:name': '.LocalSyncForeground', 'android:exported': 'false', 'android:foregroundServiceType': 'dataSync' },
       { 'android:name': '.LocalSyncJob', 'android:exported': 'false', 'android:permission': 'android.permission.BIND_JOB_SERVICE' },
@@ -41,6 +45,9 @@ function withKokoro(config) {
     return mod;
   });
   config = withAppBuildGradle(config, mod => {
+    if (!mod.modResults.contents.includes('// Google Drive authorization')) {
+      mod.modResults.contents += '\n// Google Drive authorization\ndependencies {\n    implementation "com.google.android.gms:play-services-auth:22.0.0"\n}\n';
+    }
     if (!mod.modResults.contents.includes('// Kokoro offline runtime')) {
       mod.modResults.contents += `\n// Kokoro offline runtime\ndependencies {\n    implementation files("../../vendor/${AAR}")\n    implementation "org.apache.commons:commons-compress:1.27.1"\n    implementation "commons-io:commons-io:2.16.1"\n}\n`;
     }
@@ -53,7 +60,7 @@ function withKokoro(config) {
     if (!/^[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+$/.test(packageName)) throw new Error('Invalid Android package.');
     const destination = path.join(mod.modRequest.platformProjectRoot, 'app/src/main/java', ...packageName.split('.'));
     await fs.mkdir(destination, { recursive: true });
-    for (const name of ['KokoroModule.kt', 'KokoroPackage.kt', 'KokoroFiles.kt', 'KokoroCallback.kt', 'KokoroGenerationGate.kt', 'PlaybackDiagnostics.kt', 'LocalSyncModule.kt', 'LocalSyncBatch.kt']) {
+    for (const name of ['KokoroModule.kt', 'KokoroPackage.kt', 'KokoroFiles.kt', 'KokoroCallback.kt', 'KokoroGenerationGate.kt', 'PlaybackDiagnostics.kt', 'LocalSyncModule.kt', 'LocalSyncBatch.kt', 'LocalSyncRetention.kt', 'SyncTransferControl.kt', 'DriveAudioImport.kt', 'DriveAudioChecks.kt', 'GoogleDriveModule.kt', 'DriveRange.kt']) {
       const source = await fs.readFile(path.join(__dirname, 'kokoro', name), 'utf8');
       await fs.writeFile(path.join(destination, name), source.replace(/^package [^\r\n]+/, `package ${packageName}`));
     }
