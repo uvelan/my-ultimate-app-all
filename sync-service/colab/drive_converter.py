@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import os
 import posixpath
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from html.parser import HTMLParser
+from html import escape
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -238,6 +240,8 @@ def normalize_chapter(item, position, source):
     paragraphs = [' '.join(p.split()) for p in paragraphs if p.strip()]
     if not paragraphs:
         raise ValueError(f'{source}: chapter {number} has no text')
+    if any(p == '[object Object]' for p in paragraphs):
+        raise ValueError(f'{source}: chapter {number} contains corrupt [object Object] placeholders. Re-export the original book from the updated library before generating audio.')
     # Preserve exported local-sync chunks when supplied.
     chunks = item.get('chunks', chunk_text(paragraphs, title))
     if (not isinstance(chunks, list) or not chunks
@@ -311,16 +315,37 @@ def identity(chapter, voice, audio_format):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def ensure_output_parent(target):
+    target = Path(target)
+    mount = Path('/content/drive').absolute()
+    if target.absolute().is_relative_to(mount) and not os.path.ismount(mount):
+        raise RuntimeError('Google Drive is not mounted. Rerun the Drive mount cell, then rerun interactive(). No local fallback copy was saved.')
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+
 def atomic_copy(source, target):
     target = Path(target)
-    pending = target.with_name(target.name + '.' + uuid.uuid4().hex + '.part')
-    try:
-        shutil.copyfile(source, pending)
-        if sha256(source) != sha256(pending):
-            raise IOError('Drive copy failed checksum verification')
-        os.replace(pending, target)
-    finally:
-        pending.unlink(missing_ok=True)
+    transient = {errno.ENOENT, errno.EIO, errno.ESTALE, errno.ENOTCONN, errno.EAGAIN, errno.EBUSY}
+    for attempt in range(3):
+        pending = target.with_name(target.name + '.' + uuid.uuid4().hex + '.part')
+        try:
+            ensure_output_parent(target)
+            shutil.copyfile(source, pending)
+            if sha256(source) != sha256(pending):
+                raise IOError('Drive copy failed checksum verification')
+            os.replace(pending, target)
+            return
+        except OSError as error:
+            if error.errno not in transient or not Path(source).is_file():
+                raise
+            if attempt == 2:
+                raise OSError(f'Could not save {target.name}. The output folder or Drive connection is unavailable. Remount Drive and rerun the batch; existing completed chapters are preserved.') from error
+            time.sleep(.25 * (attempt + 1))
+        finally:
+            try:
+                pending.unlink(missing_ok=True)
+            except OSError:
+                pass  # A disconnected Drive must not mask the original write error.
 
 
 def completed(folder, key, audio_format):
@@ -350,15 +375,103 @@ def chapter_reference(book_id, chapter):
     return hashlib.sha256((book_id + ':' + locator).encode()).hexdigest()[:32]
 
 
+def json_body_paragraphs(chapter):
+    paragraphs = chapter['paragraphs']
+    title = ' '.join(chapter['title'].split())
+    if paragraphs and paragraphs[0].rstrip(' .:') == title.rstrip(' .:'):
+        return paragraphs[1:]
+    return paragraphs
+
+
+def library_json_epub(source, chapters, target):
+    """Deterministic EPUB bridge: existing mobile/Drive packages keep their schema."""
+    data = json.loads(Path(source).read_text(encoding='utf-8-sig'))
+    if (not isinstance(data, dict) or data.get('schema') != 'ultimate-library-book'
+            or type(data.get('version')) is not int or data['version'] != 1):
+        raise ValueError('Choose a JSON book exported by the updated library (ultimate-library-book version 1).')
+    metadata, raw = data.get('metadata'), data.get('chapters')
+    if not isinstance(metadata, dict) or not isinstance(metadata.get('title'), str) or not metadata['title'].strip():
+        raise ValueError('Library JSON is missing its book title')
+    if not isinstance(raw, list) or not raw or len(raw) != len(chapters):
+        raise ValueError('Library JSON chapter count is invalid')
+    for index, item in enumerate(raw):
+        if (not isinstance(item, dict) or type(item.get('number')) is not int or type(item.get('order')) is not int
+                or item.get('number') != index + 1 or item.get('order') != index
+                or not isinstance(item.get('title'), str) or not item['title'].strip()
+                or not isinstance(item.get('paragraphs'), list) or not item['paragraphs']
+                or any(not isinstance(p, str) or not p.strip() for p in item['paragraphs'])):
+            raise ValueError(f'Library JSON chapter {index + 1} has invalid order, title, or paragraphs')
+    validation = data.get('validation', {})
+    if (not isinstance(validation, dict) or validation.get('status') != 'passed'
+            or type(validation.get('chapterCount')) is not int or type(validation.get('paragraphCount')) is not int
+            or validation.get('chapterCount') != len(raw)
+            or validation.get('paragraphCount') != sum(len(c['paragraphs']) for c in raw)):
+        raise ValueError('Library JSON validation counts do not match its chapters')
+    title = metadata['title'].strip()
+    description = metadata.get('description', '')
+    if not isinstance(description, str):
+        raise ValueError('Library JSON description must be text')
+    semantic = hashlib.sha256(json.dumps(dict(title=title, description=description, chapters=chapters),
+                                         ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    manifest = ['<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>']
+    spine, links, documents = [], [], []
+    for index, chapter in enumerate(chapters):
+        filename = f'chapter-{index + 1:06d}.xhtml'
+        manifest.append(f'<item id="c{index}" href="{filename}" media-type="application/xhtml+xml"/>')
+        spine.append(f'<itemref idref="c{index}"/>')
+        links.append(f'<li><a href="{filename}">{escape(chapter["title"])}</a></li>')
+        body = ''.join(f'<p>{escape(p)}</p>' for p in json_body_paragraphs(chapter))
+        documents.append((f'OEBPS/{filename}', f'<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>{escape(chapter["title"])}</title></head><body><h1>{escape(chapter["title"])}</h1>{body}</body></html>'))
+    package = f'''<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">urn:sha256:{semantic}</dc:identifier><dc:title>{escape(title)}</dc:title><dc:language>en</dc:language><dc:description>{escape(description)}</dc:description><meta property="dcterms:modified">1980-01-01T00:00:00Z</meta></metadata><manifest>{''.join(manifest)}</manifest><spine>{''.join(spine)}</spine></package>'''
+    container = '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+    navigation = f'<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol>{"".join(links)}</ol></nav></body></html>'
+    with zipfile.ZipFile(target, 'w') as archive:
+        for name, contents in [('mimetype', 'application/epub+zip'), ('META-INF/container.xml', container),
+                               ('OEBPS/content.opf', package), ('OEBPS/nav.xhtml', navigation), *documents]:
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_STORED  # Reproducible across zlib/runtime versions.
+            info.create_system = 3
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, contents.encode('utf-8'))
+    return title
+
+
 def prepare_book(source, chapters):
+    source = Path(source).resolve()
+    if source.suffix.lower() != '.json':
+        return prepare_epub_book(source, chapters)
+    with tempfile.TemporaryDirectory(prefix='library-json-') as temporary:
+        canonical = Path(temporary) / 'book.epub'
+        source_chapters = load_chapters(source)
+        title = library_json_epub(source, source_chapters, canonical)
+        canonical_chapters = read_epub(canonical)
+        if len(canonical_chapters) != len(source_chapters):
+            raise ValueError('JSON-to-EPUB chapter round-trip failed')
+        for original, converted in zip(source_chapters, canonical_chapters):
+            normalized_title = ' '.join(original['title'].split())
+            expected = [normalized_title, *json_body_paragraphs(original)]
+            if converted['title'] != normalized_title or converted['paragraphs'] != expected:
+                raise ValueError(f'JSON-to-EPUB text round-trip failed for chapter {original["number"]}')
+        chapters[:] = canonical_chapters
+        folder, catalog = prepare_epub_book(canonical, chapters, source.parent, source.stem, title)
+        original_json = folder / 'source.json'
+        checksum = sha256(source)
+        if not original_json.exists() or sha256(original_json) != checksum:
+            atomic_copy(source, original_json)
+        catalog['source'].update(inputFormat='json', originalFile='source.json', originalSha256=checksum)
+        write_json_atomic(folder / 'book.json', catalog)
+        return folder, catalog
+
+
+def prepare_epub_book(source, chapters, output_parent=None, output_stem=None, book_title=None):
     source = Path(source).resolve()
     if not source.is_file() or source.suffix.lower() != '.epub':
         raise ValueError('Enter the full path to an EPUB book in Drive')
     checksum = sha256(source)
-    title = source.stem
-    slug = re.sub(r'[^\w .-]', '_', title, flags=re.UNICODE).strip(' .')[:90] or 'Book'
-    folder = source.parent / 'UltimateAudio' / f'{slug}-{checksum[:12]}'
-    folder.mkdir(parents=True, exist_ok=True)
+    title = book_title or source.stem
+    slug = re.sub(r'[^\w .-]', '_', output_stem or source.stem, flags=re.UNICODE).strip(' .')[:90] or 'Book'
+    folder = (output_parent or source.parent) / 'UltimateAudio' / f'{slug}-{checksum[:12]}'
+    ensure_output_parent(folder / 'book.json')
     book_id = 'epub-' + checksum
     catalog = dict(schema='ultimate-drive-audio', schemaVersion=1, bookId=book_id, title=title,
                    source=dict(file='source.epub', sha256=checksum, bytes=source.stat().st_size),
@@ -974,13 +1087,13 @@ def interactive():
     directory = Path(BOOK_DIRECTORY)
     if not directory.is_dir():
         raise ValueError(f'Book folder not found: {directory}. Mount Drive and create this folder first.')
-    books = sorted((p for p in directory.iterdir() if p.is_file() and p.suffix.lower() == '.epub'),
+    books = sorted((p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in ('.epub', '.json')),
                    key=lambda p: natural_key(p.name))
     if not books:
-        raise ValueError(f'No EPUB books found in {directory}')
+        raise ValueError(f'No EPUB or library JSON books found in {directory}')
     print('Books in', directory)
     for index, path in enumerate(books, 1):
-        print(f'{index:>3}: {path.stem}')
+        print(f'{index:>3}: {path.stem} [{path.suffix[1:].upper()}]')
     choice = input('Select book number: ').strip()
     if not choice.isdigit() or not 1 <= int(choice) <= len(books):
         raise ValueError(f'Choose a book number from 1 to {len(books)}')
@@ -998,7 +1111,7 @@ def interactive():
     print('3: Custom section range (for example 461-470, one section, or all)')
     mode = input('Start option [1]: ').strip() or '1'
     if mode == '3':
-        print('Use EPUB section numbers, which can differ from printed chapter numbers.')
+        print('Use section numbers (JSON chapter numbers / EPUB reading-order sections), which can differ from printed titles.')
         selected = select_chapters(chapters, input('Custom section range (e.g. 461-470, 461, all): '))
     elif mode in ('1', '2'):
         raw_count = input('How many chapters to process? ').strip()

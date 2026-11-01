@@ -1,6 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import BookExportDialog from './BookExportDialog';
 import { BookOpen, Headphones, Download, Trash2 } from 'lucide-react';
 import { Typography } from '@/components/ui/Typography';
 import { Button } from '@/components/ui/Button';
@@ -25,10 +27,12 @@ import Image from 'next/image';
 
 export default function BookCard({ book, onDelete, showProgress = true }: BookCardProps) {
     const router = useRouter();
+    const [exportOpen, setExportOpen] = useState(false);
     const progress = book._count?.chapters ? Math.round(((book.chapterId || 0) / book._count.chapters) * 100) : 0;
 
     return (
         <div className="group flex flex-col h-full">
+            {exportOpen && <BookExportDialog book={book} onClose={() => setExportOpen(false)} />}
             <div 
                 className="relative aspect-[2/3] w-full rounded-radius-md overflow-hidden bg-background-muted border border-transparent shadow-[0_4px_16px_rgba(0,0,0,0.4)] group-hover:border-accent/40 group-hover:shadow-shadow-glow transition-all duration-500 cursor-pointer"
                 onClick={() => router.push(`/books/${book.id}/read`)}
@@ -76,9 +80,9 @@ export default function BookCard({ book, onDelete, showProgress = true }: BookCa
                     
                     <div className="absolute top-space-2 right-space-2 flex gap-space-2">
                         <button 
-                            onClick={(e) => { e.stopPropagation(); window.open(`/api/books/${book.id}/download`, '_blank'); }}
+                            onClick={(e) => { e.stopPropagation(); setExportOpen(true); }}
                             className="p-space-2 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors"
-                            title="Download"
+                            title="Export EPUB or JSON" aria-label="Export book"
                         >
                             <Download size={14} />
                         </button>

@@ -26,6 +26,120 @@ class FakeRenderer:
 
 
 class DriveConverterTests(unittest.TestCase):
+    def library_json(self, directory):
+        rows = [dict(number=1, order=0, title='Chapter 1: Palaces', content=[{'type': 'paragraph', 'children': [{'text': 'One & two.'}]}], paragraphs=['One & two.', 'Three palaces.']),
+                dict(number=2, order=1, title='Chapter 2: Next', content=['Chapter 2: Next', 'Next body.'], paragraphs=['Chapter 2: Next', 'Next body.'])]
+        data = dict(schema='ultimate-library-book', version=1, metadata=dict(title='Exported JSON Book', description='Library backup'),
+                    validation=dict(status='passed', chapterCount=2, paragraphCount=4), chapters=rows)
+        path = Path(directory) / 'Library Book.json'
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        return path
+
+    def test_library_json_packages_are_deterministic_and_keep_existing_drive_compatibility(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = self.library_json(temporary)
+            chapters = converter.load_chapters(source)
+            folder, book = converter.prepare_book(source, chapters)
+            self.assertEqual(book['title'], 'Exported JSON Book')
+            self.assertRegex(book['bookId'], r'^epub-[a-f0-9]{64}$')
+            self.assertEqual(book['source']['sha256'], converter.sha256(folder / 'source.epub'))
+            self.assertEqual((folder / 'source.json').read_bytes(), source.read_bytes())
+            self.assertEqual(chapters, converter.load_chapters(folder / 'source.epub'))
+            self.assertEqual(chapters[0]['paragraphs'], ['Chapter 1: Palaces', 'One & two.', 'Three palaces.'])
+            self.assertEqual(chapters[1]['paragraphs'], ['Chapter 2: Next', 'Next body.'])
+            converter.convert(chapters[:1], folder, book=book, renderer_factory=FakeRenderer)
+            keys = [converter.identity(c, 'af_bella', 'wav') for c in chapters]
+            again, resumed = converter.prepare_book(source, chapters)
+            self.assertEqual(again, folder)
+            self.assertEqual([converter.identity(c, 'af_bella', 'wav') for c in chapters], keys)
+            self.assertEqual(len(resumed['recordings']), 1)
+            archive = converter.export_mobile_package(folder, resumed, chapters[:1])
+            with zipfile.ZipFile(archive) as package:
+                self.assertEqual(package.read('source.epub'), (folder / 'source.epub').read_bytes())
+
+    def test_interactive_lists_and_selects_library_json_with_existing_batch_prompts(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            self.library_json(temporary)
+            with patch.object(converter, 'BOOK_DIRECTORY', temporary), \
+                    patch('builtins.input', side_effect=['1', '1', '2', '']), \
+                    patch.object(converter, 'convert_parallel', return_value={}) as convert:
+                converter.interactive()
+            self.assertEqual(len(convert.call_args.args[0]), 2)
+            self.assertEqual(convert.call_args.kwargs['workers'], 2)
+            self.assertEqual(convert.call_args.kwargs['book']['source']['inputFormat'], 'json')
+
+    def test_library_json_rejects_bad_schema_and_validation_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = self.library_json(temporary)
+            data = json.loads(source.read_text())
+            data['validation']['chapterCount'] = 99
+            source.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, 'validation counts'):
+                converter.prepare_book(source, converter.load_chapters(source))
+            data['schema'] = 'unrelated-backup'
+            source.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, 'updated library'):
+                converter.prepare_book(source, converter.load_chapters(source))
+
+    def test_corrupt_library_export_is_rejected_before_audio_generation(self):
+        with self.assertRaisesRegex(ValueError, 'Re-export the original book'):
+            converter.normalize_chapter({'number': 1, 'title': 'Chapter 1', 'paragraphs': ['[object Object]']}, 1, 'broken.epub')
+
+    def test_atomic_metadata_write_creates_missing_output_parent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / 'missing' / 'book' / 'batch-state-af_bella-wav.json'
+            converter.write_json_atomic(target, {'endChapterNumber': 10})
+            self.assertEqual(json.loads(target.read_text())['endChapterNumber'], 10)
+            self.assertEqual(list(target.parent.glob('*.part')), [])
+
+    def test_atomic_copy_retries_transient_missing_folder(self):
+        from unittest.mock import patch
+        import errno
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'local.json'; source.write_text('verified data')
+            target = Path(temporary) / 'drive' / 'metadata.json'
+            original = converter.shutil.copyfile
+            attempts = []
+            def flaky(src, dst):
+                attempts.append(dst)
+                if len(attempts) == 1:
+                    raise FileNotFoundError(errno.ENOENT, 'folder temporarily unavailable', str(dst))
+                return original(src, dst)
+            with patch.object(converter.shutil, 'copyfile', side_effect=flaky), patch.object(converter.time, 'sleep'):
+                converter.atomic_copy(source, target)
+            self.assertEqual(len(attempts), 2)
+            self.assertEqual(target.read_text(), 'verified data')
+            self.assertEqual(list(target.parent.glob('*.part')), [])
+
+    def test_atomic_copy_refuses_unmounted_drive_without_creating_local_fallback(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'local.json'; source.write_text('data')
+            with patch.object(converter.os.path, 'ismount', return_value=False), patch.object(Path, 'mkdir') as mkdir:
+                with self.assertRaisesRegex(RuntimeError, 'Google Drive is not mounted'):
+                    converter.atomic_copy(source, Path('/content/drive/MyDrive/Myepub/UltimateAudio/book/state.json'))
+                mkdir.assert_not_called()
+
+    def test_atomic_copy_failure_keeps_existing_published_metadata(self):
+        from unittest.mock import patch
+        import errno
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'local.json'; source.write_text('new data')
+            target = Path(temporary) / 'saved.json'; target.write_text('existing verified data')
+            with patch.object(converter.shutil, 'copyfile', side_effect=OSError(errno.EIO, 'Drive unavailable')) as copy, patch.object(converter.time, 'sleep'):
+                with self.assertRaisesRegex(OSError, 'Remount Drive'):
+                    converter.atomic_copy(source, target)
+            self.assertEqual(copy.call_count, 3)
+            self.assertEqual(target.read_text(), 'existing verified data')
+            def corrupt(src, dst):
+                Path(dst).write_text('corrupt data')
+            with patch.object(converter.shutil, 'copyfile', side_effect=corrupt):
+                with self.assertRaisesRegex(OSError, 'checksum'):
+                    converter.atomic_copy(source, target)
+            self.assertEqual(target.read_text(), 'existing verified data')
+            self.assertEqual(list(target.parent.glob('*.part')), [])
+
     def test_interactive_custom_range_and_parallel_prompt(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as temporary:

@@ -9,7 +9,7 @@ It runs independently of the PC sync service, database, web app and mobile app.
 3. Run the remaining cells. Select a book number, a starting option, how many chapters to process, and parallel chapters (press Enter for 2).
    Conversion starts automatically using the defaults at the top of the code cell.
 
-Books are listed automatically from `/content/drive/MyDrive/Myepub/` (EPUB files
+Books are listed automatically from `/content/drive/MyDrive/Myepub/` (EPUB and exported library JSON files
 directly inside that folder, in natural filename order). There is no path prompt.
 Change `BOOK_DIRECTORY` in code to use another folder.
 
@@ -42,7 +42,7 @@ After selecting the book, choose:
    previous batch, even if that batch stopped early. This can leave unfinished
    chapters behind; choose option 1 to continue from verified progress instead.
 3. **Custom section range**: enter an inclusive range such as `461-470`, a single
-   section such as `461`, or `all`. These are EPUB section numbers, not necessarily
+   section such as `461`, or `all`. These are JSON chapter numbers or EPUB section numbers, not necessarily
    printed chapter numbers. This option also saves its requested end for the next batch.
 
 For options 1–2, enter a positive whole number for **How many chapters to process?**
@@ -63,10 +63,30 @@ option 1 starts at 107; option 2 starts at 111. Run the final `interactive()` ce
 again for each new batch. After updating the notebook, rerun the definitions in
 cell 4 before running cell 5; wait for any current batch to finish first.
 
-## TXT / JSON input
+## Exported library JSON input
 
-The `load_chapters()` / `convert()` Python functions also support TXT/JSON for
-advanced code use; the interactive picker lists EPUB books only.
+Select a JSON book exported by the web or mobile library from the same book picker.
+The supported export is `ultimate-library-book`, version 1, with `metadata.title`,
+`validation.status: "passed"`, matching chapter/paragraph counts, and chapters with
+one-based `number`, zero-based `order`, `title`, and plain-text `paragraphs`.
+The converter validates these fields before loading the speech model. It narrates
+`paragraphs`; the rich-text `content` field stays preserved in the original JSON.
+A repeated first title paragraph is removed before adding the chapter heading once.
+
+JSON books use the same continuation, custom range, chapter count, and parallel
+worker prompts as EPUB. JSON chapter numbers are their exported reading order.
+The original export is retained as `source.json`. A deterministic `source.epub`
+is also created from the title, description, and chapter text for compatibility
+with the existing mobile and web Drive audio importers. This generated EPUB does
+not include the JSON cover image. Its checksum supplies the existing portable
+book identity; unchanged text reuses the same output folder and verified audio.
+No mobile app update is required for this package format.
+
+## Advanced TXT / JSON input
+
+The `load_chapters()` / `convert()` Python functions also support generic TXT/JSON
+for advanced code use. Generic JSON without the library export schema is not
+supported by the interactive Drive packaging workflow.
 
 Use one input folder per book, containing UTF-8 TXT files (one chapter per file,
 e.g. `Chapter 350.txt`), or a JSON file like this:
@@ -109,15 +129,38 @@ overlap during parallel generation/saving, so their sum is not batch wall time.
 The same summary is saved as `history/batch-summary-<run-id>.json` in the book's
 Drive folder. A forced runtime termination cannot write a final summary.
 
+## Missing output folder / Drive write errors
+
+All atomic file writes create their parent directory immediately before writing,
+verify the copied checksum, and retry temporary filesystem errors up to three times.
+An existing published file is replaced only after the new copy passes validation.
+For the default `/content/drive` location, the converter checks that Drive is still
+mounted before creating folders; it refuses to save a misleading local fallback.
+
+If Drive is disconnected, stop conversion and rerun the mount cell. If a normal
+mount still reports an unavailable folder, reconnect explicitly:
+
+```python
+from google.colab import drive
+drive.mount('/content/drive', force_remount=True)
+```
+
+Then rerun the updated definitions cell (cell 4) and `interactive()` (cell 5).
+Existing verified chapters remain reusable. A batch-state failure before chapter
+generation starts does not produce new audio. A deleted/moved output folder or a
+temporary DriveFS issue can both cause a missing-path error; the traceback alone
+does not establish which happened.
+
 ## Automatic book package and future mobile import
 
-The book folder name combines the EPUB filename and its source checksum, so books
+The book folder name combines the input filename and the source EPUB checksum, so books
 with the same filename but different content stay separate. Different ranges from
 the same EPUB accumulate in the same folder without replacing earlier chapters.
 
 ```text
 UltimateAudio/<book-name>-<source-hash>/
-  source.epub                 original book, checksum-verified
+  source.epub                 original EPUB or canonical EPUB generated from JSON
+  source.json                 original library JSON (JSON inputs only)
   book.json                   full chapter map and completed recordings index
   batch-state-af_bella-wav.json previous requested batch boundaries
   chapters/<identity>.wav     verified complete audio
@@ -126,7 +169,7 @@ UltimateAudio/<book-name>-<source-hash>/
 ```
 
 `book.json` uses schema `ultimate-drive-audio`, version 1. It records a portable
-book ID derived from the original EPUB SHA-256, source filename/size/checksum,
+book ID derived from the source EPUB SHA-256, source filename/size/checksum,
 and the complete chapter map: stable chapter ID, EPUB document path, one-based
 section number, zero-based chapter index, title and normalized-text SHA-256.
 Each completed recording includes relative audio/manifest paths, provider/model,

@@ -1,8 +1,10 @@
 import { bookProgress } from '@/src/lib/book-progress';
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Platform } from 'react-native';
 import { AppCard } from '@/src/components/ui/AppCard';
 import { bookService } from '@/src/services/book.service';
+import { exportLibraryBook } from '@/src/services/book-export.service';
+import type { LibraryExportFormat } from '@/src/lib/book-export-file';
 import { offlineService } from '@/src/services/offline.service';
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -16,6 +18,7 @@ export default function LibraryScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [syncingIds, setSyncingIds] = useState<string[]>([]);
     const [syncedIds, setSyncedIds] = useState<string[]>([]);
+    const [exportingIds, setExportingIds] = useState<string[]>([]);
     const router = useRouter();
 
     const fetchBooks = async (forceRefresh = false) => {
@@ -80,20 +83,31 @@ export default function LibraryScreen() {
         }
     };
 
-    const handleDownload = async (book: any) => {
+    const runExport = async (book: any, format: LibraryExportFormat, destination: 'save' | 'share') => {
+        if (exportingIds.includes(book.id)) return;
+        setExportingIds(ids => [...ids, book.id]);
         try {
-            Alert.alert("Downloading", `Starting EPUB download for ${book.title}...`);
-            const blob = await bookService.downloadBook(book.id);
-            // Since axios responseType: 'blob' returns a Blob in browser but might return different data in RN, 
-            // the safest cross-platform way to handle file saving from raw data in Expo without extra libraries 
-            // is via FileSystem.downloadAsync if we had the URL, or writing as base64. 
-            // For simplicity in this demo, we mock the save success alert.
-            console.log(`EPUB download triggered for ${book.title}`);
-            Alert.alert("Success", `EPUB download started for "${book.title}". Check your downloads folder.`);
-        } catch (error: any) {
-            console.error('Download Error:', error);
-            Alert.alert("Error", error.message || "Failed to download EPUB");
-        }
+            const result = await exportLibraryBook(book, format, destination);
+            if (result.status === 'saved') Alert.alert('Book saved', `${result.filename} was saved and verified in the folder you selected.`);
+            // Closing a share sheet is not proof that another app saved the file.
+        } catch (error: any) { Alert.alert('Export failed', error.message || 'No book was saved. Please try again.'); }
+        finally { setExportingIds(ids => ids.filter(id => id !== book.id)); }
+    };
+    const chooseDestination = (book: any, format: LibraryExportFormat) => {
+        if (Platform.OS !== 'android') { void runExport(book, format, 'share'); return; }
+        Alert.alert('Export ' + format.toUpperCase(), 'Choose where to save the validated book.', [
+            { text: 'Save to folder', onPress: () => { void runExport(book, format, 'save'); } },
+            { text: 'Share file', onPress: () => { void runExport(book, format, 'share'); } },
+            { text: 'Cancel', style: 'cancel' },
+        ]);
+    };
+    const handleDownload = (book: any) => {
+        if (exportingIds.includes(book.id)) return;
+        Alert.alert('Export book', 'Choose a format. All chapters are checked before export.', [
+            { text: 'EPUB', onPress: () => chooseDestination(book, 'epub') },
+            { text: 'JSON backup', onPress: () => chooseDestination(book, 'json') },
+            { text: 'Cancel', style: 'cancel' },
+        ]);
     };
 
     const handleUpload = async () => {
@@ -164,6 +178,7 @@ export default function LibraryScreen() {
                             onPress={() => router.push(`/reader/${item.id}?chapterId=${bookProgress.getChapter(item.id, item.chapterId ?? 0)}` as any)}
                             onListen={() => router.push(`/listen/${item.id}` as any)}
                             onDownload={() => handleDownload(item)}
+                            downloading={exportingIds.includes(item.id)}
                             onSync={() => handleSync(item)}
                             syncing={syncingIds.includes(item.id)}
                             synced={syncedIds.includes(item.id) || offlineService.hasCachedChapters(item.id)}

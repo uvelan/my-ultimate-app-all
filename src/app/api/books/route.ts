@@ -310,6 +310,10 @@ export async function POST(req: NextRequest) {
         if (fileName.toLowerCase().endsWith('.json') && fileText) {
             try {
                 content = JSON.parse(fileText);
+                if (content?.schema === 'ultimate-library-book' && content.version === 1 && typeof content.metadata?.cover === 'string'
+                    && /^(https?:\/\/|data:image\/(?:png|jpeg|webp);base64,)/i.test(content.metadata.cover)) {
+                    coverUrl = content.metadata.cover;
+                }
             } catch (e) {
                 return NextResponse.json({ error: 'Invalid JSON file' }, { status: 400 });
             }

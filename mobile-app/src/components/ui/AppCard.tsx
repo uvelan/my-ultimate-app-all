@@ -14,6 +14,7 @@ interface AppCardProps {
     onPress?: () => void;
     onListen?: () => void;
     onDownload?: () => void;
+    downloading?: boolean;
     onSync?: () => void;
     syncing?: boolean;
     synced?: boolean;
@@ -26,6 +27,7 @@ export function AppCard({
     onPress, 
     onListen,
     onDownload,
+    downloading,
     onSync,
     syncing,
     synced
@@ -83,13 +85,14 @@ export function AppCard({
 
                         {onDownload && (
                             <TouchableOpacity
+                                disabled={downloading} accessibilityRole="button" accessibilityLabel="Export book as EPUB or JSON"
                                 onPress={(e) => {
                                     e.stopPropagation();
                                     onDownload();
                                 }}
                                 className="bg-background-surface p-2 rounded-radius-full shadow-shadow-md border border-border"
                             >
-                                <Download size={16} color="#8b5cf6" />
+                                {downloading ? <ActivityIndicator size="small" color="#8b5cf6" /> : <Download size={16} color="#8b5cf6" />}
                             </TouchableOpacity>
                         )}
                     </View>

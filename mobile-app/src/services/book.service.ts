@@ -57,9 +57,8 @@ export const bookService = {
         return res.data;
     },
 
-    downloadBook: async (id: string) => {
-        const res = await api.get(`/books/${id}/download`, { responseType: 'blob' });
-        return res.data;
+    downloadBook: async (id: string, format: 'epub' | 'json' = 'epub') => {
+        return api.get(`/books/${id}/download`, { params: { format }, responseType: 'arraybuffer', timeout: 300000 });
     },
 
     /** Fetch ALL chapters for a book in one request. Returns { chapters: ChapterMeta[] } */
