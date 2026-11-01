@@ -60,12 +60,12 @@ test('JSON backup retains rich formatting and normalized paragraphs for import a
 test('embedded library covers are preserved in EPUB rather than silently omitted', async () => {
  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jM1sAAAAASUVORK5CYII=';
  const book = exporter.prepareBookExport(source);
- const bytes = await Epub({ title: book.title, author: 'Unknown Author', cover: exporter.bookEpubCover('data:image/png;base64,' + png) },
+ const bytes = await Epub({ title: book.title, author: 'Unknown Author', cover: await exporter.bookEpubCover('data:image/png;base64,' + png) },
   book.chapters.map((chapter, i) => ({ title: chapter.title, filename: exporter.exportChapterFilename(i), content: chapter.paragraphs.map(p => `<p>${exporter.exportXml(p)}</p>`).join('') })));
  exporter.validateEpubExport(bytes, book);
  const zip = new (require('adm-zip'))(bytes);
  assert.ok(zip.getEntries().some(entry => entry.entryName.endsWith('.png')));
- assert.throws(() => exporter.bookEpubCover('data:image/png;base64,AAAA'), /cover bytes/);
+ await assert.rejects(() => exporter.bookEpubCover('data:image/png;base64,AAAA'), /cover bytes/);
 });
 test('web and mobile agree on file validation and reject unvalidated or incomplete exports', () => {
  assert.equal(fs.readFileSync('src/lib/book-export-file.ts', 'utf8'), fs.readFileSync('mobile-app/src/lib/book-export-file.ts', 'utf8'));
@@ -109,4 +109,21 @@ test('book export rejects unauthorized users, bad formats and invalid content be
  const broken = routeHarness({ book: { ...source, chapters: [{ order: 0, title: 'Broken', content: ['[object Object]'] }] } });
  const response = await broken.get('epub'); assert.equal(response.status, 422); assert.equal(broken.generated(), 0);
  const error = await response.json(); assert.match(error.error, /placeholder/); assert.equal(error.issueCount, 1);
+});
+
+
+test('WebP library covers export as reader-compatible PNG while JSON retains the original', async () => {
+ const sharp = require('sharp');
+ const webp = await sharp({ create: { width: 16, height: 24, channels: 3, background: '#663399' } }).webp().toBuffer();
+ const cover = 'data:image/webp;base64,' + webp.toString('base64');
+ const response = await routeHarness({ book: { ...source, cover } }).get('epub');
+ assert.equal(response.status, 200);
+ const bytes = Buffer.from(await response.arrayBuffer());
+ exporter.validateEpubExport(bytes, exporter.prepareBookExport(source));
+ const zip = new (require('adm-zip'))(bytes);
+ const image = zip.getEntries().find(entry => /cover\.png$/.test(entry.entryName));
+ assert.ok(image, 'converted cover must be embedded');
+ assert.equal((await sharp(image.getData()).metadata()).format, 'png');
+ const json = await routeHarness({ book: { ...source, cover } }).get('json');
+ assert.equal((await json.json()).metadata.cover, cover);
 });

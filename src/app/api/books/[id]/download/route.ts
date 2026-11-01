@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         if (format === 'json') buffer = bookJsonExport(prepared);
         else {
             buffer = await Epub({ title: prepared.title, author: 'Unknown Author', publisher: 'Ultimate App', description: prepared.description,
-                cover: bookEpubCover(prepared.cover), fetchTimeout: 10000, retryTimes: 1,
+                cover: await bookEpubCover(prepared.cover), fetchTimeout: 10000, retryTimes: 1,
                 css: 'body { font-family: serif; line-height: 1.6; } p { margin: 0 0 0.8em; } h1 { page-break-before: always; }',
             }, prepared.chapters.map((chapter, index) => ({ title: chapter.title, filename: exportChapterFilename(index),
                 content: chapter.paragraphs.map(p => `<p>${exportXml(p)}</p>`).join('\n') })));

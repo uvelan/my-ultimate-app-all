@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
+import sharp from 'sharp';
 import { load } from 'cheerio';
 import { chapterContentParagraphs } from './chapter-content';
 
@@ -55,16 +56,27 @@ export function prepareBookExport(book: ExportBookInput): PreparedBookExport {
     return { title: cleanText(book.title || 'Untitled'), description: cleanText(book.description || ''), cover: book.cover || undefined, chapters };
 }
 export function exportChapterFilename(index: number) { return `chapter-${String(index + 1).padStart(6, '0')}.xhtml`; }
-export function bookEpubCover(cover?: string): string | File | undefined {
+export async function bookEpubCover(cover?: string): Promise<string | File | undefined> {
     if (!cover) return undefined;
     if (/^https?:\/\//i.test(cover)) return cover;
-    const match = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/]+={0,2})$/.exec(cover);
+    const match = /^data:(image\/(?:png|jpe?g|webp|gif|avif));base64,([A-Za-z0-9+/]+={0,2})$/i.exec(cover.trim());
     if (!match) throw new BookExportValidationError(['Unsupported or invalid book cover']);
     const bytes = Buffer.from(match[2], 'base64');
-    const png = match[1] === 'image/png' && bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
-    const jpeg = match[1] === 'image/jpeg' && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-    if ((!png && !jpeg) || bytes.length > 10 * 1024 * 1024) throw new BookExportValidationError(['Book cover bytes are invalid or too large']);
-    return new File([new Uint8Array(bytes)], png ? 'cover.png' : 'cover.jpg', { type: match[1] });
+    if (bytes.length > 10 * 1024 * 1024) throw new BookExportValidationError(['Book cover bytes are invalid or too large']);
+    try {
+        const image = sharp(bytes, { limitInputPixels: 20_000_000 });
+        const metadata = await image.metadata();
+        if (!metadata.width || !metadata.height || !['png', 'jpeg', 'webp', 'gif', 'avif', 'heif'].includes(metadata.format || '')) {
+            throw new Error('Unsupported image bytes');
+        }
+        // EPUB readers reliably support PNG/JPEG. Convert other library cover formats
+        // without changing the stored original or the JSON backup.
+        const png = metadata.format !== 'jpeg';
+        const output = await (png ? image.png() : image.jpeg()).toBuffer();
+        return new File([new Uint8Array(output)], png ? 'cover.png' : 'cover.jpg', { type: png ? 'image/png' : 'image/jpeg' });
+    } catch {
+        throw new BookExportValidationError(['Book cover bytes are invalid or too large']);
+    }
 }
 export function bookJsonExport(book: PreparedBookExport): Buffer {
     const data = { schema: 'ultimate-library-book', version: 1,
