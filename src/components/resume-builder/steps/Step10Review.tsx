@@ -5,7 +5,7 @@ import { useResumeStore } from '@/store/resume-builder/resumeStore';
 import { AlertCircle, Info, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
-import { resumeAtsChecklist } from '../../../../mobile-app/src/lib/resume';
+import { resumeAtsChecklist } from '@/lib/resume-document';
 
 export function Step10Review() {
   const { atsScore, isScoring, fetchAtsScore } = useAtsStore();

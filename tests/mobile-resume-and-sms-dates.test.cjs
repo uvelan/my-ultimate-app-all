@@ -2,6 +2,14 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
 function load(file){const m={exports:{}};new vm.Script(ts.transpileModule(fs.readFileSync(path.resolve(__dirname,'../'+file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText).runInNewContext({module:m,exports:m.exports,Date,Set,Object,Array,Math});return m.exports;}
 const {smsPeriodDates,smsBookingTimestamp}=load('mobile-app/src/lib/sms-date-range.ts');
 const {emptyResume,normalizeResume,resumeHtml,resumeDocument,maskResume,resumeAtsChecklist,resumeTemplateCatalog}=load('mobile-app/src/lib/resume.ts');
+test('Android and the standalone web build share the same resume rendering and ATS rules',()=>{
+ const web=load('src/lib/resume-document.ts');
+ const input=emptyResume();
+ input.personalInfo.fullName='Candidate';
+ input.summary='Built document tools.';
+ assert.equal(web.resumeHtml(input,false,true),resumeHtml(input,false,true));
+ assert.deepEqual(Array.from(web.resumeTemplateCatalog,template=>template.id),Array.from(resumeTemplateCatalog,template=>template.id));
+});
 const date=(year,month,day)=>new Date(year,month-1,day,15,34,56);const parts=value=>[value.getFullYear(),value.getMonth()+1,value.getDate(),value.getHours()];
 test('SMS day includes selected local-calendar day and excludes time-of-day',()=>{const range=smsPeriodDates('DAY',date(2026,10,18),date(2026,10,19));assert.deepEqual(parts(range.start),[2026,10,18,0]);assert.deepEqual(parts(range.end),[2026,10,18,0]);});
 test('SMS week is Monday-Sunday across year boundaries, not the last seven rolling days',()=>{const range=smsPeriodDates('WEEK',date(2025,1,1),date(2026,10,19));assert.deepEqual(parts(range.start),[2024,12,30,0]);assert.deepEqual(parts(range.end),[2025,1,5,0]);});

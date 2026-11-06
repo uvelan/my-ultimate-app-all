@@ -8,7 +8,7 @@ import { MinimalCorporate } from './templates/MinimalCorporate';
 import { SoftwareEngineerElite } from './templates/SoftwareEngineerElite';
 import { EnterpriseArchitect } from './templates/EnterpriseArchitect';
 import { StitchPremium } from './templates/StitchPremium';
-import { resumeDocument } from '../../../../mobile-app/src/lib/resume';
+import { resumeDocument } from '@/lib/resume-document';
 
 export function ResumePreview() {
   const { data } = useResumeStore();

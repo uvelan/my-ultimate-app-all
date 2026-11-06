@@ -9,7 +9,7 @@ import {
   Wrench, FolderGit2, Award, Trophy, BookOpen, CheckCircle,
   LayoutTemplate, Target
 } from 'lucide-react';
-import { resumeTemplateCatalog } from '../../../../mobile-app/src/lib/resume';
+import { resumeTemplateCatalog } from '@/lib/resume-document';
 
 const SECTIONS = [
   { id: 1, label: 'Personal Info', icon: User },

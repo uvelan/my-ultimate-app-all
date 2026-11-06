@@ -11,7 +11,7 @@ import { useResumeStore } from '@/store/resume-builder/resumeStore';
 import { useUiStore } from '@/store/resume-builder/uiStore';
 import { getAiModels } from '@/actions/ai';
 import { useAuth } from '@/hooks/useAuth';
-import { resumeTemplateCatalog } from '../../../../mobile-app/src/lib/resume';
+import { resumeTemplateCatalog } from '@/lib/resume-document';
 
 export function BuilderShell({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
