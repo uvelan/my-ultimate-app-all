@@ -69,6 +69,11 @@ export function TaskFilters({ filters, onChange, projects, tags }: TaskFiltersPr
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+        <select aria-label="Tag" value={filters.tagId} onChange={(e) => handleChange('tagId', e.target.value)}
+          className="px-3 py-2 bg-background border border-border rounded-radius-md text-small focus:outline-none focus:border-accent">
+          <option value="">All tags</option>
+          {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+        </select>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { createTaskSchema, CreateTaskInput, updateTaskSchema, UpdateTaskInput } from "@/lib/tasks/task-schema";
 import { X } from "lucide-react";
+import { parseTaskDay, taskAreas, taskDay } from "@/lib/tasks/task-planning";
 
 type TaskWithRelations = Task & {
   project: Project | null;
@@ -17,6 +18,8 @@ type TaskWithRelations = Task & {
 
 interface TaskFormProps {
   initialData?: TaskWithRelations | null;
+  initialDate?: Date | null;
+  initialArea?: string;
   projects: Project[];
   tags: Tag[];
   onSubmit: (data: any) => Promise<void>;
@@ -24,7 +27,7 @@ interface TaskFormProps {
   isLoading: boolean;
 }
 
-export function TaskForm({ initialData, projects, tags, onSubmit, onCancel, isLoading }: TaskFormProps) {
+export function TaskForm({ initialData, initialDate, initialArea, projects, tags, onSubmit, onCancel, isLoading }: TaskFormProps) {
   const isEditing = !!initialData;
   const schema = isEditing ? updateTaskSchema : createTaskSchema;
 
@@ -36,6 +39,7 @@ export function TaskForm({ initialData, projects, tags, onSubmit, onCancel, isLo
       description: initialData.description || "",
       status: initialData.status,
       priority: initialData.priority,
+      area: initialData.area || "",
       startDate: initialData.startDate ? new Date(initialData.startDate) : null,
       dueDate: initialData.dueDate ? new Date(initialData.dueDate) : null,
       projectId: initialData.projectId || "",
@@ -47,6 +51,9 @@ export function TaskForm({ initialData, projects, tags, onSubmit, onCancel, isLo
       status: TaskStatus.TODO,
       priority: Priority.MEDIUM,
       frequency: null,
+      area: initialArea || "",
+      startDate: null,
+      dueDate: initialDate || null,
       projectId: "",
       tagIds: [],
     }
@@ -95,20 +102,16 @@ export function TaskForm({ initialData, projects, tags, onSubmit, onCancel, isLo
             </Select>
           </div>
 
+          <Controller control={control} name="area" render={({ field }) => (
+            <Select label="Area" {...field} value={field.value || ""} onChange={event => field.onChange(event.target.value || null)}>
+              {taskAreas.map(area => <option key={area.value} value={area.value}>{area.label}</option>)}
+            </Select>
+          )} />
           <div className="grid grid-cols-2 gap-4">
-            <Input 
-              type="date" 
-              label="Start Date" 
-              {...register("startDate", { valueAsDate: true })} 
-              error={errors.startDate?.message as string} 
-            />
-            
-            <Input 
-              type="date" 
-              label="Due Date" 
-              {...register("dueDate", { valueAsDate: true })} 
-              error={errors.dueDate?.message as string} 
-            />
+            {(["startDate", "dueDate"] as const).map(name => <Controller key={name} control={control} name={name}
+              render={({ field }) => <Input type="date" id={name} label={name === "startDate" ? "Start date" : "Due date"}
+                {...field} value={taskDay(field.value)} onChange={event => field.onChange(parseTaskDay(event.target.value))}
+                error={errors[name]?.message as string} />} />)}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

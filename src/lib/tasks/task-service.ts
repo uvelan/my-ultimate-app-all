@@ -1,3 +1,4 @@
+import { addDays, addWeeks, addMonths, addYears } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import {
   CreateTaskInput,
@@ -40,95 +41,64 @@ export async function createTask(userId: string, data: CreateTaskInput) {
   });
 }
 
+const recurrenceIntervals = { DAILY: addDays, WEEKLY: addWeeks, MONTHLY: addMonths, YEARLY: addYears };
+
 export async function updateTask(userId: string, data: UpdateTaskInput) {
-  const { id, ...rest } = data;
-  const updateData: any = { ...rest };
-  
-  if (updateData.status === "DONE" && !updateData.completedAt) {
-    updateData.completedAt = new Date();
-    
-    // Handle Recurring Task Logic
-    const existingTask = await prisma.task.findUnique({ where: { id, userId } });
-    if (existingTask && existingTask.frequency) {
-      // Spawn next occurrence
-      const { addDays, addWeeks, addMonths, addYears } = require("date-fns");
-      
-      let nextDueDate = existingTask.dueDate ? new Date(existingTask.dueDate) : new Date();
-      let nextStartDate = existingTask.startDate ? new Date(existingTask.startDate) : null;
-      
-      switch (existingTask.frequency) {
-        case "DAILY":
-          nextDueDate = addDays(nextDueDate, 1);
-          if (nextStartDate) nextStartDate = addDays(nextStartDate, 1);
-          break;
-        case "WEEKLY":
-          nextDueDate = addWeeks(nextDueDate, 1);
-          if (nextStartDate) nextStartDate = addWeeks(nextStartDate, 1);
-          break;
-        case "MONTHLY":
-          nextDueDate = addMonths(nextDueDate, 1);
-          if (nextStartDate) nextStartDate = addMonths(nextStartDate, 1);
-          break;
-        case "YEARLY":
-          nextDueDate = addYears(nextDueDate, 1);
-          if (nextStartDate) nextStartDate = addYears(nextStartDate, 1);
-          break;
-      }
-      
-      // Create the new spawned task
-      await prisma.task.create({
-        data: {
-          userId,
-          title: existingTask.title,
-          description: existingTask.description,
-          priority: existingTask.priority,
-          status: "TODO",
-          frequency: existingTask.frequency,
-          startDate: nextStartDate,
-          dueDate: nextDueDate,
-          projectId: existingTask.projectId,
-          tagIds: (existingTask as any).tagIds || []
-        }
-      });
-    }
-  } else if (updateData.status && updateData.status !== "DONE") {
-    updateData.completedAt = null;
+  const { id, ...changes } = data;
+  const include = { project: true, tags: true } as const;
+  if (changes.status !== "DONE") {
+    return prisma.task.update({
+      where: { id, userId },
+      data: { ...changes, ...(changes.status ? { completedAt: null } : {}) },
+      include,
+    });
   }
 
-  return prisma.task.update({
-    where: { id, userId },
-    data: updateData,
-    include: {
-      project: true,
-      tags: true,
-    },
-  });
+  // Keep completion and the next occurrence in the same transaction. Retry Mongo write conflicts.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await prisma.$transaction(async tx => {
+        const existing = await tx.task.findUniqueOrThrow({ where: { id, userId } });
+        const now = new Date();
+        const frequency = changes.frequency === undefined ? existing.frequency : changes.frequency;
+        const advance = existing.status !== "DONE" && !existing.recurrenceAdvanced && frequency;
+        const task = await tx.task.update({
+          where: { id, userId },
+          data: { ...changes, completedAt: existing.status === "DONE" ? existing.completedAt : now,
+            ...(advance ? { recurrenceAdvanced: true } : {}) },
+          include,
+        });
+        if (advance) {
+          const shift = recurrenceIntervals[advance];
+          await tx.task.create({ data: {
+            userId, title: task.title, description: task.description, priority: task.priority,
+            area: task.area, frequency: advance, projectId: task.projectId, tagIds: task.tagIds,
+            startDate: task.startDate ? shift(task.startDate, 1) : null,
+            dueDate: shift(task.dueDate || now, 1),
+          } });
+        }
+        return task;
+      });
+    } catch (error) {
+      if (attempt >= 2 || (error as { code?: string }).code !== "P2034") throw error;
+    }
+  }
 }
-
 export async function deleteTask(userId: string, taskId: string) {
   return prisma.task.delete({
     where: { id: taskId, userId },
   });
 }
 
-export async function bulkUpdateTaskStatus(
-  userId: string,
-  data: BulkUpdateStatusInput
-) {
-  const completedAt = data.status === "DONE" ? new Date() : null;
-  
-  return prisma.task.updateMany({
-    where: {
-      userId,
-      id: { in: data.taskIds },
-    },
-    data: {
-      status: data.status,
-      completedAt,
-    },
-  });
+export async function bulkUpdateTaskStatus(userId: string, data: BulkUpdateStatusInput) {
+  const where = { userId, id: { in: data.taskIds } };
+  if (data.status !== "DONE") {
+    return prisma.task.updateMany({ where, data: { status: data.status, completedAt: null } });
+  }
+  const tasks = await prisma.task.findMany({ where, select: { id: true } });
+  for (const { id } of tasks) await updateTask(userId, { id, status: data.status });
+  return { count: tasks.length };
 }
-
 export async function bulkDeleteTasks(userId: string, data: BulkDeleteInput) {
   return prisma.task.deleteMany({
     where: {

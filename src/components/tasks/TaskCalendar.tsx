@@ -20,6 +20,7 @@ import {
   isToday 
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { taskDay } from "@/lib/tasks/task-planning";
 
 type TaskWithRelations = Task & {
   project: Project | null;
@@ -68,11 +69,7 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
     const map = new Map<string, TaskWithRelations[]>();
     
     tasks.forEach(task => {
-      const dates = [];
-      if (task.startDate) dates.push(new Date(task.startDate));
-      if (task.dueDate) dates.push(new Date(task.dueDate));
-      
-      const uniqueDateStrings = Array.from(new Set(dates.map(d => format(d, 'yyyy-MM-dd'))));
+      const uniqueDateStrings = Array.from(new Set([taskDay(task.startDate), taskDay(task.dueDate)].filter(Boolean)));
       
       uniqueDateStrings.forEach(dateStr => {
         if (!map.has(dateStr)) {

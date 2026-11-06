@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { verifyAuth } from '@/lib/auth-server';
 import { prisma } from '@/lib/prisma';
 import { createTaskSchema, updateTaskSchema, projectSchema, tagSchema } from '@/lib/tasks/task-schema';
-import { getTasks, getProjects, getTags, createTask, updateTask, deleteTask, bulkDeleteTasks } from '@/lib/tasks/task-service';
+import { getTasks, getProjects, getTags, createTask, updateTask, deleteTask, bulkDeleteTasks, bulkUpdateTaskStatus } from '@/lib/tasks/task-service';
 
 export const runtime = 'nodejs';
 const idSchema = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ID');
@@ -39,11 +39,7 @@ async function mutate(req: NextRequest) {
             const owned = await prisma.task.findMany({ where: { id: { in: taskIds }, userId } });
             if (owned.length !== new Set(taskIds).size) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
             if (req.method === 'DELETE') await bulkDeleteTasks(userId, { taskIds });
-            else {
-                const status = statusSchema.parse(raw.status);
-                // Use the same completion helper as individual changes so recurring tasks spawn their next occurrence.
-                for (const task of owned) if (task.status !== status) await updateTask(userId, { id: task.id, status });
-            }
+            else await bulkUpdateTaskStatus(userId, { taskIds, status: statusSchema.parse(raw.status) });
             revalidatePath('/tasks');
             return NextResponse.json({ success: true });
         }

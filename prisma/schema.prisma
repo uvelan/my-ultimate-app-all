@@ -420,7 +420,9 @@ model Task {
   description String?
   status      TaskStatus @default(TODO)
   priority    Priority   @default(MEDIUM)
+  area        String?
   frequency   Frequency?
+  recurrenceAdvanced Boolean?
   startDate   DateTime?
   dueDate     DateTime?
   completedAt DateTime?

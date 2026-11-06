@@ -6,6 +6,7 @@ import { CalendarIcon, ClockIcon, CheckCircle2, Circle, MoreVertical, Edit2, Tra
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { matchesTaskPlan, taskAreas, taskDay } from "@/lib/tasks/task-planning";
 
 type TaskWithRelations = Task & {
   project: Project | null;
@@ -131,10 +132,10 @@ export function TaskCard({
           )}
 
           <div className="mt-3 flex flex-wrap gap-2 items-center">
-            {task.dueDate && (
-              <span className={`flex items-center gap-1 text-caption ${task.dueDate < new Date() && !isDone ? 'text-error' : 'text-text-muted'}`}>
+            {taskDay(task.dueDate) && (
+              <span className={`flex items-center gap-1 text-caption ${matchesTaskPlan(task, 'overdue', new Date()) ? 'text-error' : 'text-text-muted'}`}>
                 <CalendarIcon size={12} />
-                {format(new Date(task.dueDate), "MMM d")}
+                {format(new Date(taskDay(task.dueDate) + "T12:00:00"), "MMM d")}
               </span>
             )}
 
@@ -147,6 +148,9 @@ export function TaskCard({
             <span className={`text-caption px-2 py-0.5 rounded-full font-medium ${priorityColors[task.priority]}`}>
               {task.priority.toLowerCase()}
             </span>
+            {task.area && <span className="rounded-full border border-border px-2 py-0.5 text-caption text-text-secondary">
+              {taskAreas.find(area => area.value === task.area)?.label}
+            </span>}
 
             {task.project && (
               <span className="text-caption text-text-secondary flex items-center gap-1">

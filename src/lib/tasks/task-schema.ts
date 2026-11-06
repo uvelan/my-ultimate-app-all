@@ -2,11 +2,12 @@ import { z } from "zod";
 import { TaskStatus, Priority, Frequency } from "@prisma/client";
 
 export const baseTaskSchema = z.object({
-  title: z.string().min(1, "Title is required").max(100, "Title is too long"),
+  title: z.string().trim().min(1, "Title is required").max(100, "Title is too long"),
   description: z.string().max(1000, "Description is too long").optional(),
   status: z.nativeEnum(TaskStatus).default(TaskStatus.TODO),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
-  frequency: z.nativeEnum(Frequency).optional().nullable(),
+  area: z.enum(["OFFICE", "PERSONAL", ""]).transform(value => value || null).nullable().optional(),
+  frequency: z.union([z.nativeEnum(Frequency), z.literal("")]).transform(value => value || null).optional().nullable(),
   startDate: z.date().optional().nullable(),
   dueDate: z.date().optional().nullable(),
   projectId: z.string().transform(val => val === "" ? null : val).optional().nullable(),

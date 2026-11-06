@@ -19,6 +19,7 @@ import {
   bulkDeleteTasksAction 
 } from "@/actions/task";
 import toast from "react-hot-toast";
+import { comparePlannedTasks, localTaskDay, matchesTaskPlan, parseTaskDay, taskAreas, taskPlans, type TaskPlan } from "@/lib/tasks/task-planning";
 
 type TaskWithRelations = Task & {
   project: Project | null;
@@ -39,6 +40,9 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
   const [editingTask, setEditingTask] = useState<TaskWithRelations | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [area, setArea] = useState("all");
+  const [plan, setPlan] = useState<TaskPlan>("active");
+  const [initialDate, setInitialDate] = useState<Date | null>(null);
   const [filters, setFilters] = useState<TaskFiltersState>({
     search: "",
     status: "",
@@ -52,16 +56,26 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     setTasks(initialTasks);
   }, [initialTasks]);
 
+  const scopedTasks = useMemo(() => tasks.filter(task => area === "all" || (task.area || "") === area), [tasks, area]);
   const filteredTasks = useMemo(() => {
-    return tasks.filter(task => {
+    const now = new Date();
+    return scopedTasks.filter(task => {
+      if (!matchesTaskPlan(task, plan, now)) return false;
       if (filters.search && !task.title.toLowerCase().includes(filters.search.toLowerCase()) && !task.description?.toLowerCase().includes(filters.search.toLowerCase())) return false;
       if (filters.status && task.status !== filters.status) return false;
       if (filters.priority && task.priority !== filters.priority) return false;
       if (filters.projectId && task.projectId !== filters.projectId) return false;
       if (filters.tagId && !task.tags.some(t => t.id === filters.tagId)) return false;
       return true;
-    });
-  }, [tasks, filters]);
+    }).sort(comparePlannedTasks);
+  }, [scopedTasks, filters, plan]);
+  useEffect(() => { setSelectedIds([]); }, [filters, area, plan]);
+
+  const openNewTask = (date?: Date) => {
+    setEditingTask(null);
+    setInitialDate(date ? parseTaskDay(localTaskDay(date)) : null);
+    setIsFormOpen(true);
+  };
 
   const handleSelect = (taskId: string) => {
     setSelectedIds(prev => 
@@ -216,10 +230,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
           </Button>
 
           <Button 
-            onClick={() => {
-              setEditingTask(null);
-              setIsFormOpen(true);
-            }}
+            onClick={() => openNewTask()}
             className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4"
             leftIcon={<Plus size={16} className="sm:w-[18px] sm:h-[18px]" />}
           >
@@ -228,9 +239,23 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
         </div>
       </div>
 
-      <TaskFilters 
+      <div className="space-y-3 rounded-radius-lg border border-border bg-background-surface p-4">
+        <div className="flex flex-wrap gap-2" aria-label="Task area">
+          {[{ value: "all", label: "All areas" }, ...taskAreas].map(item => <button key={item.value}
+            type="button" aria-pressed={area === item.value} onClick={() => setArea(item.value)}
+            className={`rounded-radius-md px-3 py-2 text-sm ${area === item.value ? 'bg-accent text-white' : 'bg-background text-text-primary'}`}>{item.label}</button>)}
+        </div>
+        <div className="flex flex-wrap gap-2" aria-label="Planning filters">
+          {taskPlans.map(item => <button key={item.value} type="button" aria-pressed={plan === item.value}
+            onClick={() => { setPlan(item.value); setFilters(current => ({ ...current, status: "" })); }}
+            className={`rounded-radius-md px-3 py-2 text-sm ${plan === item.value ? 'bg-accent text-white' : 'bg-background text-text-primary'}`}>
+            {item.label} <span className="opacity-75">{scopedTasks.filter(task => matchesTaskPlan(task, item.value, new Date())).length}</span>
+          </button>)}
+        </div>
+      </div>
+      <TaskFilters
         filters={filters} 
-        onChange={setFilters} 
+        onChange={next => { if (next.status && next.status !== filters.status) setPlan("all"); setFilters(next); }}
         projects={projects} 
         tags={tags} 
       />
@@ -274,16 +299,15 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
               setIsFormOpen(true);
             }
           }}
-          onAddTask={(date) => {
-            setEditingTask({} as any);
-            setIsFormOpen(true);
-          }}
+          onAddTask={openNewTask}
         />
       )}
 
       {isFormOpen && (
         <TaskForm 
           initialData={editingTask}
+          initialDate={initialDate}
+          initialArea={area === "OFFICE" || area === "PERSONAL" ? area : ""}
           projects={projects}
           tags={tags}
           onSubmit={handleFormSubmit}
