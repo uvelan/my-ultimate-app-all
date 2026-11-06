@@ -156,12 +156,18 @@ export const localSyncService = {
         if (Date.now() - lastRead > 2000) await localSyncService.refresh();
         const key = audioIdentityKey(identity);
         const candidates = snapshot.artifacts.filter(file => compatibleArtifact(file, identity));
-        const artifact = candidates.find(file => file.key === key) || candidates.at(-1);
-        if (!artifact || !validNarrationSync(artifact.sync)) return null;
-        const info = await FileSystem.getInfoAsync(artifact.uri);
-        if (!info.exists || info.size !== artifact.bytes) return null;
-        return { key, requestKey: key, uri: artifact.uri, bytes: artifact.bytes, chapterId: identity.chapterId,
-            created: Date.now(), used: Date.now(), provider: 'kokoro', voice: identity.voice, fallback: '', contentType: 'audio/wav', source: 'device', sync: artifact.sync };
+        const exact = candidates.find(file => file.key === key);
+        const preferred = exact ? [exact, ...candidates.filter(file => file !== exact).reverse()] : candidates.reverse();
+        for (const artifact of preferred) {
+            try {
+                const info = await FileSystem.getInfoAsync(artifact.uri);
+                if (!info.exists || info.size !== artifact.bytes) continue;
+                return { key, requestKey: key, uri: artifact.uri, bytes: artifact.bytes, chapterId: identity.chapterId,
+                    created: Date.now(), used: Date.now(), provider: 'kokoro', voice: identity.voice, fallback: '',
+                    contentType: 'audio/wav', source: 'device', sync: artifact.sync };
+            } catch { /* Try another compatible saved file. */ }
+        }
+        return null;
     },
     async prepareAhead(book: { id: string; chapters: { id: string; title: string; content?: unknown }[] }, userId: string, chapterIndex: number,
         requestedVoice: string, chunkTarget: number, isCurrent: () => boolean = () => true, playingUri?: string, afterEnd = false) {
@@ -206,5 +212,5 @@ export const localSyncService = {
         for (const key of keys) await bridge.invalidateAudio(key);
         lastRead = 0;
     },
-    waitingError() { return Object.assign(new Error('Waiting for PC sync. Tap Sync from PC to prepare this chapter.'), { code: 'LOCAL_SYNC_PENDING' }); },
+    waitingError() { return Object.assign(new Error('Waiting for PC sync. Open Chapter Sync to prepare this chapter.'), { code: 'LOCAL_SYNC_PENDING' }); },
 };

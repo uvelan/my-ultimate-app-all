@@ -914,7 +914,8 @@ def convert_parallel(chapters, destination, voice='af_bella', audio_format='wav'
 
 
 def convert(chapters, destination, voice='af_bella', audio_format='wav', renderer_factory=runtime_renderer,
-            max_minutes=0, clock=time.monotonic, book=None, show_passage=True, chapter_workers=1):
+            max_minutes=0, clock=time.monotonic, book=None, show_passage=True, chapter_workers=1,
+            parallel_save=None):
     from tqdm.auto import tqdm
     if voice not in ('af_bella', 'af_heart') or audio_format not in ('wav', 'mp3'):
         raise ValueError('Choose Bella/Heart and WAV/MP3')
@@ -941,7 +942,7 @@ def convert(chapters, destination, voice='af_bella', audio_format='wav', rendere
     try:
         with tempfile.TemporaryDirectory(prefix='drive-audio-') as temporary:
             local = Path(temporary)
-            with BoundedPublisher(PARALLEL_DRIVE_SAVE) as publisher, \
+            with BoundedPublisher(PARALLEL_DRIVE_SAVE if parallel_save is None else parallel_save) as publisher, \
                     tqdm(total=len(chapters), desc='Chapters prepared', unit='chapter', position=0) as batch:
                 for chapter_index, chapter in enumerate(chapters):
                     if max_minutes and (clock() - batch_start >= max_minutes * 60 or (
@@ -1083,6 +1084,62 @@ def convert(chapters, destination, voice='af_bella', audio_format='wav', rendere
     return stats
 
 
+def last_run_file(directory):
+    return Path(directory) / 'UltimateAudio' / 'last-run.json'
+
+
+def run_saved_batch(source, chapters, destination, book, selected, mode, settings):
+    voice, audio_format, workers = settings['voice'], settings['format'], settings['workers']
+    if not selected:
+        print('No chapters remain after this position for the selected voice/format.')
+        return dict(ready=0, skipped=0, failed=0)
+    print(f'Batch: sections {selected[0]["number"]}–{selected[-1]["number"]} | '
+          f'{len(selected)} chapters | {workers} parallel workers')
+    print('Saving to:', destination, '| Voice:', voice, '| Format:', audio_format)
+    print('Selected:', '\n'.join(f"{c['number']}: {c['title']}" for c in selected))
+    save_batch_request(destination, book, chapters, selected, mode, voice, audio_format)
+    write_json_atomic(last_run_file(source.parent), dict(version=1, source=source.name,
+        sourceSha256=book['source'].get('originalSha256', book['source']['sha256']), **settings))
+    result = convert_parallel(selected, destination, voice, audio_format, workers=workers,
+                              max_minutes=settings['maxMinutes'], book=book, parallel_save=settings['parallelSave'])
+    if settings['createMobilePackage']:
+        export_mobile_package(destination, book, selected, voice, audio_format)
+    return result
+
+
+def continue_last_book():
+    """Resume the most recently submitted batch's book without any prompts."""
+    directory = Path(BOOK_DIRECTORY)
+    state_file = last_run_file(directory)
+    if not state_file.is_file():
+        raise ValueError('No saved last run. Use the manual batch cell once to save the book and settings.')
+    try:
+        state = json.loads(state_file.read_text(encoding='utf-8'))
+        name = state['source']
+        if state.get('version') != 1 or not isinstance(name, str) or Path(name).name != name:
+            raise ValueError('Invalid saved book')
+        source = directory / name
+        settings = {key: state[key] for key in ('voice', 'format', 'workers', 'maxMinutes', 'parallelSave', 'createMobilePackage')}
+        settings['count'] = state.get('count', 20)
+        batch_state_file(directory, settings['voice'], settings['format'])
+        if (type(settings['count']) is not int or settings['count'] < 1
+                or type(settings['workers']) is not int or not 1 <= settings['workers'] <= 8
+                or type(settings['maxMinutes']) not in (int, float) or not 0 <= settings['maxMinutes'] <= 1440
+                or type(settings['parallelSave']) is not bool or type(settings['createMobilePackage']) is not bool):
+            raise ValueError('Invalid saved settings')
+        source_hash = state['sourceSha256']
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError('Could not read the saved last run. Use the manual batch cell to save fresh settings.') from error
+    if not source.is_file() or not source.resolve().is_relative_to(directory.resolve()) or sha256(source) != source_hash:
+        raise ValueError('The last book was moved or changed. Select it again in the manual batch cell.')
+    chapters = load_chapters(source)
+    destination, book = prepare_book(source, chapters)
+    last, previous = resume_positions(chapters, destination, book, settings['voice'], settings['format'])
+    selected = next_batch(chapters, last, previous, '1', settings['count'])
+    print(f"Continuing {book['title']} after the last verified chapter.")
+    return run_saved_batch(source, chapters, destination, book, selected, '1', settings)
+
+
 def interactive():
     directory = Path(BOOK_DIRECTORY)
     if not directory.is_dir():
@@ -1113,11 +1170,13 @@ def interactive():
     if mode == '3':
         print('Use section numbers (JSON chapter numbers / EPUB reading-order sections), which can differ from printed titles.')
         selected = select_chapters(chapters, input('Custom section range (e.g. 461-470, 461, all): '))
+        count = len(selected)
     elif mode in ('1', '2'):
         raw_count = input('How many chapters to process? ').strip()
         if not re.fullmatch(r'[1-9][0-9]*', raw_count):
             raise ValueError('Enter a positive whole number of chapters')
-        selected = next_batch(chapters, last, previous, mode, int(raw_count))
+        count = int(raw_count)
+        selected = next_batch(chapters, last, previous, mode, count)
     else:
         raise ValueError('Choose start option 1, 2, or 3')
     if not selected:
@@ -1127,13 +1186,7 @@ def interactive():
     if raw_workers and not re.fullmatch(r'[1-8]', raw_workers):
         raise ValueError('Enter a parallel chapter count from 1 to 8')
     workers = int(raw_workers) if raw_workers else CHAPTER_WORKERS
-    print(f'Batch: sections {selected[0]["number"]}–{selected[-1]["number"]} | '
-          f'{len(selected)} chapters | {workers} parallel workers')
-    print('Saving to:', destination, '| Voice:', VOICE, '| Format:', AUDIO_FORMAT)
-    print('Selected:', '\n'.join(f"{c['number']}: {c['title']}" for c in selected))
-    save_batch_request(destination, book, chapters, selected, mode, VOICE, AUDIO_FORMAT)
-    result = convert_parallel(selected, destination, VOICE, AUDIO_FORMAT, workers=workers,
-                              max_minutes=SESSION_MINUTES, book=book)
-    if CREATE_MOBILE_PACKAGE:
-        export_mobile_package(destination, book, selected, VOICE, AUDIO_FORMAT)
-    return result
+    settings = dict(voice=VOICE, format=AUDIO_FORMAT, workers=workers, count=count,
+                    maxMinutes=SESSION_MINUTES, parallelSave=PARALLEL_DRIVE_SAVE,
+                    createMobilePackage=CREATE_MOBILE_PACKAGE)
+    return run_saved_batch(source, chapters, destination, book, selected, mode, settings)

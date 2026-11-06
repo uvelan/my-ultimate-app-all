@@ -92,11 +92,11 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
         </View>)}</View>
         <View style={s.card} onLayout={event => setPanelWidth(event.nativeEvent.layout.width - 32)}>
             <View style={s.headingRow}><Text style={s.heading}>Expense breakdown</Text><View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Export breakdown image with selected date range" disabled={busy || exporting} onPress={() => setImageSnapshot({
-                    rows: financeBreakdownImageRows(tree, totalExpense, expanded), rangeStart, rangeEnd, totalExpense,
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Export breakdown with selected date range" disabled={busy || exporting} onPress={() => setImageSnapshot({
+                    rows: financeBreakdownImageRows(tree, totalExpense, expanded), allRows: financeBreakdownImageRows(tree, totalExpense, 'all'), rangeStart, rangeEnd, totalExpense,
                     grouping: grouping === 'category' ? 'category' : 'payment method',
                     hidden: [...categoryFilter.map(id => categories.find(item => item.id === id)?.name || 'Other'), ...methodFilter].join(', '),
-                })} style={[s.exportButton, { opacity: busy || exporting ? 0.5 : 1 }]}><Download size={14} color="#001642" /><Text style={s.choiceText}>Export image</Text></TouchableOpacity>
+                })} style={[s.exportButton, { opacity: busy || exporting ? 0.5 : 1 }]}><Download size={14} color="#001642" /><Text style={s.choiceText}>Export breakdown</Text></TouchableOpacity>
                 <TouchableOpacity accessibilityRole="button" accessibilityLabel="Export filtered finance CSV" disabled={busy || exporting} onPress={exportCsv} style={[s.exportButton, { opacity: busy || exporting ? 0.5 : 1 }]}><Download size={14} color="#001642" /><Text style={s.choiceText}>{exporting ? 'Exporting…' : 'Export CSV'}</Text></TouchableOpacity>
             </View></View>
             <View style={s.switcher}>{(['category', 'method'] as const).map(value => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: grouping === value }} onPress={() => { onGrouping(value); setActiveSlice(null); }} style={[s.choice, grouping === value && s.selected]}><Text style={[s.choiceText, grouping === value && { color: '#fff' }]}>{value === 'category' ? 'Category' : 'Payment method'}</Text></TouchableOpacity>)}</View>

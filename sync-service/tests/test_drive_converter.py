@@ -442,6 +442,39 @@ class DriveConverterTests(unittest.TestCase):
             self.assertIn('book', convert.call_args.kwargs)
             self.assertEqual(convert.call_args.kwargs['workers'], 2)
 
+    def test_quick_resume_reuses_previous_settings_without_prompting(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            self.epub(temporary)
+            chapters = [self.chapter(i) for i in range(1, 26)]
+            with (patch.object(converter, 'BOOK_DIRECTORY', temporary),
+                  patch.object(converter, 'load_chapters', return_value=chapters),
+                  patch.object(converter, 'convert_parallel', return_value={}) as convert,
+                  patch.object(converter, 'export_mobile_package') as package):
+                with (patch.multiple(converter, VOICE='af_heart', SESSION_MINUTES=8,
+                                     PARALLEL_DRIVE_SAVE=False, CREATE_MOBILE_PACKAGE=True),
+                      patch('builtins.input', side_effect=['1', '1', '3', '5'])):
+                    converter.interactive()
+                folder = convert.call_args.args[1]
+                book = convert.call_args.kwargs['book']
+                # The requested batch ended at 3, but only chapter 1 was saved.
+                converter.convert(chapters[:1], folder, 'af_heart', book=book, renderer_factory=FakeRenderer)
+                package.reset_mock()
+                with patch('builtins.input', side_effect=AssertionError('Unexpected prompt')):
+                    converter.continue_last_book()
+                    self.assertEqual([c['number'] for c in convert.call_args.args[0]], [2, 3, 4])
+                    self.assertEqual(convert.call_args.args[2:4], ('af_heart', 'wav'))
+                    self.assertEqual(convert.call_args.kwargs['workers'], 5)
+                    self.assertEqual(convert.call_args.kwargs['max_minutes'], 8)
+                    self.assertFalse(convert.call_args.kwargs['parallel_save'])
+                    package.assert_called_once()
+                    path = converter.last_run_file(temporary)
+                    saved = json.loads(path.read_text(encoding='utf-8'))
+                    saved.pop('count')
+                    converter.write_json_atomic(path, saved)
+                    converter.continue_last_book()
+                    self.assertEqual([c['number'] for c in convert.call_args.args[0]], list(range(2, 22)))
+
     def test_interactive_parallel_override_and_invalid_input(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as temporary:

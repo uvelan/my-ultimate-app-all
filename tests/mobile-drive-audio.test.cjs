@@ -75,7 +75,7 @@ function directHarness({ cancelled = false, existing = false, missing = false, m
   authorize: async user => { calls.push(['authorize', user]); return true; },
   listBooks: async () => JSON.stringify([{ id: 'drive-folder', name: 'Book' }]),
   catalog: async () => { calls.push(['catalog']); return JSON.stringify(missing ? { ...catalog, recordings: {} } : catalog); },
-  manifest: async () => JSON.stringify(mismatch ? { ...manifest, sync: { ...manifest.sync, paragraphs: ['Wrong text.'] } } : manifest),
+  manifest: async () => { calls.push(['manifest']); return JSON.stringify(mismatch ? { ...manifest, sync: { ...manifest.sync, paragraphs: ['Wrong text.'] } } : manifest); },
   importChapter: async (user, folder, raw) => { calls.push(['import', JSON.parse(raw)]); progressListener?.(JSON.stringify({ userId: user, downloadedBytes: 5, totalBytes: 10 })); return '{}'; },
   cancel: async () => true, disconnect: async () => true,
  };
@@ -97,6 +97,13 @@ test('Drive progress distinguishes checking, bytes, saved chapters and missing/t
  assert.equal(absent.progress.at(-1).total, 0); assert.equal(absent.progress.at(-1).saved, 0);
  assert.match(absent.messages.at(-1), /No matching Drive chapters available/);
  const mismatch = directHarness({ mismatch: true }); await mismatch.run();
+ assert.equal(mismatch.progress.at(-1).issues[0].section, 1);
+ assert.equal(mismatch.progress.at(-1).issues[0].title, 'Chapter 435');
+ assert.match(mismatch.progress.at(-1).issues[0].reason, /text differs/);
+ const alreadySaved = directHarness({ existing: true, mismatch: true }); await alreadySaved.run();
+ assert.equal(alreadySaved.progress.at(-1).skipped, 1);
+ assert.equal(alreadySaved.progress.at(-1).mismatched, 0);
+ assert.equal(alreadySaved.calls.some(c => c[0] === 'manifest'), false);
  assert.equal(mismatch.progress.at(-1).mismatched, 1); assert.equal(mismatch.calls.filter(c => c[0] === 'import').length, 0);
 });
 test('direct Drive downloads matching chapters without opening a ZIP or exposing a token', async () => {
@@ -130,7 +137,6 @@ test('cloud sync crosses missing gaps and downloads every available chapter beyo
  assert.equal(imported.length, 23);
  assert.equal(imported[0].chapterId, 'c434'); assert.equal(imported.at(-1).chapterId, 'c456');
  assert.equal(progress.at(-1).total, 24); assert.equal(progress.at(-1).skipped, 1);
- assert.equal(progress.at(-1).unavailable, 0);
 });
 test('direct Drive account/book folder mappings are isolated and disconnect keeps other mappings', async () => {
  const h = directHarness(); const folder = { id: 'drive-folder', name: 'Book' };

@@ -27,7 +27,8 @@ print('Books will be listed from /content/drive/MyDrive/Myepub/')
 print('Output: /content/drive/MyDrive/Myepub/UltimateAudio/<book-name>-<source-hash>/')
 '''),
             cell('code', (ROOT / 'drive_converter.py').read_text(encoding='utf-8')),
-            cell('code', 'interactive()\n')])
+            cell('code', '# Manual batch: choose the book and settings.\ninteractive()\n'),
+            cell('code', '# Quick resume: run this cell on its own after setup.\ncontinue_last_book()\n')])
 
 
 if __name__ == '__main__':

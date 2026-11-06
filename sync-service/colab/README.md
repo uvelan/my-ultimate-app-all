@@ -6,7 +6,7 @@ It runs independently of the PC sync service, database, web app and mobile app.
 
 1. Select **Runtime → Change runtime type → GPU**.
 2. Run setup, then mount Drive and approve Google's Drive access prompt.
-3. Run the remaining cells. Select a book number, a starting option, how many chapters to process, and parallel chapters (press Enter for 2).
+3. Run the converter definitions (cell 4), then choose one batch cell. The manual batch (cell 5) asks for a book, start option, chapter count or range, and parallel chapters (press Enter for 2).
    Conversion starts automatically using the defaults at the top of the code cell.
 
 Books are listed automatically from `/content/drive/MyDrive/Myepub/` (EPUB and exported library JSON files
@@ -31,6 +31,20 @@ Each EPUB text document is one conversion section. If a book stores several chap
 inside one document, they are converted together; if it splits a chapter into several
 documents, each is processed separately. Continuation follows this reading order.
 Nested output folders are excluded from the book picker.
+
+## Quick resume of the last book
+
+Run **Quick resume** (cell 6) on its own after setup and cell 4. Choose one batch cell instead of running both. It reopens the
+last book submitted with this notebook and starts after the highest chapter
+with verified audio for the saved voice and format. It reuses the requested
+chapter count, worker count, session time budget, Drive save mode and ZIP setting.
+The fallback chapter count is 20 if the saved run has no count. A manual custom
+range saves its selected chapter count for later use.
+
+The notebook writes these settings to `Myepub/UltimateAudio/last-run.json`
+before starting conversion, so a runtime restart or interrupt preserves them.
+Run the manual batch cell once if your earlier notebook did not save this file.
+If the source book was moved or changed, use the manual cell to select it again.
 
 ## Continuing with a new batch
 

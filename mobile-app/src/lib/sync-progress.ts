@@ -23,3 +23,10 @@ export function upcomingSyncRange(current: number, chapterCount: number, preview
     }
     return { start: previewStart, end: Math.min(chapterCount, previewStart + count) };
 }
+
+export function nextMissingSyncChapter(current: number, chapterCount: number, saved: Iterable<number>) {
+    const offline = new Set(saved);
+    let index = current;
+    while (index < chapterCount && offline.has(index)) index++;
+    return index;
+}

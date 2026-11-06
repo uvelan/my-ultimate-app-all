@@ -11,8 +11,8 @@ function load(file, deps = {}) {
  vm.runInNewContext(code, { module, exports: module.exports, require: name => deps[name] });
  return module.exports;
 }
-const { financeBreakdownImageRows, financeImageLines } = load('src/lib/finance-image.ts');
-const { financeImagePages, financeBreakdownPdfHtml, FINANCE_IMAGE_WIDTH, FINANCE_IMAGE_HEIGHT, FINANCE_IMAGE_SCALE } = load('src/lib/finance-image-pages.ts', {
+const { financeBreakdownImageRows, financeImageLines, financeBreakdownPdfHtml } = load('src/lib/finance-image.ts');
+const { financeImagePages, FINANCE_IMAGE_WIDTH, FINANCE_IMAGE_HEIGHT, FINANCE_IMAGE_SCALE } = load('src/lib/finance-image-pages.ts', {
  './finance-image': { financeImageLines },
 });
 const item = { id: 'item', description: 'Jar Repair', amountPaise: 10000, transactionDate: '2026-10-30T10:00:00Z', paymentMethod: 'UPI' };

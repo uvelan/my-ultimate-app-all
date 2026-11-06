@@ -94,7 +94,7 @@ test('breakdown image snapshots the selected period, current filters, and expand
     const branch=nodes(tree).find(node=>typeof node.type==='function'&&node.props?.node?.id==='food');
     nodes(app.renderBranch(branch)).find(node=>node.props?.accessibilityLabel==='Expand Food').props.onPress();
     tree=app.render();
-    nodes(tree).find(node=>node.props?.accessibilityLabel==='Export breakdown image with selected date range').props.onPress();
+    nodes(tree).find(node=>node.props?.accessibilityLabel==='Export breakdown with selected date range').props.onPress();
     const preview=nodes(app.render()).find(node=>node.type==='ImagePreview');
     assert.equal(preview.props.snapshot.rangeStart,'2026-10-01');
     assert.equal(preview.props.snapshot.rangeEnd,'2026-10-31');

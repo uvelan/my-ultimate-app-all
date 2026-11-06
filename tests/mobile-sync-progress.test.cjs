@@ -30,3 +30,9 @@ test('the current section supersedes an older PC batch when planning the next sy
  assert.deepEqual({ ...upcomingSyncRange(543, 2023, 551, 15, old) }, { start: 551, end: 566 });
  assert.deepEqual({ ...upcomingSyncRange(543, 2023, 543, 15, { start: 538, end: 550 }) }, { start: 543, end: 550 });
 });
+
+test('chapter sync continues at the first gap even when later sections are already offline', () => {
+ const { nextMissingSyncChapter } = moduleValue.exports;
+ assert.equal(nextMissingSyncChapter(551, 700, [551, 552, 554, 555]), 553);
+ assert.equal(nextMissingSyncChapter(551, 553, [551, 552]), 553);
+});
