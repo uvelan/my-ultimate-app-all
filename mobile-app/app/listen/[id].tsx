@@ -7,6 +7,7 @@ import { listenResumeService } from '@/src/services/listen-resume.service';
 import { localSyncService } from '@/src/services/local-sync.service';
 import { LocalSyncPanel } from '@/src/components/LocalSyncPanel';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as DocumentPicker from 'expo-document-picker';
 import { audioDiagnostics } from '@/src/lib/audio-diagnostics';
 import { ProgressiveAudio } from '@/src/lib/progressive-audio';
 import { KokoroSetup } from '@/src/components/KokoroSetup';
@@ -18,7 +19,7 @@ import { bookService } from '@/src/services/book.service';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, Pressable, ActivityIndicator,
-    Modal, Animated, Dimensions, Platform, TouchableOpacity, FlatList, Image, ScrollView, AppState, TextInput
+    Modal, Animated, useWindowDimensions, Platform, TouchableOpacity, FlatList, Image, ScrollView, AppState, TextInput
 } from 'react-native';
 import {
     ChevronLeft, List, SkipBack, SkipForward, Play, Pause as PauseIcon, X, Settings, Clock, BookOpen
@@ -32,11 +33,10 @@ import { cacheService } from '@/src/lib/storage';
 import { usePlaybackStore } from '@/src/store/playbackStore';
 import { playbackNotificationService } from '@/src/services/playback-notification.service';
 import { AUDIO_LABELS, AUDIO_VOICES, mobileAudioSettings, AudioProvider, NativeAudioIdentity, audioIdentityKey, nextAudioWindowStart, prepareNativeChapterPlayback } from '@/src/lib/listen-audio';
+import { prepareListenArtwork } from '@/src/lib/listen-artwork';
 import { listenAudioService, NativeAudioFile } from '@/src/services/listen-audio.service';
 import { buildNarrationCues, activeNarrationCue } from '@/src/lib/narration-sync';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
 
 interface Chapter {
     id: string;
@@ -54,11 +54,16 @@ interface Book {
 }
 
 export default function ListenScreen() {
+    const { width, height } = useWindowDimensions();
+    const splitPlayer = width >= 900 && height >= 460;
+    const sidebarWidth = Math.min(width >= 960 ? 380 : 300, width * .75);
     const router = useRouter();
     const idParam = useLocalSearchParams().id;
     const bookId = Array.isArray(idParam) ? idParam[0] : idParam;
 
-    const [book, setBook] = useState<Book | null>(null);
+    const [book, setBook] = useState<(Book & { notificationArtwork?: string }) | null>(null);
+    const [coverStatus, setCoverStatus] = useState('');
+    const [savingCover, setSavingCover] = useState(false);
     const [progressReady, setProgressReady] = useState(false);
     const [loading, setLoading] = useState(true);
     const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
@@ -187,7 +192,7 @@ export default function ListenScreen() {
 
     // Sidebar
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const sidebarAnim = useRef(new Animated.Value(SCREEN_W)).current;
+    const sidebarAnim = useRef(new Animated.Value(1)).current;
     
     // Theme setup matching Reader
     const [isLightMode, setIsLightMode] = useState(false);
@@ -264,7 +269,9 @@ export default function ListenScreen() {
                 }
             } catch { /* An older native build may not expose a PC playback checkpoint. */ }
             if (!alive.current || signal?.aborted) return;
-            setBook({ ...data, chapters });
+            const notificationArtwork = await prepareListenArtwork(data.cover);
+            if (!alive.current || signal?.aborted) return;
+            setBook({ ...data, chapters, notificationArtwork });
             
             const finalIdx = nativeIndex !== undefined ? bookProgress.acceptServer(id, nativeIndex)
                 : bookProgress.getRevision(id) === revision ? bookProgress.acceptServer(id, data.chapterId ?? 0) : bookProgress.getChapter(id);
@@ -309,6 +316,33 @@ export default function ListenScreen() {
     }, [book?.id]));
 
     const chapterWindow = useListenChapters(book, currentChapterIndex, setBook);
+    const replaceCover = async () => {
+        if (!book || savingCover) return;
+        setSavingCover(true);
+        setCoverStatus('');
+        try {
+            const selected = await DocumentPicker.getDocumentAsync({ type: ['image/jpeg', 'image/png', 'image/webp'], copyToCacheDirectory: true });
+            if (selected.canceled) return;
+            const file = selected.assets[0];
+            if (file.size !== undefined && file.size > 4_000_000) throw new Error('Choose an image under 4 MB.');
+            const data = new FormData();
+            data.append('cover', { uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' } as unknown as Blob);
+            const result = await api.put<{ cover: string }>(`/books/${encodeURIComponent(book.id)}`, data, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                transformRequest: payload => payload,
+            });
+            const artwork = await prepareListenArtwork(result.data.cover);
+            if (!alive.current || currentBookRef.current !== book.id) return;
+            setBook(previous => previous?.id === book.id ? { ...previous, cover: result.data.cover, notificationArtwork: artwork } : previous);
+            setCoverStatus('Cover saved. Reopen Listen to refresh the current lock-screen artwork.');
+        } catch (error) {
+            if (!alive.current) return;
+            const response = error as { response?: { data?: { error?: string } }; message?: string };
+            setCoverStatus(response.response?.data?.error || response.message || 'Could not save the cover.');
+        } finally {
+            if (alive.current) setSavingCover(false);
+        }
+    };
     const currentChapter = book?.chapters[currentChapterIndex];
     if (chunkScope.current.chapterId !== currentChapter?.id) chunkScope.current = { chapterId: currentChapter?.id, target: normalizeChunkTarget(cacheService.get('listen-chunk-target')) };
     if (provider === 'kokoro' && book && userId && currentChapter?.content !== undefined && !chunkScope.current.restored) {
@@ -379,7 +413,7 @@ export default function ListenScreen() {
         setIsGenerating(false); setAudioNotice('');
         audioDiagnostics.record('playing chunk', { index: piece.index, start: piece.start, end: piece.end });
         prepareNativeChapterPlayback(player, piece.uri, playbackSpeed, {
-            title: currentChapter.title, artist: book.title, albumTitle: book.title, artworkUrl: book.cover,
+            title: currentChapter.title, artist: book.title, albumTitle: book.title, artworkUrl: book.notificationArtwork,
         }, playIntent.current && !pendingSeek.current);
         updateStream(value => value + 1);
     };
@@ -425,7 +459,7 @@ export default function ListenScreen() {
         cacheService.set('listen-kokoro-voice', voice);
         const pc = localSyncService.settings();
         if (pc.enabled && !pc.phoneFallback && activeKey.current) {
-            player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, voice, endOfChapter: sleepTimer === 'EOC', chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
+            player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, artworkUrl: book.notificationArtwork, voice, endOfChapter: sleepTimer === 'EOC', chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
             setHandoffVoice(voice); setAudioNotice('PC-synced chapters keep one voice. The new voice applies to the next chapter or a new sync.'); return;
         }
         let current = stream.current;
@@ -521,10 +555,10 @@ export default function ListenScreen() {
         if (bookmark && bookmark.position > 0) pendingSeek.current = { uri: file.uri, seconds: bookmark.position };
         awaitingAudio.current = file.uri; sourceUri.current = file.uri; setReadyAudioUri(null); setActiveAudio({ key, file });
         prepareNativeChapterPlayback(player, file.uri, playbackSpeed, {
-            title: book!.chapters[index].title, artist: book!.title, albumTitle: book!.title, artworkUrl: book!.cover,
+            title: book!.chapters[index].title, artist: book!.title, albumTitle: book!.title, artworkUrl: book!.notificationArtwork,
         }, playIntent.current && !pendingSeek.current);
         if (Platform.OS === 'android' && file.uri.includes('/local-pc-audio/')) {
-            player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book!.id, bookTitle: book!.title, voice: file.voice,
+            player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book!.id, bookTitle: book!.title, artworkUrl: book!.notificationArtwork, voice: file.voice,
                 endOfChapter: sleepTimer === 'EOC',
                 chapters: book!.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
         }
@@ -1178,13 +1212,13 @@ export default function ListenScreen() {
     const openSidebar = useCallback(() => {
         setIsSidebarOpen(true);
         Animated.parallel([
-            Animated.spring(sidebarAnim, { toValue: SCREEN_W - SIDEBAR_W, useNativeDriver: true, speed: 20, bounciness: 4 }),
+            Animated.spring(sidebarAnim, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 4 }),
         ]).start();
     }, [sidebarAnim]);
 
     const closeSidebar = useCallback(() => {
         Animated.parallel([
-            Animated.timing(sidebarAnim, { toValue: SCREEN_W, duration: 250, useNativeDriver: true }),
+            Animated.timing(sidebarAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
         ]).start(() => setIsSidebarOpen(false));
     }, [sidebarAnim]);
 
@@ -1198,7 +1232,7 @@ export default function ListenScreen() {
     const setTimer = (m: number | 'EOC' | null) => {
         nativeSleepDeadline.current = typeof m === 'number' ? Date.now() + m * 60_000 : 0;
         runPlayerAction(() => player.setSleepDeadline?.(nativeSleepDeadline.current));
-        if (activeAudio?.file.uri.includes('/local-pc-audio/') && book) player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, voice: currentVoice, endOfChapter: m === 'EOC', chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
+        if (activeAudio?.file.uri.includes('/local-pc-audio/') && book) player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, artworkUrl: book.notificationArtwork, voice: currentVoice, endOfChapter: m === 'EOC', chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
         if (m === null) {
             setSleepTimer(null);
             setTimeRemaining(null);
@@ -1252,6 +1286,8 @@ export default function ListenScreen() {
             {/* Main Player Area */}
             <ScrollView removeClippedSubviews={false} className="flex-1" contentContainerStyle={{ flexGrow: 1, alignItems: 'center', padding: 20 }}>
                 
+                <View style={{ width: '100%', maxWidth: 1320, flexDirection: splitPlayer ? 'row' : 'column', gap: 20 }}>
+                <View style={{ alignItems: 'center', flex: splitPlayer ? 1 : undefined, minWidth: 0 }}>
                 {/* Artwork */}
                 <View className="w-full flex-row items-center mb-4 gap-4">
                 <View className={`w-20 h-28 rounded-xl border ${th.border} overflow-hidden ${th.surface} items-center justify-center`}>
@@ -1362,8 +1398,10 @@ export default function ListenScreen() {
                         <ChevronLeft size={20} color={th.icon} style={{ transform: [{ rotate: '180deg'}] }} />
                     </TouchableOpacity>
                 </View>
+                </View>
+                <View style={{ flex: splitPlayer ? 1.25 : undefined, minWidth: 0 }}>
                 <ListenTranscript cues={cues} activeCue={activeCue} light={isLightMode}
-                    height={Math.min(340, Dimensions.get('window').height * 0.38)} follow={followAudio} scrollRef={transcriptRef}
+                    height={splitPlayer ? Math.max(300, height - 156) : Math.min(340, height * .38)} follow={followAudio} scrollRef={transcriptRef}
                     onFollow={() => { const follow = !followAudioRef.current; followAudioRef.current = follow; setFollowAudio(follow); if (follow) focusSpokenCue(); }}
                     onDrag={() => { followAudioRef.current = false; setFollowAudio(false); }}
                     onViewport={height => { transcriptHeight.current = height; focusSpokenCue(false); }}
@@ -1373,6 +1411,8 @@ export default function ListenScreen() {
                         cueLayouts.current.set(index, { text, y, height });
                         if (cueFocus.current.index === index) focusSpokenCue(false);
                     }} />
+                </View>
+                </View>
             </ScrollView>
 
             {/* Sidebar */}
@@ -1380,10 +1420,12 @@ export default function ListenScreen() {
                 <Pressable onPress={closeSidebar} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 998 }} />
             )}
             <Animated.View
+                pointerEvents={isSidebarOpen ? 'auto' : 'none'}
+                importantForAccessibility={isSidebarOpen ? 'auto' : 'no-hide-descendants'}
                 style={{
-                    position: 'absolute', top: 0, bottom: 0, left: 0,
-                    width: SIDEBAR_W,
-                    transform: [{ translateX: sidebarAnim }],
+                    position: 'absolute', top: 0, bottom: 0, right: 0,
+                    width: sidebarWidth,
+                    transform: [{ translateX: sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, sidebarWidth] }) }],
                     zIndex: 999,
                 }}
             >
@@ -1426,6 +1468,10 @@ export default function ListenScreen() {
                 <View className="flex-1 justify-end bg-black/60">
                     <ScrollView className={`${th.surface} rounded-t-3xl p-6 max-h-[90%] border-t ${th.border}`} contentContainerStyle={{ paddingBottom: 40 }}>
                         <Text className={`text-2xl font-bold ${th.text} font-serif mb-6`}>Audio Settings</Text>
+                        <Pressable accessibilityRole="button" disabled={savingCover} onPress={() => { void replaceCover(); }} className="py-3">
+                            <Text className="text-accent font-bold">{savingCover ? 'Saving cover…' : 'Replace book cover'}</Text>
+                        </Pressable>
+                        {!!coverStatus && <Text accessibilityLiveRegion="polite" className={th.textMuted}>{coverStatus}</Text>}
                         <Pressable accessibilityRole="button" onPress={() => { setIsSettingsOpen(false); router.push('/diagnostics' as any); }} className="py-3 mb-4"><Text className="text-accent font-bold">Diagnostics · crash reports and debug logs</Text></Pressable>
                         
                         {/* Speed */}

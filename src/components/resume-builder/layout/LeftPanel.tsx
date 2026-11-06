@@ -9,8 +9,7 @@ import {
   Wrench, FolderGit2, Award, Trophy, BookOpen, CheckCircle,
   LayoutTemplate, Target
 } from 'lucide-react';
-import { TemplateId } from '@/types/resume-builder';
-import { calculateAtsScore } from '@/lib/utils';
+import { resumeTemplateCatalog } from '../../../../mobile-app/src/lib/resume';
 
 const SECTIONS = [
   { id: 1, label: 'Personal Info', icon: User },
@@ -23,15 +22,6 @@ const SECTIONS = [
   { id: 8, label: 'Awards', icon: Trophy },
   { id: 9, label: 'Publications', icon: BookOpen },
   { id: 10, label: 'Review & ATS', icon: Target },
-];
-
-const TEMPLATES: { id: TemplateId | 'stitch-premium'; name: string; color: string }[] = [
-  { id: 'stitch-premium', name: 'Stitch', color: '#050505' },
-  { id: 'modern-professional', name: 'Modern', color: '#4F46E5' },
-  { id: 'executive-premium', name: 'Executive', color: '#0F172A' },
-  { id: 'minimal-corporate', name: 'Minimal', color: '#334155' },
-  { id: 'software-engineer-elite', name: 'Full Stack', color: '#6366F1' },
-  { id: 'enterprise-architect', name: 'Backend', color: '#10B981' },
 ];
 
 export function LeftPanel() {
@@ -81,6 +71,7 @@ export function LeftPanel() {
         <div className="px-4 py-4 shrink-0 bg-[#050505]">
           <button 
             onClick={() => setTemplateGalleryExpanded(!isTemplateGalleryExpanded)}
+            aria-expanded={isTemplateGalleryExpanded}
             className="flex items-center justify-between w-full text-[13px] font-semibold text-[#e5e2e1] hover:text-white transition-colors"
           >
             <div className="flex items-center gap-2 tracking-wide">
@@ -90,14 +81,16 @@ export function LeftPanel() {
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto px-4 pb-5 scrollbar-thin scrollbar-thumb-white/10">
+        {isTemplateGalleryExpanded && <div className="flex-1 overflow-y-auto px-4 pb-5 scrollbar-thin scrollbar-thumb-white/10">
           <div className="grid grid-cols-2 gap-3">
-            {TEMPLATES.map(template => {
+            {resumeTemplateCatalog.map(template => {
               const isSelected = currentTemplate === template.id;
               return (
                 <button 
                   key={template.id}
-                  onClick={() => updateMeta({ templateId: template.id })}
+                  aria-pressed={isSelected}
+                  title={template.description}
+                  onClick={() => updateMeta({ templateId: template.id, customization: { ...data.meta.customization, accentColor: template.accent } })}
                   className="flex flex-col items-center gap-1.5 group"
                 >
                   <div 
@@ -108,7 +101,7 @@ export function LeftPanel() {
                     style={{ backgroundColor: isSelected ? 'white' : '#1c1b1b' }}
                   >
                     {/* Decorative mini layout to look like a template */}
-                    <div className="absolute top-0 left-0 w-full h-2" style={{ backgroundColor: template.color }} />
+                    <div className="absolute top-0 left-0 w-full h-2" style={{ backgroundColor: template.accent }} />
                     <div className="absolute top-4 left-2 w-3/4 h-1 bg-slate-300 rounded-full" />
                     <div className="absolute top-6 left-2 w-1/2 h-1 bg-slate-200 rounded-full" />
                     <div className="absolute top-10 left-2 w-5/6 h-[1px] bg-slate-200" />
@@ -123,7 +116,7 @@ export function LeftPanel() {
               )
             })}
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Mini ATS Score Ring */}

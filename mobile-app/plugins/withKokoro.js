@@ -20,7 +20,7 @@ function withKokoro(config) {
   config = withAndroidManifest(config, mod => {
     const manifest = mod.modResults.manifest;
     manifest['uses-permission'] ||= [];
-    for (const name of ['WAKE_LOCK', 'INTERNET', 'ACCESS_NETWORK_STATE', 'CHANGE_WIFI_MULTICAST_STATE', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_DATA_SYNC', 'RECEIVE_BOOT_COMPLETED']) {
+    for (const name of ['WAKE_LOCK', 'INTERNET', 'ACCESS_NETWORK_STATE', 'CHANGE_WIFI_MULTICAST_STATE', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_DATA_SYNC', 'FOREGROUND_SERVICE_MEDIA_PROCESSING', 'RECEIVE_BOOT_COMPLETED']) {
       const full = 'android.permission.' + name;
       if (!manifest['uses-permission'].some(item => item.$['android:name'] === full)) manifest['uses-permission'].push({ $: { 'android:name': full } });
     }
@@ -31,6 +31,7 @@ function withKokoro(config) {
     }
     for (const service of [
       { 'android:name': '.LocalSyncForeground', 'android:exported': 'false', 'android:foregroundServiceType': 'dataSync' },
+      { 'android:name': '.PhoneConversionForeground', 'android:exported': 'false', 'android:foregroundServiceType': 'dataSync|mediaProcessing' },
       { 'android:name': '.LocalSyncJob', 'android:exported': 'false', 'android:permission': 'android.permission.BIND_JOB_SERVICE' },
     ]) if (!app.service.some(item => item.$['android:name'] === service['android:name'])) app.service.push({ $: service });
     return mod;

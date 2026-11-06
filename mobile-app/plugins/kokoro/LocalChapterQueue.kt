@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
+import java.net.URL
 import java.util.concurrent.Executors
 
 /** App-owned local chapter queue. All transitions and discovery of newly synced files run natively. */
@@ -75,7 +76,10 @@ class LocalChapterQueue(private val context: Context, private val player: ExoPla
             val chapters = cfg.getJSONArray("chapters")
             val index = entry.getInt("chapterIndex")
             val chapter = chapters.optJSONObject(index) ?: return
-            updateMetadata(Metadata(chapter.optString("title"), cfg.optString("bookTitle"), cfg.optString("bookTitle"), null))
+            val artwork = cfg.optString("artworkUrl").takeIf { it.isNotBlank() }?.let {
+                runCatching { URL(it) }.getOrNull()
+            }
+            updateMetadata(Metadata(chapter.optString("title"), cfg.optString("bookTitle"), cfg.optString("bookTitle"), artwork))
             checkpoint(true)
         } catch (_: Exception) { }
     }

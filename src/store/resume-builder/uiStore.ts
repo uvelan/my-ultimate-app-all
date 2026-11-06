@@ -24,7 +24,7 @@ const initialState = {
   isAiPanelOpen: false,
   previewMode: 'desktop' as const,
   previewZoom: 60,
-  isTemplateGalleryExpanded: false,
+  isTemplateGalleryExpanded: true,
   isActionBarMinimized: false,
   isMaskingEnabled: false,
 };

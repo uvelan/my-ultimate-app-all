@@ -1,24 +1,48 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { directDriveService, importDriveAudio, type DriveBookFolder, type DriveSyncProgress, type DriveChapterIssue } from '../services/drive-audio.service';
 
-import { convertPhoneChapter } from '../services/phone-chapter.service';
+import { phoneConversion, type PhoneConversionProgress } from '../services/phone-chapter.service';
 
-export function DriveAudioPanel({ book, userId, chapterIndex, voice, chunkTarget }: {
+export interface ChapterConversionControls {
+    convert: (chapter: { id: string; title: string }, replaceSaved: boolean) => void;
+    stop: () => void;
+}
+
+export interface ChapterSyncDetails {
+    busy: boolean;
+    issues: DriveChapterIssue[];
+    phone: PhoneConversionProgress | null;
+}
+
+export function DriveAudioPanel({ book, userId, chapterIndex, voice, chunkTarget, chapterControls, onDetails }: {
     book?: { id: string; title: string; chapters: { id: string; title: string; content?: unknown }[] };
     userId: string; chapterIndex: number; voice: string; chunkTarget: number;
+    chapterControls: React.Ref<ChapterConversionControls>;
+    onDetails: (details: ChapterSyncDetails) => void;
 }) {
-    const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
+    const [driveBusy, setBusy] = useState(false), [message, setMessage] = useState('');
     const [folderMenu, setFolderMenu] = useState(false);
-    const [converting, setConverting] = useState(false);
-    const phoneRun = useRef<AbortController | null>(null);
     const [folders, setFolders] = useState<DriveBookFolder[]>([]);
     const [selected, setSelected] = useState<DriveBookFolder | null>(null);
     const [progress, setProgress] = useState<DriveSyncProgress | null>(null);
+    const conversion = useSyncExternalStore(phoneConversion.subscribe, phoneConversion.snapshot);
+    const phone = conversion?.scope === phoneConversion.scope(userId, book?.id || '', voice) ? conversion : null;
+    const busy = driveBusy || !!conversion?.running;
+    useEffect(() => {
+        if (!phone?.savedIds.length) return;
+        setProgress(value => {
+            if (!value) return value;
+            const issues = value.issues.filter(item => !phone.savedIds.includes(item.chapterId));
+            const removed = value.issues.length - issues.length;
+            return removed ? { ...value, saved: value.saved + removed, mismatched: Math.max(0, value.mismatched - removed), issues } : value;
+        });
+    }, [phone]);
+    useEffect(() => { onDetails({ busy, issues: progress?.issues || [], phone }); }, [busy, progress?.issues, phone, onDetails]);
     const updateProgress = (value: DriveSyncProgress) => { if (mounted.current) setProgress(value); };
     const cancelled = useRef(false), mounted = useRef(true);
-    useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancelled.current = true; phoneRun.current?.abort(); }; }, []);
-    useEffect(() => { cancelled.current = true; phoneRun.current?.abort(); setProgress(null); setFolderMenu(false); setSelected(book ? directDriveService.selected(userId, book.id) || null : null); setFolders([]); }, [userId, book?.id, voice]);
+    useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancelled.current = true; }; }, []);
+    useEffect(() => { cancelled.current = true; setProgress(null); setFolderMenu(false); setSelected(book ? directDriveService.selected(userId, book.id) || null : null); setFolders([]); }, [userId, book?.id, voice]);
     const connect = async () => {
         if (busy) return;
         setBusy(true); setMessage('Connecting Google Drive…');
@@ -43,37 +67,14 @@ export function DriveAudioPanel({ book, userId, chapterIndex, voice, chunkTarget
         catch (error) { if (mounted.current) { setProgress(value => value ? { ...value, phase: cancelled.current ? 'stopped' : 'error' } : value); setMessage(error instanceof Error ? error.message : 'Drive import failed'); } }
         finally { if (mounted.current) setBusy(false); }
     };
-    const convert = async (issues: DriveChapterIssue[]) => {
-        if (!book || busy || phoneRun.current) return;
-        const controller = new AbortController();
-        phoneRun.current = controller;
-        setBusy(true);
-        setConverting(true);
-        const failures: string[] = [];
-        let saved = 0;
-        try {
-            for (const issue of issues) {
-                if (controller.signal.aborted) break;
-                setMessage(`Converting on phone · ${issue.title}`);
-                try {
-                    await convertPhoneChapter(book, issue.chapterId, userId, voice, chunkTarget, controller.signal, event => {
-                        if (mounted.current && !controller.signal.aborted) setMessage(`${issue.title} · ${event.message || 'Generating audio'}`);
-                    });
-                    if (controller.signal.aborted || !mounted.current) break;
-                    saved++;
-                    setProgress(value => value ? { ...value, saved: value.saved + 1,
-                        mismatched: Math.max(0, value.mismatched - 1),
-                        issues: value.issues.filter(item => item.chapterId !== issue.chapterId) } : value);
-                } catch (error) {
-                    if (!controller.signal.aborted) failures.push(`${issue.title}: ${error instanceof Error ? error.message : 'Conversion failed'}`);
-                }
-            }
-            if (mounted.current) setMessage(`${controller.signal.aborted ? 'Stopped' : 'Phone conversion finished'} · ${saved} saved${failures.length ? '\n' + failures.join('\n') : ''}`);
-        } finally {
-            phoneRun.current = null;
-            if (mounted.current) { setBusy(false); setConverting(false); }
-        }
+    const convert = (chapters: { id: string; title: string }[], replaceSaved = false) => {
+        if (!book || !userId || busy) return;
+        void phoneConversion.start(book, chapters, userId, voice, chunkTarget, replaceSaved);
     };
+    useImperativeHandle(chapterControls, () => ({
+        convert: (chapter, replaceSaved) => convert([chapter], replaceSaved),
+        stop: phoneConversion.stop,
+    }));
     return <View style={{ padding: 16, marginVertical: 12, borderRadius: 14, backgroundColor: '#1e293b', gap: 10 }}>
         <Text style={{ color: '#f8fafc', fontSize: 17, fontWeight: '700' }}>Google Drive audio</Text>
         <Text style={{ color: '#cbd5e1' }}>{book ? `Download all available Drive chapters from section ${chapterIndex + 1} onward${book.chapters[chapterIndex]?.title ? ` (${book.chapters[chapterIndex].title})` : ''}. Future syncs check new or changed recordings for your selected voice. Keep this screen open.` : 'Open a book in Listen, then open Sync to import its Drive audio.'}</Text>
@@ -88,11 +89,11 @@ export function DriveAudioPanel({ book, userId, chapterIndex, voice, chunkTarget
             {progress.issues.length > 0 && <View style={{ gap: 6 }}>
                 {progress.issues.map(issue => <View key={issue.chapterId}>
                     <Text style={{ color: '#fbbf24' }}>Section {issue.section} · {issue.title}: {issue.reason}</Text>
-                    <Pressable disabled={busy} onPress={() => { void convert([issue]); }}>
+                    <Pressable disabled={busy} onPress={() => { void convert([{ id: issue.chapterId, title: issue.title }]); }}>
                         <Text style={{ color: '#93c5fd', paddingVertical: 6 }}>Convert on phone</Text>
                     </Pressable>
                 </View>)}
-                {progress.issues.length > 1 && <Pressable disabled={busy} onPress={() => { void convert(progress.issues); }}>
+                {progress.issues.length > 1 && <Pressable disabled={busy} onPress={() => { void convert(progress.issues.map(issue => ({ id: issue.chapterId, title: issue.title }))); }}>
                     <Text style={{ color: '#93c5fd', paddingVertical: 6 }}>Convert all failed chapters on phone</Text>
                 </Pressable>}
                 {selected && <Pressable disabled={busy} onPress={() => { void sync(true); }}>
@@ -117,13 +118,13 @@ export function DriveAudioPanel({ book, userId, chapterIndex, voice, chunkTarget
             <Text style={{ color: '#fff' }}>{folder.name}{selected?.id === folder.id ? ' ✓' : ''}</Text>
         </Pressable>)}
         <Pressable disabled={!book || !selected || busy || !userId} onPress={() => { void sync(); }} style={{ padding: 13, borderRadius: 10, backgroundColor: '#2563eb', opacity: !book || !selected || busy ? .5 : 1 }}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Sync chapters directly from Drive</Text>}
+            {driveBusy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Sync chapters directly from Drive</Text>}
         </Pressable>
         <Text style={{ color: '#94a3b8' }}>ZIP import is available as a fallback. Direct sync does not download a ZIP.</Text>
         <Pressable disabled={!book || busy || !userId} onPress={run} style={{ padding: 13, borderRadius: 10, backgroundColor: '#334155', opacity: !book || busy || !userId ? .5 : 1 }}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Choose audio ZIP from Drive</Text>}
+            {driveBusy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Choose audio ZIP from Drive</Text>}
         </Pressable>
-        {busy && <Pressable onPress={() => { cancelled.current = true; if (converting) { phoneRun.current?.abort(); return; } void directDriveService.cancel(userId).catch(() => {}); setMessage('Stopping… Partial direct downloads are kept for resume. ZIP import stops after the current chapter.'); }}><Text style={{ color: '#fbbf24' }}>{converting ? 'Stop phone conversion' : 'Stop sync'}</Text></Pressable>}
+        {driveBusy && <Pressable onPress={() => { cancelled.current = true; void directDriveService.cancel(userId).catch(() => {}); setMessage('Stopping… Partial direct downloads are kept for resume. ZIP import stops after the current chapter.'); }}><Text style={{ color: '#fbbf24' }}>Stop sync</Text></Pressable>}
         {!busy && selected && book && <Pressable onPress={async () => { await directDriveService.disconnect(userId, book.id); setSelected(null); setMessage('Drive disconnected locally. Offline audio is kept.'); }}><Text style={{ color: '#94a3b8' }}>Disconnect Drive</Text></Pressable>}
         {!!message && <Text accessibilityLiveRegion="polite" style={{ color: '#cbd5e1' }}>{message}</Text>}
     </View>;

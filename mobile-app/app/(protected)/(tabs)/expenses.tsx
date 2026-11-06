@@ -23,7 +23,7 @@ export default function ExpensesScreen() {
         StatusBar.setBarStyle('dark-content');
         return () => StatusBar.setBarStyle('light-content');
     }, []));
-    const { toggle: toggleSidebar } = useSidebar();
+    const { toggle: toggleSidebar, desktop } = useSidebar();
     const insets = useSafeAreaInsets();
     const financeRequest = useRef(0);
     const [loadError, setLoadError] = useState('');
@@ -279,7 +279,7 @@ export default function ExpensesScreen() {
         <View style={{ flex: 1, backgroundColor: '#f9f9ff' }}>
             <View style={{ backgroundColor: '#fff', paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#e8eeff' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><TouchableOpacity accessibilityLabel="Open app menu" onPress={toggleSidebar}><Menu size={24} color="#001642" /></TouchableOpacity><Text style={{ fontSize: 24, fontWeight: '800', color: '#001642' }}>Finance</Text></View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>{!desktop && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open app menu" onPress={toggleSidebar}><Menu size={24} color="#001642" /></TouchableOpacity>}<Text style={{ fontSize: 24, fontWeight: '800', color: '#001642' }}>Finance</Text></View>
                     <TouchableOpacity accessibilityLabel={activeSegment === 'income' ? 'Add income' : 'Add transaction'} onPress={() => activeSegment === 'income' ? setIsAddIncomeModalOpen(true) : setIsAddModalOpen(true)} style={{ backgroundColor: '#001642', padding: 9, borderRadius: 24 }}><Plus size={22} color="#fff" /></TouchableOpacity>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 }}>

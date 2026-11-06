@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { VictoryPie } from 'victory-native';
 import { Wallet, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Download } from 'lucide-react-native';
 import { DashboardCategory, DashboardTransaction, dashboardView, dashboardCategoryTree } from '@/src/lib/finance-dashboard';
@@ -86,7 +86,7 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
     ];
     const branches = tree.length ? tree.map(node => <BreakdownBranch key={view + ':' + node.id} node={node} total={totalExpense} expanded={expanded} onToggle={toggleBranch} />) : <Text style={[s.note, { paddingVertical: 20 }]}>No expenses match this selection.</Text>;
     return <View style={s.page}>
-        <View style={s.metrics}>{metrics.map(({ label, value, Icon, color, accent }) => <View key={label} style={[s.card, s.metric, accent && s.balance]}>
+        <View style={s.metrics}>{metrics.map(({ label, value, Icon, color, accent }) => <View key={label} style={[s.card, s.metric, accent && s.balance, horizontal && s.wideMetric]}>
             <View style={s.metricHeading}><Text style={[s.metricLabel, accent && { color: '#c4d1ee' }]}>{label}</Text><Icon size={18} color={color} /></View>
             <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} style={[s.metricValue, { color }]}>{value}</Text>
         </View>)}</View>
@@ -120,7 +120,7 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
                     })}</View>
                 </View>
                 <View style={{ width: horizontal ? '48%' : '100%' }}><Text style={[s.heading, { fontSize: 16, marginBottom: 8 }]}>Breakdown</Text>
-                    {horizontal ? <ScrollView nestedScrollEnabled style={{ maxHeight: 216 }}>{branches}</ScrollView> : branches}
+                    {branches}
                 </View>
             </View>
         </View>
@@ -133,6 +133,7 @@ const s = StyleSheet.create({
     card: { padding: 16, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#eef0f8' },
     metric: { width: '47%', flexGrow: 1, padding: 16 },
     balance: { width: '100%', backgroundColor: '#00296d', borderColor: '#00296d' },
+    wideMetric: { width: 'auto', flex: 1, minWidth: 0 },
     metricHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 14 },
     metricLabel: { color: '#444650', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', flexShrink: 1 },
     metricValue: { fontSize: 22, fontWeight: '700' },

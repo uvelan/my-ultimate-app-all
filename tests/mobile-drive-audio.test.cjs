@@ -8,7 +8,7 @@ function load(file, dependencies = {}) {
  const module = { exports: {} };
  const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../mobile-app', file), 'utf8'),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
- vm.runInNewContext(code, { module, exports: module.exports, console, require: name => {
+ vm.runInNewContext(code, { module, exports: module.exports, console, AbortController, require: name => {
   if (!(name in dependencies)) throw Error(name); return dependencies[name];
  } });
  return module.exports;
@@ -23,6 +23,45 @@ const record = { identity: key, title: 'Chapter 435', chapterIndex: 438, voice: 
 const catalog = { schema: 'ultimate-drive-audio', schemaVersion: 1, bookId: 'epub-' + 'b'.repeat(64), chapters: [], recordings: { [key]: record } };
 const manifest = { voice: 'af_bella', format: 'wav', model: 'kokoro-v1.0', sampleRate: 24000,
  sync: { version: 1, title: 'Chapter 435', paragraphs: ['Chapter 435', 'Actual prose.'], segments: [{ text: 'Actual prose.', start: 0, end: 1 }] } };
+
+test('phone conversion keeps generating after its screen unsubscribes and reports the result when reopened', async () => {
+ const calls = [];
+ let generation;
+ const ready = new Promise(resolve => { generation = resolve; });
+ let finishAudio;
+ const audio = new Promise(resolve => { finishAudio = resolve; });
+ const { phoneConversion } = load('src/services/phone-chapter.service.ts', {
+  'react-native': {
+   NativeModules: { LocalChapterSync: {
+    startPhoneConversion: async () => { calls.push('foreground started'); },
+    stopPhoneConversion: async () => { calls.push('foreground stopped'); },
+    savePhoneChapter: async () => { calls.push('audio saved'); },
+   } },
+   DeviceEventEmitter: { addListener: () => ({ remove() {} }) },
+  },
+  'expo-file-system/legacy': { deleteAsync: async () => {} },
+  '../lib/listen-audio': { audioIdentityKey: () => 'key', assertAudioActive: signal => signal.throwIfAborted() },
+  './book.service': {},
+  './local-sync.service': { localSyncService: { get: async () => null, refresh: async () => {} } },
+  './kokoro.service': { kokoroService: { generate: async (_, signal, progress) => {
+   progress({ phase: 'generate', progress: .5 });
+   generation(signal);
+   return audio;
+  } } },
+ });
+ const chapter = { id: 'chapter', title: 'Chapter', content: 'Prose' };
+ const unmount = phoneConversion.subscribe(() => {});
+ const work = phoneConversion.start({ id: 'book', chapters: [chapter] }, [chapter], 'user', 'af_bella', 1000, false);
+ const signal = await ready;
+ unmount();
+ assert.equal(signal.aborted, false);
+ assert.equal(phoneConversion.snapshot().percent, 50);
+ finishAudio({ uri: 'file:///chapter.wav', bytes: 100, sync: {} });
+ await work;
+ assert.equal(phoneConversion.snapshot().running, false);
+ assert.match(phoneConversion.snapshot().message, /1 saved/);
+ assert.deepEqual(calls, ['foreground started', 'audio saved', 'foreground stopped']);
+});
 
 test('Drive matching ignores EPUB index offsets but requires actual prose equality', () => {
  assert.equal(drive.driveManifestMatches(manifest, ['Actual prose.'], 'Chapter 435'), true);

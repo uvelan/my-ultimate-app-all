@@ -11,11 +11,12 @@ import { useResumeStore } from '@/store/resume-builder/resumeStore';
 import { useUiStore } from '@/store/resume-builder/uiStore';
 import { getAiModels } from '@/actions/ai';
 import { useAuth } from '@/hooks/useAuth';
+import { resumeTemplateCatalog } from '../../../../mobile-app/src/lib/resume';
 
 export function BuilderShell({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [showMobilePreview, setShowMobilePreview] = useState(false);
-  const { data, activeAiModel, setActiveAiModel } = useResumeStore();
+  const { data, activeAiModel, setActiveAiModel, updateMeta } = useResumeStore();
   const { isActionBarMinimized } = useUiStore();
   const [aiModels, setAiModels] = useState<any[]>([]);
   const { user } = useAuth();
@@ -92,6 +93,17 @@ export function BuilderShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
+      <label className="flex items-center gap-3 px-4 py-2 text-sm md:hidden print:hidden">
+        Template
+        <select className="min-w-0 flex-1 rounded border border-white/20 bg-[#121212] px-2 py-1"
+          value={data.meta.templateId}
+          onChange={event => {
+            const template = resumeTemplateCatalog.find(item => item.id === event.target.value);
+            if (template) updateMeta({ templateId: template.id, customization: { ...data.meta.customization, accentColor: template.accent } });
+          }}>
+          {resumeTemplateCatalog.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+        </select>
+      </label>
       {/* 3-Panel Content Area */}
       <div className="flex-1 flex overflow-hidden w-full relative print:overflow-visible">
         <div className="hidden md:block print:hidden">

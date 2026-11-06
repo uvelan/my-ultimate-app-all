@@ -3,7 +3,7 @@ import { chapterContentParagraphs } from '@/src/lib/chapter-content';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, Pressable, ActivityIndicator,
-    Modal, Switch, Animated, Dimensions, Platform, TouchableOpacity, FlatList, TextInput, Alert, AppState,
+    Modal, Switch, Animated, useWindowDimensions, Platform, TouchableOpacity, FlatList, TextInput, Alert, AppState,
 } from 'react-native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
@@ -22,10 +22,10 @@ import { playbackNotificationService, registerTtsControls } from '@/src/services
 import { prepareReaderChapter, readerChapterQueue, type PreparedReaderChapter } from '@/src/lib/reader-speech';
 import { readableReaderVoices, readerBookTitle, mergeReaderBookMetadata } from '@/src/lib/reader-metadata';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const SIDEBAR_W = Math.min(300, SCREEN_W * 0.75);
 
 export default function ReaderScreen() {
+    const { width } = useWindowDimensions();
+    const sidebarWidth = Math.min(width >= 960 ? 380 : 300, width * .75);
     const router = useRouter();
     const idParam = useLocalSearchParams().id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
@@ -246,7 +246,7 @@ export default function ReaderScreen() {
 
     // Chapter sidebar
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const sidebarAnim = useRef(new Animated.Value(SCREEN_W)).current;
+    const sidebarAnim = useRef(new Animated.Value(1)).current;
     const overlayAnim = useRef(new Animated.Value(0)).current;
 
     // Playback Store Subs
@@ -321,14 +321,14 @@ export default function ReaderScreen() {
     const openSidebar = useCallback(() => {
         setIsSidebarOpen(true);
         Animated.parallel([
-            Animated.spring(sidebarAnim, { toValue: SCREEN_W - SIDEBAR_W, useNativeDriver: true, speed: 20, bounciness: 4 }),
+            Animated.spring(sidebarAnim, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 4 }),
             Animated.timing(overlayAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
         ]).start();
     }, []);
 
     const closeSidebar = useCallback(() => {
         Animated.parallel([
-            Animated.spring(sidebarAnim, { toValue: SCREEN_W, useNativeDriver: true, speed: 20, bounciness: 4 }),
+            Animated.spring(sidebarAnim, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 4 }),
             Animated.timing(overlayAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
         ]).start(() => setIsSidebarOpen(false));
     }, []);
@@ -1034,6 +1034,7 @@ export default function ReaderScreen() {
                             scrollViewRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.3 });
                         });
                     }}
+                    style={{ width: '100%', maxWidth: 880, alignSelf: 'center' }}
                     contentContainerStyle={{ padding: 20, paddingBottom: 150 }}
                     renderItem={({ item: sentencesInPara, index: pIdx }) => {
                         let prevSentenceCount = 0;
@@ -1173,10 +1174,12 @@ export default function ReaderScreen() {
             )}
 
             <Animated.View
+                pointerEvents={isSidebarOpen ? 'auto' : 'none'}
+                importantForAccessibility={isSidebarOpen ? 'auto' : 'no-hide-descendants'}
                 style={{
-                    position: 'absolute', top: 0, bottom: 0, left: 0,
-                    width: SIDEBAR_W,
-                    transform: [{ translateX: sidebarAnim }],
+                    position: 'absolute', top: 0, bottom: 0, right: 0,
+                    width: sidebarWidth,
+                    transform: [{ translateX: sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, sidebarWidth] }) }],
                     zIndex: 999,
                 }}
             >

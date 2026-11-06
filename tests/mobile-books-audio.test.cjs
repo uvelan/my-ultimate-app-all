@@ -78,13 +78,14 @@ test('reader title prefix is spoken once without duplicating an existing opening
   assert.equal(pure.readerTitlePrefix('', 'Story'), '');
 });
 
-test('native lock-screen artwork only accepts absolute HTTP(S) cover URLs', () => {
+test('native lock-screen artwork accepts web covers and prepared local artwork', () => {
   for (const cover of [undefined, '', 'data:image/png;base64,aGVsbG8=', '/cover.jpg', 'images/cover.jpg',
     '//example.com/cover.jpg', 'https://', 'file:///cache/cover.png', 'content://media/cover', 'not a URL']) {
     assert.equal(pure.nativeLockScreenArtwork(cover), undefined);
   }
   assert.equal(pure.nativeLockScreenArtwork('https://example.com/cover.jpg'), 'https://example.com/cover.jpg');
   assert.equal(pure.nativeLockScreenArtwork('http://example.com/cover.jpg'), 'http://example.com/cover.jpg');
+  assert.equal(pure.nativeLockScreenArtwork('file:///cache/listen-cover-ab12-800.jpg'), 'file:///cache/listen-cover-ab12-800.jpg');
 });
 
 test('native chapter preparation preserves playback and paused intent when lock-screen metadata fails', () => {

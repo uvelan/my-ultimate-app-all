@@ -1,19 +1,21 @@
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, Animated, Pressable, Dimensions, Platform, ScrollView, Linking, Alert } from 'react-native';
-import { Home, ShieldCheck, LogOut, Menu, X, ChevronLeft, Library, PieChart, CloudDownload, MessageSquare } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Animated, BackHandler, Pressable, Platform, ScrollView } from 'react-native';
+import { Home, ShieldCheck, LogOut, Menu, X, Library, PieChart, CloudDownload, MessageSquare } from 'lucide-react-native';
+import { usePathname, useRouter } from 'expo-router';
 import { authService } from '@/src/services/auth.service';
+import { desktopContentMax, desktopRailWidth, useAndroidWindow } from '@/src/lib/android-window';
 
-const { width: SCREEN_W } = Dimensions.get('window');
 const SIDEBAR_W = 260;
 
 interface SidebarContextType {
+    desktop: boolean;
     isOpen: boolean;
     toggle: () => void;
     close: () => void;
 }
 
 const SidebarContext = createContext<SidebarContextType>({
+    desktop: false,
     isOpen: false,
     toggle: () => {},
     close: () => {},
@@ -22,6 +24,7 @@ const SidebarContext = createContext<SidebarContextType>({
 export const useSidebar = () => useContext(SidebarContext);
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
+    const { desktop } = useAndroidWindow();
     const [isOpen, setIsOpen] = useState(false);
     const slideAnim = useRef(new Animated.Value(-SIDEBAR_W)).current;
     const overlayAnim = useRef(new Animated.Value(0)).current;
@@ -46,7 +49,14 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         else open();
     }, [isOpen]);
 
+    useEffect(() => {
+        if (!isOpen || desktop) return;
+        const listener = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });
+        return () => listener.remove();
+    }, [close, desktop, isOpen]);
+
     const router = useRouter();
+    const pathname = usePathname();
 
     const handleLogout = async () => {
         close();
@@ -72,12 +82,14 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     ];
 
     return (
-        <SidebarContext.Provider value={{ isOpen, toggle, close }}>
+        <SidebarContext.Provider value={{ desktop, isOpen, toggle, close }}>
             <View className="flex-1">
-                {children}
+                <View className="flex-1 bg-background" style={{ paddingLeft: desktop ? desktopRailWidth : 0 }}>
+                    <View style={{ flex: 1, width: '100%', alignSelf: 'center', maxWidth: desktopContentMax }}>{children}</View>
+                </View>
 
                 {/* Overlay */}
-                {isOpen && (
+                {!desktop && isOpen && (
                     <Animated.View
                         style={{
                             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -92,10 +104,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
                 {/* Sidebar Panel */}
                 <Animated.View
+                    pointerEvents={desktop || isOpen ? 'auto' : 'none'}
+                    importantForAccessibility={desktop || isOpen ? 'auto' : 'no-hide-descendants'}
                     style={{
                         position: 'absolute', top: 0, left: 0, bottom: 0,
-                        width: SIDEBAR_W,
-                        transform: [{ translateX: slideAnim }],
+                        width: desktop ? desktopRailWidth : SIDEBAR_W,
+                        transform: [{ translateX: desktop ? 0 : slideAnim }],
                         zIndex: 999,
                     }}
                 >
@@ -103,29 +117,33 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
                         {/* Header */}
                         <View className="px-6 pb-6 pt-2 border-b border-border flex-row justify-between items-center bg-background/50">
                             <Text className="text-text-primary text-xl font-bold font-serif">Menu</Text>
-                            <TouchableOpacity onPress={close} className="p-2 -mr-2 rounded-full hover:bg-white/5">
+                            {!desktop && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close navigation" onPress={close} className="p-2 -mr-2 rounded-full hover:bg-white/5">
                                 <X size={20} color="#888888" />
-                            </TouchableOpacity>
+                            </TouchableOpacity>}
                         </View>
 
                         {/* Navigation Items */}
                         <ScrollView className="mt-2 flex-1 px-3">
-                            {navItems.map((item) => (
+                            {navItems.map((item) => {
+                                const selected = item.route.replace(/\/\([^/]+\)/g, '') === pathname;
+                                return (
                                 <TouchableOpacity
                                     key={item.label}
+                                    focusable
+                                    accessibilityRole="link"
+                                    accessibilityState={{ selected }}
                                     onPress={() => {
                                         close();
-                                        if (/^https?:\/\//.test(item.route)) {
-                                            Linking.openURL(item.route).catch(() => Alert.alert('Unable to open module', 'Please try again.'));
-                                        } else router.push(item.route as any);
+                                        if (!selected) router.push(item.route as any);
                                     }}
-                                    className="flex-row items-center px-4 py-4 my-1 gap-4 rounded-xl active:bg-white/5"
+                                    className={`flex-row items-center px-3 py-3 my-1 gap-3 rounded-xl active:bg-white/5 ${selected ? 'bg-background' : ''}`}
                                     activeOpacity={0.6}
                                 >
                                     <item.icon size={22} color="#f5f5f0" />
-                                    <Text className="text-text-primary font-semibold text-base">{item.label}</Text>
+                                    <Text className="flex-1 text-text-primary font-semibold text-base">{item.label}</Text>
                                 </TouchableOpacity>
-                            ))}
+                                );
+                            })}
                         </ScrollView>
 
                         {/* Logout */}
@@ -148,9 +166,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 /** Small hamburger button component — drop this into any screen header */
 export function SidebarToggle() {
-    const { toggle } = useSidebar();
+    const { toggle, desktop } = useSidebar();
+    if (desktop) return null;
     return (
-        <TouchableOpacity onPress={toggle} className="p-2 active:bg-white/10 rounded-lg">
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open navigation" onPress={toggle} className="p-2 active:bg-white/10 rounded-lg">
             <Menu size={24} color="#f5f5f0" />
         </TouchableOpacity>
     );

@@ -1,3 +1,4 @@
+import { useAndroidWindow } from '@/src/lib/android-window';
 import { bookProgress } from '@/src/lib/book-progress';
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert, TouchableOpacity, Platform } from 'react-native';
@@ -13,6 +14,8 @@ import { cacheService } from '@/src/lib/storage';
 import { Upload, BookOpen, Download, RefreshCw, Plus } from 'lucide-react-native';
 
 export default function LibraryScreen() {
+    const { contentWidth } = useAndroidWindow();
+    const columns = Math.max(2, Math.min(6, Math.floor(contentWidth / 205)));
     const [books, setBooks] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -163,14 +166,15 @@ export default function LibraryScreen() {
             <FlatList
                 data={books}
                 keyExtractor={(item) => item.id}
-                numColumns={2}
+                key={columns}
+                numColumns={columns}
                 contentContainerStyle={{ padding: 16 }}
-                columnWrapperStyle={{ justifyContent: 'space-between' }}
+                columnWrapperStyle={{ gap: 12 }}
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />
                 }
                 renderItem={({ item }) => (
-                    <View className="w-[48%]">
+                    <View style={{ flex: 1 / columns, minWidth: 0 }}>
                         <AppCard
                             name={item.title}
                             description={item.author || 'Unknown Author'}

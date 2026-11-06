@@ -1,3 +1,4 @@
+import { useAndroidWindow } from '@/src/lib/android-window';
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, ActivityIndicator, RefreshControl, Linking, Alert } from 'react-native';
 import { AppCard } from '@/src/components/ui/AppCard';
@@ -14,6 +15,8 @@ interface MyApp {
 }
 
 export default function DashboardScreen() {
+    const { contentWidth } = useAndroidWindow();
+    const columns = Math.max(2, Math.min(6, Math.floor(contentWidth / 205)));
     const [apps, setApps] = useState<MyApp[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -115,14 +118,15 @@ export default function DashboardScreen() {
             <FlatList
                 data={apps}
                 keyExtractor={(item) => item.id}
-                numColumns={2}
+                key={columns}
+                numColumns={columns}
                 contentContainerStyle={{ padding: 16 }}
-                columnWrapperStyle={{ justifyContent: 'space-between' }}
+                columnWrapperStyle={{ gap: 12 }}
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />
                 }
                 renderItem={({ item }) => (
-                    <View className="w-[48%]">
+                    <View style={{ flex: 1 / columns, minWidth: 0 }}>
                         <AppCard
                             name={item.name}
                             description={item.description}

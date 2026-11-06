@@ -21,7 +21,9 @@ export function nativeLockScreenArtwork(cover?: string): string | undefined {
     if (!cover) return undefined;
     try {
         const url = new URL(cover);
-        return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname ? url.href : undefined;
+        if ((url.protocol === 'https:' || url.protocol === 'http:') && url.hostname) return url.href;
+        if (url.protocol === 'file:' && !url.hostname && /\/listen-cover-[a-z0-9-]+\.(?:jpg|png|webp|gif)$/.test(url.pathname)) return url.href;
+        return undefined;
     } catch { return undefined; }
 }
 export function prepareNativeChapterPlayback(player: NativeChapterPlayer, uri: string, rate: number,

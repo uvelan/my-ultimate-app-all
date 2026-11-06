@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');const {test}=require('node:test');const ts=require('typescript');
 function load(file){const m={exports:{}};new vm.Script(ts.transpileModule(fs.readFileSync(path.resolve(__dirname,'../'+file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText).runInNewContext({module:m,exports:m.exports,Date,Set,Object,Array,Math});return m.exports;}
 const {smsPeriodDates,smsBookingTimestamp}=load('mobile-app/src/lib/sms-date-range.ts');
-const {emptyResume,normalizeResume,resumeHtml,maskResume}=load('mobile-app/src/lib/resume.ts');
+const {emptyResume,normalizeResume,resumeHtml,resumeDocument,maskResume,resumeAtsChecklist,resumeTemplateCatalog}=load('mobile-app/src/lib/resume.ts');
 const date=(year,month,day)=>new Date(year,month-1,day,15,34,56);const parts=value=>[value.getFullYear(),value.getMonth()+1,value.getDate(),value.getHours()];
 test('SMS day includes selected local-calendar day and excludes time-of-day',()=>{const range=smsPeriodDates('DAY',date(2026,10,18),date(2026,10,19));assert.deepEqual(parts(range.start),[2026,10,18,0]);assert.deepEqual(parts(range.end),[2026,10,18,0]);});
 test('SMS week is Monday-Sunday across year boundaries, not the last seven rolling days',()=>{const range=smsPeriodDates('WEEK',date(2025,1,1),date(2026,10,19));assert.deepEqual(parts(range.start),[2024,12,30,0]);assert.deepEqual(parts(range.end),[2025,1,5,0]);});
@@ -11,5 +11,38 @@ test('resume normalizer preserves all web sections and fills missing native form
 test('resume PDF markup escapes untrusted input and blocks unsafe color/image URLs',()=>{const data=emptyResume();data.personalInfo.fullName='<script>secret()</script>';data.personalInfo.photoUrl='javascript:evil()';data.summary='Summary <img onerror=bad>';data.meta.customization.accentColor='red;position:fixed';const html=resumeHtml(data);assert.ok(!html.includes('<script>'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('javascript:'));assert.ok(!html.includes('red;position:fixed'));assert.ok(html.includes('Summary &lt;img onerror=bad&gt;'));});
 test('resume personal masking leaves stored data unchanged and removes contacts from PDF',()=>{const data=emptyResume();Object.assign(data.personalInfo,{fullName:'Private Name',email:'private@company.test',phone:'9876543210',photoUrl:'https://image.test/photo.png'});const masked=maskResume(data);assert.equal(masked.personalInfo.fullName,'Confidential Candidate');assert.equal(data.personalInfo.fullName,'Private Name');const html=resumeHtml(data,true);assert.ok(!html.includes('Private Name'));assert.ok(!html.includes('private@company.test'));assert.ok(!html.includes('9876543210'));assert.ok(!html.includes('image.test'));});
 test('resume PDF applies section order, hidden sections, column/spacing/font settings and safe photos',()=>{const data=emptyResume();data.personalInfo.photoUrl='https://image.test/photo.png';data.summary='Unique summary';data.skills.technical=['Unique skill'];data.meta.customization.hiddenSections=['skills'];data.meta.customization.columnLayout='2-col';data.meta.customization.fontPairing='serif';const html=resumeHtml(data);assert.ok(html.includes('Unique summary'));assert.ok(!html.includes('Unique skill'));assert.ok(html.includes('column-count:2'));assert.ok(html.includes('Georgia'));assert.ok(html.includes('https://image.test/photo.png'));});
+
+test('ATS preview and export keep text order, omit photos, and use one column',()=>{
+ const data=emptyResume();
+ data.personalInfo.photoUrl='https://image.test/photo.png';
+ data.summary='Resume summary';
+ data.experience=[{position:'Engineer',company:'Example',startDate:'2022-01',endDate:'2023-01',isCurrent:true,responsibilities:['Built a search service.']}];
+ data.skills.tools=['SQL'];
+ data.meta.customization.columnLayout='2-col';
+ const document=resumeDocument(data,false,true);
+ const html=resumeHtml(data,false,true);
+ assert.ok(html.includes(document.markup));
+ assert.match(html,/<h3>Engineer · Example<\/h3><p>2022-01 – Present<\/p>/);
+ assert.ok(html.indexOf('Resume summary') < html.indexOf('Built a search service.'));
+ assert.ok(html.indexOf('Built a search service.') < html.indexOf('SQL'));
+ assert.doesNotMatch(html,/column-count|<img|2023-01/);
+ assert.equal(data.meta.customization.columnLayout,'2-col');
+ data.meta.templateId='ats-optimized';
+ assert.equal(resumeHtml(data),html);
+});
+
+test('new templates survive normalization and checklist reflects hidden sections',()=>{
+ const data=emptyResume();
+ data.skills.technical=['TypeScript'];
+ for(const id of ['academic-cv','early-career','consulting-brief']) {
+  assert.ok(resumeTemplateCatalog.some(template=>template.id===id));
+  data.meta.templateId=id;
+  assert.equal(normalizeResume(data).meta.templateId,id);
+ }
+ const skills=()=>resumeAtsChecklist(data).find(item=>item.label.includes('skills')).ready;
+ assert.equal(skills(),true);
+ data.meta.customization.hiddenSections=['skills'];
+ assert.equal(skills(),false);
+});
 
 test('reviewed SMS calendar dates remain the same day on web and reject impossible dates',()=>{assert.equal(smsBookingTimestamp('2026-10-19'),'2026-10-19T00:00:00.000Z');assert.throws(()=>smsBookingTimestamp('2026-02-30'),/valid/);assert.throws(()=>smsBookingTimestamp('19-10-2026'),/format/);});

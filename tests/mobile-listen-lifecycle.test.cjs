@@ -67,6 +67,7 @@ function harness() {
     listenResumeService: { replaceFile() {}, get: () => null, restore: async () => null, saveFile() {}, savePiece() {}, savePosition() {}, voiceChange() {}, adopt() {}, clear() {}, compact() {} },
     normalizeChunkTarget: value => Number(value) >= 200 && Number(value) <= 2000 ? Number(value) : 1000, kokoroNarration: () => ({ chunks: ['One.', 'First.'] }), audioDiagnostics: { record() {} }, ...pure, ...require('./helpers/audiobook-load.cjs'), chapterWindow: { loading: false, error: null, retry() {} }, module: { exports: {} }, useCallback: callback => callback, AbortController, URL, Error,
     console: { error() {} }, player, book, bookId: book.id, currentChapter: book.chapters[0], currentChapterIndex: 0,
+    prepareListenArtwork: async cover => pure.nativeLockScreenArtwork(cover),
     provider: 'google', currentVoice: 'en', grammarModel: 'OFF', playbackSpeed: 1, userId: 'user', settingsReady: true, progressReady: true,
     ProgressiveAudio: require('./helpers/progressive-audio.cjs').ProgressiveAudio,
     stream: ref(null), streamPlay: ref(() => {}), pendingSeek: ref(null), updateStream: () => {},

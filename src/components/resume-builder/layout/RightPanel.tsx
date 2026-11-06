@@ -53,10 +53,10 @@ export function RightPanel() {
       <div className="flex-1 overflow-auto bg-[#050505] print:bg-surface print:p-0 print:overflow-visible p-8 flex flex-col items-center relative">
         {/* The Live Resume Paper Preview */}
         <div 
-          className="bg-surface shadow-[0_0_40px_rgba(212,175,55,0.05)] border border-[#ffffff]/10 shrink-0 origin-top overflow-hidden print-no-transform print:shadow-none print:border-none"
+          className="bg-surface shadow-[0_0_40px_rgba(212,175,55,0.05)] border border-[#ffffff]/10 shrink-0 origin-top print-no-transform print:!min-h-0 print:!mb-0 print:shadow-none print:border-none"
           style={{ 
             width: '8.5in', 
-            height: '11in',
+            minHeight: '11in',
             transform: `scale(${previewZoom / 100})`,
             marginBottom: `-${(1 - (previewZoom / 100)) * 11}in` // Recoup the scaled height
           }}
@@ -66,7 +66,7 @@ export function RightPanel() {
       </div>
 
       <div className="print:hidden h-[32px] shrink-0 border-t border-white/10 bg-[#121212] flex items-center justify-center text-[11px] font-semibold tracking-wider uppercase text-[#99907c]">
-        Page 1 of 1
+        Live resume preview
       </div>
     </div>
   );

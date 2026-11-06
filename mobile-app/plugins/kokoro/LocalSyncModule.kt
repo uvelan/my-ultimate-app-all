@@ -489,6 +489,68 @@ object LocalSyncRunner {
     }
 }
 
+class PhoneConversionForeground : Service() {
+    companion object {
+        const val EVENT = "PhoneConversionForegroundStopped"
+        // Accessed on the Android main thread, including the React bridge start.
+        var started: ((Exception?) -> Unit)? = null
+        var interrupted: (() -> Unit)? = null
+        var active: PhoneConversionForeground? = null
+    }
+
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var finished: Promise? = null
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val callback = started
+        started = null
+        active = this
+        try {
+            val channel = "phone-conversion"
+            val manager = getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
+                NotificationChannel(channel, "Phone audio conversion", NotificationManager.IMPORTANCE_LOW))
+            val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, channel) else Notification.Builder(this)
+            builder.setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("Converting chapter audio")
+                .setContentText("Your chapters are being generated on this phone.").setOngoing(true)
+            if (Build.VERSION.SDK_INT >= 29) {
+                val type = if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+                    else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                startForeground(76215, builder.build(), type)
+            } else startForeground(76215, builder.build())
+            if (wakeLock == null) {
+                val manager = getSystemService(PowerManager::class.java)
+                wakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:PhoneConversion").apply {
+                    acquire(TimeUnit.HOURS.toMillis(6))
+                }
+            }
+            callback?.invoke(null)
+        } catch (error: Exception) {
+            callback?.invoke(error)
+            stopSelf()
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) { stopSelf() }
+
+    fun finish(promise: Promise) {
+        interrupted = null
+        finished = promise
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        active = null
+        interrupted?.invoke()
+        interrupted = null
+        finished?.resolve(true)
+        super.onDestroy()
+    }
+}
+
 class LocalSyncForeground : Service() {
     private val cancelled = AtomicBoolean(false)
     @Volatile private var latestStartId = 0
@@ -541,6 +603,36 @@ class LocalSyncModule(context: ReactApplicationContext) : ReactContextBaseJavaMo
     @ReactMethod fun addListener(name: String) {}
     @ReactMethod fun removeListeners(count: Int) {}
     private fun task(promise: Promise, block: () -> Any?) { LocalSyncRunner.executor.execute { try { promise.resolve(block()) } catch (error: Exception) { promise.reject("LOCAL_SYNC", error.message, error) } } }
+    @ReactMethod fun startPhoneConversion(promise: Promise) {
+        Handler(Looper.getMainLooper()).post {
+            if (PhoneConversionForeground.started != null || PhoneConversionForeground.active != null) {
+                promise.reject("PHONE_CONVERSION", "A phone conversion is already running.")
+                return@post
+            }
+            val context = reactApplicationContext
+            PhoneConversionForeground.started = { error ->
+                if (error == null) promise.resolve(true) else promise.reject("PHONE_CONVERSION", error.message, error)
+            }
+            PhoneConversionForeground.interrupted = {
+                if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit(PhoneConversionForeground.EVENT, null)
+            }
+            try {
+                val intent = Intent(context, PhoneConversionForeground::class.java)
+                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+            } catch (error: Exception) {
+                PhoneConversionForeground.started = null
+                PhoneConversionForeground.interrupted = null
+                promise.reject("PHONE_CONVERSION", error.message, error)
+            }
+        }
+    }
+    @ReactMethod fun stopPhoneConversion(promise: Promise) {
+        Handler(Looper.getMainLooper()).post {
+            val active = PhoneConversionForeground.active
+            if (active == null) promise.resolve(true) else active.finish(promise)
+        }
+    }
     @ReactMethod fun discover(promise: Promise) = task(promise) { LocalSyncNet.discover(reactApplicationContext).toString() }
     @ReactMethod fun openDrivePackage(uri: String, promise: Promise) = task(promise) { DriveAudioImport.open(reactApplicationContext, uri) }
     @ReactMethod fun driveManifest(token: String, identity: String, promise: Promise) = task(promise) { DriveAudioImport.manifest(token, identity) }

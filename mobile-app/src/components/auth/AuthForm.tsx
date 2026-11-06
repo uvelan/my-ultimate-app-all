@@ -74,8 +74,8 @@ export default function AuthForm({ type }: AuthFormProps) {
             style={{ flex: 1, backgroundColor: '#0a0a0a' }} 
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 48, justifyContent: 'center', flexGrow: 1 }} className="min-h-full">
-                <View className="relative w-full items-center justify-center">
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, paddingBottom: 48, justifyContent: 'center', alignItems: 'center', flexGrow: 1 }}>
+                <View className="relative w-full items-center justify-center" style={{ maxWidth: 480 }}>
                     {/* Decorative Premium Glow */}
                     <View className="absolute w-[150%] h-32 bg-accent/10 rounded-full top-0 opacity-80" style={{ transform: [{ scaleX: 1.5 }] }} />
                     

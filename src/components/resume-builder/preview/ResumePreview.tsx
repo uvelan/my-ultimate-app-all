@@ -8,7 +8,7 @@ import { MinimalCorporate } from './templates/MinimalCorporate';
 import { SoftwareEngineerElite } from './templates/SoftwareEngineerElite';
 import { EnterpriseArchitect } from './templates/EnterpriseArchitect';
 import { StitchPremium } from './templates/StitchPremium';
-// For any remaining templates, we'll fallback to StitchPremium for now
+import { resumeDocument } from '../../../../mobile-app/src/lib/resume';
 
 export function ResumePreview() {
   const { data } = useResumeStore();
@@ -37,7 +37,7 @@ export function ResumePreview() {
       TemplateComponent = EnterpriseArchitect;
       break;
     default:
-      TemplateComponent = StitchPremium;
+      TemplateComponent = null;
   }
 
   let previewData = data;
@@ -58,6 +58,10 @@ export function ResumePreview() {
     };
   }
 
+  if (!TemplateComponent) {
+    const { styles, markup } = resumeDocument(previewData, isMaskingEnabled);
+    return <div className="min-h-full w-full bg-white p-10"><style>{styles}</style><div dangerouslySetInnerHTML={{ __html: markup }} /></div>;
+  }
   return (
     <div className="w-full h-full bg-surface relative">
       <TemplateComponent data={previewData} customization={previewData.meta.customization} />

@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Monitor, Check, RefreshCw, ChevronRight, Download, Pause, ShieldCheck, Wifi, Zap, SlidersHorizontal } from 'lucide-react-native';
 import { chapterSyncProgress, batchDeliveryRequired, nextMissingSyncChapter, upcomingSyncRange } from '../lib/sync-progress';
 import { cacheService } from '../lib/storage';
-import { DriveAudioPanel } from './DriveAudioPanel';
+import { DriveAudioPanel, type ChapterConversionControls, type ChapterSyncDetails } from './DriveAudioPanel';
 
 interface SyncBook { id: string; title: string; chapters: { id: string; title: string; content?: unknown }[] }
 export function LocalSyncPanel({ book, chapterIndex = 0, userId = '', voice = 'af_heart', chunkTarget = 1000, initialCode = '', initialOpen = false }:
@@ -28,7 +28,10 @@ export function LocalSyncPanel({ book, chapterIndex = 0, userId = '', voice = 'a
     const [showPairing, setShowPairing] = useState(false);
     const [syncSource, setSyncSource] = useState<'drive' | 'pc'>(initialOpen ? 'pc' : 'drive');
     const [chapterRows, setChapterRows] = useState(25);
-    useEffect(() => { setChapterRows(25); }, [book?.id, chapterIndex, voice]);
+    const [expandedChapter, setExpandedChapter] = useState<string | null>(null);
+    const [driveDetails, setDriveDetails] = useState<ChapterSyncDetails>({ busy: false, issues: [], phone: null });
+    const chapterControls = useRef<ChapterConversionControls>(null);
+    useEffect(() => { setChapterRows(25); setExpandedChapter(null); }, [book?.id, chapterIndex, voice]);
     const [batch, setBatch] = useState<{ start: number; end: number } | null>(null);
     const insets = useSafeAreaInsets();
     const alive = useRef(true), preparing = useRef(false), checking = useRef(false), refreshing = useRef(false);
@@ -210,11 +213,11 @@ export function LocalSyncPanel({ book, chapterIndex = 0, userId = '', voice = 'a
         </Pressable>
         <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
             <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: Math.max(insets.top, 20) }}>
-                <View style={{ paddingHorizontal: 22, paddingTop: 14, paddingBottom: 18, flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ width: '100%', maxWidth: 960, alignSelf: 'center', paddingHorizontal: 22, paddingTop: 14, paddingBottom: 18, flexDirection: 'row', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}><Text style={{ color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 2 }}>YOUR OFFLINE LIBRARY</Text><Text style={{ color: palette.ink, fontSize: 27, fontWeight: '800', marginTop: 5 }}>Chapter Sync</Text></View>
                     <Pressable accessibilityLabel="Close Chapter Sync" onPress={() => setOpen(false)} style={{ padding: 10, borderRadius: 22, backgroundColor: palette.card }}><X size={22} color={palette.ink} /></Pressable>
                 </View>
-                <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 24 }} keyboardShouldPersistTaps="handled">
+                <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center', paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 24 }} keyboardShouldPersistTaps="handled">
                     <View style={card}>
                         <Text style={titleStyle}>{book?.title || 'Offline audio'}</Text>
                         <Text style={[detailStyle, { marginTop: 6 }]}>
@@ -237,8 +240,26 @@ export function LocalSyncPanel({ book, chapterIndex = 0, userId = '', voice = 'a
                         </Pressable>)}
                     </View>
                     <View style={syncSource === 'drive' ? undefined : { display: 'none' }}>
-                        <DriveAudioPanel book={book} userId={userId} chapterIndex={chapterIndex} voice={scopeVoice} chunkTarget={chunkTarget} />
+                        <DriveAudioPanel book={book} userId={userId} chapterIndex={chapterIndex} voice={scopeVoice} chunkTarget={chunkTarget}
+                            chapterControls={chapterControls} onDetails={setDriveDetails} />
                     </View>
+                    {driveDetails.phone && <View style={card}>
+                        <Text style={titleStyle}>Phone conversion</Text>
+                        <Text style={[detailStyle, { marginTop: 6 }]}>{driveDetails.phone.title}
+                            {driveDetails.phone.total > 1 ? ` · Chapter ${driveDetails.phone.position} of ${driveDetails.phone.total}` : ''}
+                        </Text>
+                        <Text accessibilityLiveRegion="polite" style={detailStyle}>{driveDetails.phone.message}
+                            {driveDetails.phone.percent === undefined ? '' : ` · ${driveDetails.phone.percent}%`}
+                        </Text>
+                        {driveDetails.phone.percent !== undefined && <View accessibilityRole="progressbar" accessibilityLabel="Phone conversion progress"
+                            accessibilityValue={{ min: 0, max: 100, now: driveDetails.phone.percent }}
+                            style={{ height: 6, marginTop: 8, backgroundColor: palette.border, borderRadius: 3 }}>
+                            <View style={{ width: `${driveDetails.phone.percent}%`, height: 6, borderRadius: 3, backgroundColor: palette.purple }} />
+                        </View>}
+                        {driveDetails.phone.running && <Pressable accessibilityRole="button" onPress={() => chapterControls.current?.stop()} style={{ paddingTop: 10 }}>
+                            <Text style={{ color: palette.purple, fontWeight: '700' }}>Stop phone conversion</Text>
+                        </Pressable>}
+                    </View>}
                     {syncSource === 'pc' && <>
                     {(working || displayPhase === 'waiting' || displayPhase === 'error') && <View style={card}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><View style={{ padding: 10, borderRadius: 13, backgroundColor: light ? '#f1eafa' : '#2e2343' }}><Download size={20} color="#9560ec" /></View><View style={{ flex: 1 }}><Text style={titleStyle}>{status.phase.startsWith('batch-') ? 'Batch of ' + status.batchTotal + ' chapters' : activeIndex >= 0 ? 'Chapter ' + (activeIndex + 1) : phaseLabel}</Text><Text numberOfLines={1} style={detailStyle}>{book?.chapters[activeIndex]?.title || 'Preparing your chapter audio'}</Text></View><Text style={{ color: '#9161e5', fontWeight: '700' }}>{currentPercent}%</Text></View>
@@ -278,7 +299,45 @@ export function LocalSyncPanel({ book, chapterIndex = 0, userId = '', voice = 'a
                     <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 16 }}><Zap size={13} color={palette.muted} /><Text style={detailStyle}>PC generation. Less work for your phone.</Text></View>
                     </>}
                         {!!book && <View style={card}><Text style={titleStyle}>Chapter status</Text><Text style={[detailStyle, { marginTop: 6 }]}>Saved chapters play offline from either source.</Text><Text style={[detailStyle, { marginTop: 5, marginBottom: 10 }]}>{chapterIndex < chapterListEnd ? `Sections ${chapterIndex + 1}–${chapterListEnd}` : 'No remaining sections to sync'}</Text>
-                            {book.chapters.slice(chapterIndex, chapterListEnd).map((chapter, offset) => { const index = chapterIndex + offset, ready = saved.has(index), processing = working && index === activeIndex, queued = scopedQueue.find(item => item.chapterIndex === index && item.state !== 'complete'); return <View key={chapter.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 12, borderTopWidth: 1, borderTopColor: palette.border }}><View style={{ width: 29, height: 29, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: ready ? light ? '#e6f6ef' : '#18382e' : palette.bg }}>{ready ? <Check size={15} color="#28a887" /> : processing ? <ActivityIndicator size="small" color="#9865e9" /> : <Text style={{ color: palette.muted, fontSize: 10 }}>{index + 1}</Text>}</View><Text numberOfLines={1} style={{ color: palette.ink, flex: 1, fontSize: 12 }}>{chapter.title}</Text><Text style={{ color: ready ? '#28a887' : processing ? '#9865e9' : palette.muted, fontSize: 10, fontWeight: '600' }}>{ready ? 'Saved' : processing ? phaseLabel : !queued ? 'Not saved' : displayPhase === 'waiting' ? 'Waiting for PC' : paused ? 'Paused' : queued.state === 'pc-ready' ? 'Generated on PC' : 'Queued'}</Text></View>; })}
+                            {book.chapters.slice(chapterIndex, chapterListEnd).map((chapter, offset) => {
+                                const index = chapterIndex + offset;
+                                const artifact = savedFiles.find(file => file.chapterIndex === index);
+                                const issue = driveDetails.issues.find(item => item.chapterId === chapter.id);
+                                const phone = driveDetails.phone?.id === chapter.id ? driveDetails.phone : null;
+                                const processing = working && index === activeIndex;
+                                const queued = scopedQueue.find(item => item.chapterIndex === index && item.state !== 'complete');
+                                const expanded = expandedChapter === chapter.id;
+                                const label = phone?.running ? 'Converting' : artifact ? 'Saved' : issue ? 'Needs attention'
+                                    : processing ? phaseLabel : !queued ? 'Not saved' : displayPhase === 'waiting'
+                                        ? 'Waiting for PC' : paused ? 'Paused' : queued.state === 'pc-ready' ? 'Generated on PC' : 'Queued';
+                                const disabled = !userId || driveDetails.busy || processing || !!queued && !paused;
+                                return <View key={chapter.id} style={{ borderTopWidth: 1, borderTopColor: palette.border }}>
+                                    <Pressable accessibilityRole="button" accessibilityState={{ expanded }}
+                                        onPress={() => setExpandedChapter(expanded ? null : chapter.id)}
+                                        style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 12 }}>
+                                        <View style={{ width: 29, height: 29, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: artifact ? light ? '#e6f6ef' : '#18382e' : palette.bg }}>
+                                            {processing || phone?.running ? <ActivityIndicator size="small" color={palette.purple} />
+                                                : artifact ? <Check size={15} color="#28a887" /> : <Text style={detailStyle}>{index + 1}</Text>}
+                                        </View>
+                                        <Text numberOfLines={expanded ? undefined : 1} style={{ color: palette.ink, flex: 1, fontSize: 12 }}>{chapter.title}</Text>
+                                        <Text style={{ color: artifact ? '#28a887' : palette.muted, fontSize: 10, fontWeight: '600' }}>{label}</Text>
+                                        <ChevronRight size={13} color={palette.muted} style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }} />
+                                    </Pressable>
+                                    {expanded && <View style={{ backgroundColor: palette.bg, padding: 12, borderRadius: 10, gap: 6, marginBottom: 10 }}>
+                                        <Text style={detailStyle}>{`Section ${index + 1} · ${scopeVoice === 'af_bella' ? 'Bella' : 'Heart'}${artifact ? ` · ${(artifact.bytes / 1e6).toFixed(1)} MB saved` : ''}`}</Text>
+                                        {issue && <Text style={detailStyle}>Drive: {issue.reason}</Text>}
+                                        {processing && !!status.message && <Text style={detailStyle}>PC: {status.message}</Text>}
+                                        {phone && <Text accessibilityLiveRegion="polite" style={detailStyle}>{phone.message}{phone.percent === undefined ? '' : ` · ${phone.percent}%`}</Text>}
+                                        {phone?.running ? <Pressable accessibilityRole="button" onPress={() => chapterControls.current?.stop()} style={{ paddingVertical: 8 }}>
+                                            <Text style={{ color: palette.purple, fontWeight: '700' }}>Stop phone conversion</Text>
+                                        </Pressable> : <Pressable accessibilityRole="button" disabled={disabled}
+                                            onPress={() => chapterControls.current?.convert(chapter, !!artifact)}
+                                            style={{ paddingVertical: 8, opacity: disabled ? .45 : 1 }}>
+                                            <Text style={{ color: palette.purple, fontWeight: '700' }}>{artifact ? 'Re-convert on phone' : 'Convert on phone'}</Text>
+                                        </Pressable>}
+                                    </View>}
+                                </View>;
+                            })}
                         {chapterListEnd < book.chapters.length && <Pressable onPress={() => setChapterRows(rows => rows + 25)} style={{ paddingTop: 12 }}>
                                 <Text style={{ color: palette.purple, fontWeight: '700' }}>Show more chapters</Text>
                             </Pressable>}

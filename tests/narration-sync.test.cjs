@@ -26,6 +26,21 @@ test('titles already present in the narrated body are not counted twice', () => 
     assert.equal(cues.length, 2);
     assert.equal(cues[0].text, 'CHAPTER ONE!');
 });
+test('an unpunctuated chapter heading gets its own cue before the opening line', () => {
+    const title = 'Chapter 553 - Supreme Turtle';
+    const opening = '“Bring over alcohol!”';
+    const combined = title + ' ' + opening;
+    const next = 'It was surging with vitality.';
+    const sync = { ...metadata([{ text: combined, start: 0, end: 7 }, { text: next, start: 7, end: 20 }]), title };
+    const cues = buildNarrationCues('', title, sync);
+    assert.equal(cues[0].text, title);
+    assert.equal(cues[1].text, opening);
+    assert.equal(cues[1].end, 7 / 20);
+    assert.equal(cues[2].start, 7 / 20);
+    const legacy = buildNarrationCues([combined, next], title);
+    assert.equal(legacy[0].text, title);
+    assert.equal(legacy[1].text, opening);
+});
 test('measured provider chunk boundaries stop whole-chapter timing drift', () => {
     const sync = metadata([{ text: 'Title. First sentence.', start: 0, end: 8 }, { text: 'The slow final sentence.', start: 8, end: 40 }]);
     const cues = buildNarrationCues('Original text should not replace corrected audio.', 'Wrong title', sync);

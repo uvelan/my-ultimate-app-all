@@ -72,8 +72,19 @@ export function buildNarrationCues(content: unknown, title = '', sync?: Narratio
     const total = segments[segments.length - 1]?.end || 0;
     if (!(total > 0)) return [];
     const cues: NarrationCue[] = [];
-    for (const segment of segments) {
-        const parts = passages(segment.text);
+    const heading = clean(sync?.title || title);
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+        const segment = segments[segmentIndex];
+        const text = clean(segment.text);
+        let parts = passages(text);
+        if (segmentIndex === 0 && heading && text.slice(0, heading.length).toLowerCase() === heading.toLowerCase()) {
+            const remainder = text.slice(heading.length);
+            const separator = remainder.match(/^[.!?:…\u3002\uff01\uff1f]*\s+/);
+            if (separator) {
+                const body = remainder.slice(separator[0].length);
+                parts = [text.slice(0, heading.length) + separator[0].trimEnd(), ...passages(body)];
+            }
+        }
         const weights = parts.map(weight), sum = weights.reduce((a, b) => a + b, 0);
         let cursor = segment.start;
         parts.forEach((text, index) => {

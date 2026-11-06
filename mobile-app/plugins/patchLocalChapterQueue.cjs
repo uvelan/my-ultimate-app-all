@@ -10,6 +10,13 @@ function patchLocalChapterQueue(projectRoot) {
   fs.writeFileSync(file, text.replace(anchor, replacement));
  };
  fs.copyFileSync(path.join(__dirname, 'kokoro/LocalChapterQueue.kt'), path.join(dir, 'LocalChapterQueue.kt'));
+ fs.copyFileSync(path.join(__dirname, 'kokoro/SessionCoverArtwork.kt'), path.join(dir, 'SessionCoverArtwork.kt'));
+ patch('service/AudioControlsService.kt', 'publishSessionCover(this, player?.ref, metadata)', '    currentOptions = options\n\n    metadata?.artworkUrl?.let',
+  '    currentOptions = options\n    expo.modules.audio.publishSessionCover(this, player?.ref, metadata)\n\n    metadata?.artworkUrl?.let');
+ patch('service/AudioControlsService.kt', 'publishSessionCover(this, player.ref, metadata)\n    currentMetadata?.artworkUrl', '    currentMetadata = metadata\n    currentMetadata?.artworkUrl',
+  '    currentMetadata = metadata\n    expo.modules.audio.publishSessionCover(this, player.ref, metadata)\n    currentMetadata?.artworkUrl');
+ patch('service/AudioControlsService.kt', 'publishSessionCover(this, player.ref, metadata)\n\n      // Reload artwork', '      currentOptions = options\n\n      // Reload artwork',
+  '      currentOptions = options\n      expo.modules.audio.publishSessionCover(this, player.ref, metadata)\n\n      // Reload artwork');
  patch('AudioPlayer.kt', 'setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)', '.setLooper(context.mainLooper)', '.setLooper(context.mainLooper)\n    .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)');
  patch('AudioPlayer.kt', 'val localChapterQueue', 'override val id = UUID.randomUUID().toString()',
   'override val id = UUID.randomUUID().toString()\n  val localChapterQueue = LocalChapterQueue(context, ref) { updateLockScreenMetadata(it) }');

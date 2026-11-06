@@ -2,34 +2,20 @@
 
 import { useAtsStore } from '@/store/resume-builder/atsStore';
 import { useResumeStore } from '@/store/resume-builder/resumeStore';
-import { AlertCircle, CheckCircle2, Info, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
-import { cn, calculateAtsScore } from '@/lib/utils';
+import { AlertCircle, Info, Sparkles, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { resumeAtsChecklist } from '../../../../mobile-app/src/lib/resume';
 
 export function Step10Review() {
   const { atsScore, isScoring, fetchAtsScore } = useAtsStore();
-  const { data } = useResumeStore();
+  const { data, updateMeta } = useResumeStore();
 
   const handleAiScan = () => {
     fetchAtsScore(data);
   };
 
-  const calculatedOverall = calculateAtsScore(data);
-
-  // Dynamic score based on actual user data if not fully analyzed by AI
-  const score = atsScore || {
-    overall: calculatedOverall,
-    readabilityGrade: calculatedOverall > 80 ? 'A' : calculatedOverall > 60 ? 'B' : 'C',
-    keywordCoveragePct: Math.min(100, Math.max(10, calculatedOverall - 4)),
-    recruiterReadiness: Math.min(100, Math.max(10, calculatedOverall + 3)),
-    missingKeywords: ['Agile', 'Docker', 'GraphQL'],
-    sectionCompleteness: { personal: 100, experience: data.experience?.length > 0 ? 100 : 0, education: data.education?.length > 0 ? 100 : 0 },
-    suggestions: [
-      data.experience?.length === 0 ? { severity: 'error', section: 'Experience', message: 'You have not added any experience. Recruiter readiness is severely impacted.', actionLabel: 'Add Experience' } : null,
-      (data.summary?.length || 0) < 50 ? { severity: 'warning', section: 'Summary', message: 'Summary is a bit short. Consider adding 1-2 more impactful sentences.', actionLabel: 'Use AI Writer' } : null,
-      (!data.skills?.technical || data.skills.technical.length < 3) ? { severity: 'info', section: 'Skills', message: 'You have very few technical skills listed. Add more to improve keyword coverage.' } : { severity: 'info', section: 'Skills', message: 'Your skills list is looking healthy, ensure they match the job description.' }
-    ].filter(Boolean) as any[]
-  };
+  const score = atsScore;
 
   return (
     <div className="space-y-6">
@@ -46,7 +32,16 @@ export function Step10Review() {
         </Button>
       </div>
 
-      <div className="bg-surface rounded-xl shadow-sm border border-border overflow-hidden relative">
+      <div className="bg-surface rounded-xl border border-border p-5 space-y-2">
+        <h3 className="font-bold text-text-primary">ATS checklist</h3>
+        <p className="text-sm text-text-secondary">ATS Classic uses one column, standard headings, and selectable text.</p>
+        <ul className="space-y-1 text-sm text-text-primary">
+          {resumeAtsChecklist(data).map(check => <li key={check.label}>{check.ready ? '✓' : '○'} {check.label}</li>)}
+        </ul>
+        <Button size="sm" onClick={() => updateMeta({ templateId: 'ats-optimized' })}>Use ATS Classic</Button>
+      </div>
+      {isScoring && !score && <p role="status" className="text-text-secondary">Scanning resume…</p>}
+      {score && <><div className="bg-surface rounded-xl shadow-sm border border-border overflow-hidden relative">
         {/* Loading Overlay */}
         {isScoring && (
           <div className="absolute inset-0 bg-surface/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center">
@@ -66,7 +61,7 @@ export function Step10Review() {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-4xl font-extrabold text-text-primary">{score.overall}</span>
-              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider mt-1">ATS Score</span>
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider mt-1">AI estimate</span>
             </div>
           </div>
           <p className="text-text-muted max-w-sm">
@@ -127,16 +122,11 @@ export function Step10Review() {
                   </span>
                 </div>
                 <p className="text-sm text-text-secondary leading-relaxed">{suggestion.message}</p>
-                {suggestion.actionLabel && (
-                  <button className="mt-3 text-sm font-medium text-indigo-600 flex items-center gap-1 hover:text-indigo-700 transition-colors">
-                    {suggestion.actionLabel} <ArrowRight size={14} />
-                  </button>
-                )}
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </div></>}
     </div>
   );
 }

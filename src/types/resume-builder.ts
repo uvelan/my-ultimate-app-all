@@ -9,7 +9,10 @@ export type TemplateId =
   | 'data-science' 
   | 'minimal-corporate' 
   | 'creative-professional'
-  | 'stitch-premium';
+  | 'stitch-premium'
+  | 'academic-cv'
+  | 'early-career'
+  | 'consulting-brief';
 
 export interface TemplateCustomization {
   accentColor: string;
