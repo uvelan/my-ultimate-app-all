@@ -10,7 +10,7 @@ function load(file, dependencies = {}) {
  const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../', file), 'utf8'),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
  vm.runInNewContext(code, { module, exports: module.exports, Buffer, process: { env: { DRIVE_SESSION_SECRET: secret } },
-  Request, Response, Headers, URL, URLSearchParams, ReadableStream, Uint8Array,
+  Request, Response, Headers, URL, URLSearchParams, ReadableStream, Uint8Array, AbortSignal, fetch: dependencies.fetch,
   require: name => name.startsWith('node:') ? require(name) : name in dependencies ? dependencies[name] : (() => { throw Error(name); })() });
  return module.exports;
 }
@@ -121,4 +121,22 @@ test('logging out clears the path-scoped encrypted Drive grant as well as app cr
  await route.POST();
  const cleared = calls.find(row => row[1] === 'ultimate-drive-session');
  assert.equal(cleared[2], ''); assert.equal(cleared[3].path, '/api/drive'); assert.equal(cleared[3].maxAge, 0);
+});
+
+
+test('Drive chapter file lookup filters by exact names on Google and follows continuation pages', async () => {
+ const queries = [];
+ const api = load('src/lib/drive-api-server.ts', {
+  './drive-stream': crypto,
+  fetch: async input => {
+   const query = new URL(input).searchParams;
+   queries.push(query);
+   return Response.json(query.has('pageToken') ? { files: [{ id: 'audio' }] }
+    : { files: [{ id: 'manifest' }], nextPageToken: 'next' });
+  },
+ });
+ const rows = await api.driveChildren(token, 'chapters-folder', ['record.json', 'record.wav']);
+ assert.deepEqual(Array.from(rows, row => row.id), ['manifest', 'audio']);
+ assert.equal(queries[0].get('q'), "'chapters-folder' in parents and trashed = false and (name = 'record.json' or name = 'record.wav')");
+ assert.equal(queries[1].get('pageToken'), 'next');
 });

@@ -1,7 +1,7 @@
 import { NativeModules, DeviceEventEmitter } from 'react-native';
 import { cacheService } from '../lib/storage';
 import * as DocumentPicker from 'expo-document-picker';
-import { driveBody, driveManifestMatches, driveRecordings, driveCandidates, driveChapterNumber } from '../lib/drive-audio';
+import { driveBody, driveManifestMatches, driveTextMatches, driveRecordings, driveCandidates, driveChapterNumber } from '../lib/drive-audio';
 import { audioIdentityKey, type NativeAudioIdentity } from '../lib/listen-audio';
 import { kokoroNarration } from '../lib/kokoro-text';
 import { bookService } from './book.service';
@@ -68,13 +68,15 @@ async function importMatching(book: Book, userId: string, start: number, count: 
         if (cancelled()) break;
         if (loaded.id !== chapter.id) throw new Error('Chapter list changed. Reopen the book and retry.');
         const narration = kokoroNarration(loaded.content, chapter.title);
-        // Titles narrow the search; equality of actual prose is mandatory before import.
+        // Titles narrow the search. The ordered prose must match after formatting normalization.
         const candidates = driveCandidates(recordings, chapter.title, index);
         let matched = false;
         for (const record of candidates) {
             if (cancelled()) break;
             const manifest = JSON.parse(await source.manifest(record.identity));
             if (!driveManifestMatches(manifest, narration.paragraphs, chapter.title)) continue;
+            const spoken = manifest.sync.segments.map((segment: { text: string }) => segment.text).join(' ');
+            if (!driveTextMatches(spoken, manifest.sync.title, narration.paragraphs.join(' '), chapter.title)) continue;
             const identity: NativeAudioIdentity = { userId, bookId: book.id, chapterId: chapter.id, title: chapter.title,
                 content: loaded.content, provider: 'kokoro', voice: manifest.voice, grammarModel: 'OFF', chunkTarget: 1000 };
             if (await localSyncService.get(identity)) { skipped++; matched = true; break; }

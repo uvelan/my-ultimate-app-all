@@ -22,3 +22,11 @@ test('distance below four downloads individually and distance four or above uses
  assert.equal(batchDeliveryRequired(260,244),true);
  assert.equal(batchDeliveryRequired(247,245),false);
 });
+
+test('the current section supersedes an older PC batch when planning the next sync', () => {
+ const { upcomingSyncRange } = moduleValue.exports;
+ const old = { start: 423, end: 438 };
+ assert.deepEqual({ ...upcomingSyncRange(543, 2023, 543, 15, old, old) }, { start: 543, end: 558 });
+ assert.deepEqual({ ...upcomingSyncRange(543, 2023, 551, 15, old) }, { start: 551, end: 566 });
+ assert.deepEqual({ ...upcomingSyncRange(543, 2023, 543, 15, { start: 538, end: 550 }) }, { start: 543, end: 550 });
+});

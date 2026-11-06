@@ -83,7 +83,7 @@ function routeHarness({ role = 'USER', owner = 'owner@example.com', signedIn = t
  class NextResponse extends Response { static json(value, init) { return Response.json(value, init); } }
  const route = load('src/app/api/books/[id]/download/route.ts', {
   'next/server': { NextResponse }, '@/lib/auth-server': { verifyAuth: async () => ({ isAuthenticated: signedIn, user: signedIn ? { id: 'user', email: 'owner@example.com', role } : null }) },
-  '@/lib/prisma': { prisma: { book: { findUnique: async () => { queried++; return { ...book, userName: owner }; } } } },
+  '@/lib/prisma': { prisma: { book: { findUnique: async () => { queried++; return { ...book, userName: owner }; } }, chapter: { findMany: async () => book.chapters } } },
   '@/lib/book-export': exporter, 'epub-gen-memory': { __esModule: true, default: async (...args) => { generated++; return Epub(...args); } },
  }, { Response, URL, ReadableStream, console });
  return { get: format => route.GET(new Request('https://app.test/api/books/book/download' + (format ? '?format=' + format : '')), { params: Promise.resolve({ id: 'book' }) }),
@@ -126,4 +126,52 @@ test('WebP library covers export as reader-compatible PNG while JSON retains the
  assert.equal((await sharp(image.getData()).metadata()).format, 'png');
  const json = await routeHarness({ book: { ...source, cover } }).get('json');
  assert.equal((await json.json()).metadata.cover, cover);
+});
+
+
+test('Save to Drive uploads the validated EPUB and checks Google’s receipt', async () => {
+ const file = new File(['validated EPUB bytes'], 'Perfect World.epub', { type: 'application/epub+zip' });
+ const hash = 'a'.repeat(64), token = 'test-upload-token', folder = 'myepub-folder', { signal } = new AbortController();
+ const requests = [];
+ const session = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=test';
+ let uploadedSize = file.size;
+ const { uploadBookToDrive, findMyepubFolder } = load('src/lib/book-drive-export.ts', {}, {
+  URL, URLSearchParams, fetch: async (url, options) => {
+   if (String(url).startsWith('https://www.googleapis.com/drive/v3/files?')) {
+    assert.match(new URL(url).searchParams.get('q'), /'root' in parents and name = 'Myepub'/);
+    return Response.json({ files: [{ id: folder, capabilities: { canAddChildren: true } }] });
+   }
+   requests.push({ url: String(url), ...options });
+   if (options.method === 'POST') return new Response(null, { headers: { Location: session } });
+   return Response.json({ id: 'uploaded-file', parents: [folder], size: String(uploadedSize), sha256Checksum: hash });
+  },
+ });
+ assert.equal(await findMyepubFolder(token, signal), folder);
+ assert.equal(await findMyepubFolder(token, signal, 'wrong-folder'), undefined);
+ await assert.rejects(uploadBookToDrive(file, hash, token, 'root', signal), /Choose the Myepub/);
+ assert.equal(await uploadBookToDrive(file, hash, token, folder, signal), 'https://drive.google.com/file/d/uploaded-file/view');
+ assert.equal(requests[0].headers.Authorization, 'Bearer ' + token);
+ assert.deepEqual(JSON.parse(requests[0].body), { name: file.name, mimeType: file.type, parents: [folder] });
+ assert.equal(requests[1].url, session);
+ assert.equal(requests[1].method, 'PUT');
+ assert.equal(requests[1].body, file);
+ assert.equal(requests[1].signal, signal);
+ uploadedSize--;
+ await assert.rejects(uploadBookToDrive(file, hash, token, folder, signal), /did not confirm/);
+});
+
+
+test('an empty imported cover page is skipped while empty story chapters still fail validation', async () => {
+ const cover = { title: 'cover.xhtml', order: 0, content: [] };
+ const story = { title: 'Chapter 1', order: 1, content: ['Actual story text.'] };
+ const h = routeHarness({ book: { ...source, chapters: [cover, story] } });
+ const json = await h.get('json');
+ assert.equal(json.status, 200);
+ const { chapters } = await json.json();
+ assert.deepEqual(chapters.map(c => [c.number, c.order, c.sourceOrder, c.title]), [[1, 0, 1, story.title]]);
+ const epub = await h.get('epub');
+ assert.equal(epub.status, 200);
+ assert.equal(epub.headers.get('x-book-chapter-count'), '1');
+ const broken = routeHarness({ book: { ...source, chapters: [cover, { ...story, content: [] }] } });
+ assert.equal((await broken.get('epub')).status, 422);
 });

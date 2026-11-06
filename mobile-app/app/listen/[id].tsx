@@ -92,7 +92,7 @@ export default function ListenScreen() {
     }, []);
     
     // Audio Player hook integration
-    const player = useAudioPlayer(null) as ReturnType<typeof useAudioPlayer> & { setLocalChapterQueue?(config: string): void };
+    const player = useAudioPlayer(null) as ReturnType<typeof useAudioPlayer> & { setLocalChapterQueue?(config: string): void; setSleepDeadline?(deadline: number): void };
     const listenFocused = useIsFocused();
     const backgroundAudioStatus = useRef<(snapshot: ReturnType<typeof useForegroundAudioStatus>) => void>(() => {});
     const status = useForegroundAudioStatus(player, listenFocused, backgroundAudioStatus);
@@ -425,7 +425,7 @@ export default function ListenScreen() {
         cacheService.set('listen-kokoro-voice', voice);
         const pc = localSyncService.settings();
         if (pc.enabled && !pc.phoneFallback && activeKey.current) {
-            player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, voice, endOfChapter: sleepTimer === 'EOC', deadline: nativeSleepDeadline.current, chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
+            player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, voice, endOfChapter: sleepTimer === 'EOC', chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
             setHandoffVoice(voice); setAudioNotice('PC-synced chapters keep one voice. The new voice applies to the next chapter or a new sync.'); return;
         }
         let current = stream.current;
@@ -525,7 +525,7 @@ export default function ListenScreen() {
         }, playIntent.current && !pendingSeek.current);
         if (Platform.OS === 'android' && file.uri.includes('/local-pc-audio/')) {
             player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book!.id, bookTitle: book!.title, voice: file.voice,
-                endOfChapter: sleepTimer === 'EOC', deadline: nativeSleepDeadline.current,
+                endOfChapter: sleepTimer === 'EOC',
                 chapters: book!.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
         }
         if (changed) {
@@ -965,7 +965,8 @@ export default function ListenScreen() {
             if (alive.current && state !== 'active') backgroundNativeSyncScope.current = { bookId: nativeScope.current.bookId, index: indexRef.current - 1 };
             if (alive.current && state !== 'active' && resumeCursor.current) { const saved = resumeCursor.current; listenResumeService.savePosition(saved.identity, saved.seconds, saved.index, true); }
             if (!alive.current || state !== 'active') return;
-            if (await nativeReconcile.current()) return;
+            const expired = syncSleepTimer();
+            if (await nativeReconcile.current() || expired) return;
             if (!alive.current) return;
             refill.current();
             if (playIntent.current) {
@@ -1088,23 +1089,30 @@ export default function ListenScreen() {
         }
     }, [isPlaying, status.isLoaded, currentChapterIndex, book, isGenerating]);
 
-    // Timer logic
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (!alive.current) return;
-            setTimeRemaining(prev => {
-                if (!alive.current) return prev;
-                if (prev === null) return null;
-                if (prev > 0) return prev - 1;
+    const syncSleepTimer = () => {
+        const deadline = nativeSleepDeadline.current;
+        if (!alive.current || !deadline) return false;
+        const remaining = Math.ceil((deadline - Date.now()) / 1000);
+        if (remaining > 0) {
+            setTimeRemaining(remaining);
+            return false;
+        }
+        nativeSleepDeadline.current = 0;
+        playIntent.current = false;
+        waitingForPcIntent.current = false;
+        setTimeRemaining(null);
+        setSleepTimer(null);
+        updateStream(value => value + 1);
+        runPlayerAction(() => player.pause());
+        return true;
+    };
 
-                playIntent.current = false; updateStream(value => value + 1);
-                runPlayerAction(() => player.pause());
-                setSleepTimer(null);
-                return null;
-            });
-        }, 1000);
+    const timedSleepActive = typeof sleepTimer === 'number';
+    useEffect(() => {
+        if (!timedSleepActive) return;
+        const interval = setInterval(syncSleepTimer, 1000);
         return registerCleanup(() => clearInterval(interval));
-    }, [timeRemaining]);
+    }, [timedSleepActive]);
 
     const formatTime = (millis: number) => {
         if (!millis || millis < 0) return "00:00";
@@ -1189,7 +1197,8 @@ export default function ListenScreen() {
 
     const setTimer = (m: number | 'EOC' | null) => {
         nativeSleepDeadline.current = typeof m === 'number' ? Date.now() + m * 60_000 : 0;
-        if (activeAudio?.file.uri.includes('/local-pc-audio/') && book) player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, voice: currentVoice, endOfChapter: m === 'EOC', deadline: nativeSleepDeadline.current, chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
+        runPlayerAction(() => player.setSleepDeadline?.(nativeSleepDeadline.current));
+        if (activeAudio?.file.uri.includes('/local-pc-audio/') && book) player.setLocalChapterQueue?.(JSON.stringify({ userId, bookId: book.id, bookTitle: book.title, voice: currentVoice, endOfChapter: m === 'EOC', chapters: book.chapters.map(chapter => ({ id: chapter.id, title: chapter.title })) }));
         if (m === null) {
             setSleepTimer(null);
             setTimeRemaining(null);

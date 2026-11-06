@@ -25,6 +25,13 @@ class LocalChapterQueue(private val context: Context, private val player: ExoPla
     private var lastSaved = 0L
     private var lastChapter = ""
     private var stoppedAtEnd = false
+    private val sleepPause = Runnable { player.pause() }
+
+    fun setSleepDeadline(deadline: Long) {
+        handler.removeCallbacks(sleepPause)
+        if (deadline > 0) handler.postDelayed(sleepPause, (deadline - System.currentTimeMillis()).coerceAtLeast(0))
+    }
+
     private val tick = object : Runnable {
         override fun run() {
             if (config == null) return
@@ -45,7 +52,11 @@ class LocalChapterQueue(private val context: Context, private val player: ExoPla
         config = null
         if (player.mediaItemCount > player.currentMediaItemIndex + 1) player.removeMediaItems(player.currentMediaItemIndex + 1, player.mediaItemCount)
     }
-    fun release() { clear(); writer.shutdown() }
+    fun release() {
+        setSleepDeadline(0)
+        clear()
+        writer.shutdown()
+    }
     private fun current(): JSONObject? {
         val uri = player.currentMediaItem?.localConfiguration?.uri?.toString() ?: return null
         return (0 until artifacts.length()).map { artifacts.getJSONObject(it) }.lastOrNull { it.optString("uri") == uri }
@@ -79,8 +90,6 @@ class LocalChapterQueue(private val context: Context, private val player: ExoPla
         if (active.optString("userId") != cfg.getString("userId") || active.optString("bookId") != cfg.getString("bookId")) return
         val chapters = cfg.getJSONArray("chapters")
         val currentIndex = active.getInt("chapterIndex")
-        val deadline = cfg.optLong("deadline", 0)
-        if (deadline > 0 && System.currentTimeMillis() >= deadline) { cfg.put("deadline", 0); player.pause(); return }
         if (cfg.optBoolean("endOfChapter")) {
             if (player.mediaItemCount > player.currentMediaItemIndex + 1) player.removeMediaItems(player.currentMediaItemIndex + 1, player.mediaItemCount)
             return

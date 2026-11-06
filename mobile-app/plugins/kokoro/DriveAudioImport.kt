@@ -9,6 +9,8 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import java.text.Normalizer
+import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipFile
 
@@ -19,11 +21,19 @@ object DriveAudioImport {
     private val id = Regex("[a-f0-9]{64}")
     private fun text(value: String) = value.replace(Regex("<[^>]*>"), " ").replace(Regex("[#*~_>]"), "")
         .replace(Regex("[\\s\\p{Z}]+"), " ").trim()
-    private fun body(value: String, title: String): String {
-        val normalized = text(value); val heading = text(title)
-        return if (heading.isNotEmpty() && (normalized.startsWith("$heading ") || normalized.startsWith("$heading. ") || normalized == heading))
-            normalized.removePrefix(heading).trimStart(' ', '.', ':') else normalized
+    private fun comparisonText(value: String) = Normalizer.normalize(text(value), Normalizer.Form.NFKC)
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[\u00ad\u200b\ufeff'‘’ʼ]"), "")
+        .replace(Regex("[\\p{P}\\p{Z}\\s]+"), " ").trim()
+
+    private fun comparisonBody(value: String, title: String): String {
+        val prose = comparisonText(value)
+        val heading = comparisonText(title)
+        if (heading.isEmpty()) return prose
+        if (prose == heading) return ""
+        return prose.removePrefix("$heading ")
     }
+
     private fun json(zip: ZipFile, path: String, limit: Int = 4_000_000): JSONObject {
         val entry = zip.getEntry(path) ?: error("Package is missing $path")
         check(entry.size in 1..limit.toLong()) { "Invalid package metadata size" }
@@ -115,8 +125,11 @@ object DriveAudioImport {
         check(record.getString("audioFile") == "chapters/$identity.wav")
         val sync = manifest.getJSONObject("sync"); val paragraphs = sync.getJSONArray("paragraphs")
         val sourceText = (0 until paragraphs.length()).joinToString(" ") { paragraphs.getString(it) }
-        val expected = request.getString("expectedText")
-        check(expected.isNotBlank() && body(sourceText, sync.getString("title")) == expected) { "Chapter text does not match this mobile book" }
+        val expectedParagraphs = request.getJSONArray("paragraphs")
+        val expected = comparisonBody((0 until expectedParagraphs.length()).joinToString(" ") {
+            expectedParagraphs.getString(it)
+        }, request.getString("title"))
+        check(expected.isNotBlank() && comparisonBody(sourceText, sync.getString("title")) == expected) { "Chapter text does not match this mobile book" }
         val segments = sync.getJSONArray("segments"); var end = 0.0
         check(sync.getInt("version") == 1 && segments.length() in 1..10000)
         for (index in 0 until segments.length()) {
@@ -125,7 +138,7 @@ object DriveAudioImport {
             end = next
         }
         val spokenText = (0 until segments.length()).joinToString(" ") { segments.getJSONObject(it).getString("text") }
-        check(body(spokenText, sync.getString("title")) == expected) { "Spoken passages do not match chapter text" }
+        check(comparisonBody(spokenText, sync.getString("title")) == expected) { "Spoken passages do not match chapter text" }
         check(kotlin.math.abs(end - (size - 44) / 48000.0) < .01) { "Audio duration differs from chapter timings" }
         val directory = File(context.filesDir, "local-pc-audio").apply { mkdirs() }
         check(directory.usableSpace > size + 30_000_000) { "Not enough free phone storage" }

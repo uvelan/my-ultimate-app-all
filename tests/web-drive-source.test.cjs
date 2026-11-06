@@ -87,3 +87,22 @@ test('a late Drive preparation cannot replace the newly selected chapter', async
  assert.equal(h.current.url, '/new');
  h.stop();
 });
+
+test('a plain text gateway timeout is retryable and never surfaces a JSON parser error', async () => {
+ let failed = false;
+ const h = harness(url => {
+  if (url.includes('op=status')) return response({ configured: true, connected: true, clientId: 'public' });
+  if (failed) return response({ url: '/api/drive/stream?ticket=opaque', sync: {} });
+  failed = true;
+  return Promise.resolve(new Response('An error occurred with your deployment', { status: 504 }));
+ });
+ h.storage.set('web-drive-folder-user-book', JSON.stringify({ id: 'folder', name: 'Book' }));
+ await h.settle();
+ assert.match(h.current.error, /timed out.*Retry/);
+ assert.equal(h.current.busy, false);
+ h.current.retry();
+ await h.settle();
+ assert.equal(h.current.error, '');
+ assert.match(h.current.url, /ticket=opaque/);
+ h.stop();
+});

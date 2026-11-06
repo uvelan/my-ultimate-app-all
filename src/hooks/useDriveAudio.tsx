@@ -9,8 +9,14 @@ interface Folder { id: string; name: string }
 interface Configuration { configured: boolean; connected: boolean; clientId: string }
 interface Grant { access_token?: string; expires_in?: number; scope?: string; error?: string }
 async function request(url: string, init?: RequestInit) {
-    const response = await authenticatedFetch(url, init), data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Drive request failed.');
+    const response = await authenticatedFetch(url, init);
+    if (response.status === 401) throw new Error('Sign in again to play Drive audio.');
+    const fallback = response.status === 504
+        ? 'The Drive request timed out. Retry the chapter.'
+        : `The Drive service returned an unexpected response (HTTP ${response.status}). Retry the chapter.`;
+    let data;
+    try { data = await response.json(); } catch { throw new Error(fallback); }
+    if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : fallback);
     return data;
 }
 export function useDriveAudio(enabled: boolean, userId: string, bookId?: string, chapterId?: string) {

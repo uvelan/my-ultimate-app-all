@@ -13,7 +13,7 @@ vm.runInNewContext(compile(fs.readFileSync(path.resolve(__dirname, '../mobile-ap
 const pure = pureModule.exports;
 const filePath = path.resolve(__dirname, '../mobile-app/app/listen/[id].tsx');
 const ast = ts.createSourceFile(filePath, fs.readFileSync(filePath, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const wanted = new Set(['registerCleanup', 'updateWindow', 'identityFor', 'applyFile', 'handleAudioEnded',
+const wanted = new Set(['registerCleanup', 'syncSleepTimer', 'setTimer', 'updateWindow', 'identityFor', 'applyFile', 'handleAudioEnded',
   'changeKokoroVoice', 'commitVoice', 'playStreamChunk', 'failAudioLoad', 'runPlayerAction', 'retryAudio', 'togglePlayPause', 'seekToSeconds', 'skipForward', 'skipBackward', 'changeSpeed', 'handleNextChapter', 'handlePrevChapter', 'fetchBook', 'reCacheAudio', 'reconcileNativeChapter', 'handleBackgroundAudioStatus']);
 const definitions = new Map(), effects = new Map();
 let playerPosition, lifetimePosition;
@@ -55,6 +55,7 @@ function harness() {
     nativeCalls.push([method, ...args]);
   };
   const player = {
+    setSleepDeadline: deadline => native('sleepDeadline', deadline),
     pause: () => native('pause'), play: () => native('play'), replace: source => native('replace', source.uri),
     setPlaybackRate: rate => native('rate', rate), setActiveForLockScreen: active => native('lockScreen', active),
     seekTo: seconds => { native('seekTo', seconds); return Promise.resolve(); },
@@ -73,6 +74,7 @@ function harness() {
     awaitingAudio: ref(null), refill: ref(() => {}), tasks: ref(new Map()), windowRef: ref(null),
     currentBookRef: ref(book.id), switching: ref(false), lastEndedKey: ref(null), indexRef: ref(0), bypassKeys: ref(new Set()),
     followAudio: true, screenAwakeGeneration: ref(0), screenAwakeOwner: ref('listen-follow-book-test'), activateKeepAwakeAsync: async tag => { callbacks.awakeTag = tag; }, deactivateKeepAwake: async tag => { cleanupOrder.push('awake:' + tag); }, nativeReconcile: ref(async () => false), backgroundNativeSyncScope: ref({bookId:'book',index:0}), nativeReconcilePending: ref(null), nativeScope: ref({ bookId: 'book', userId: 'user' }), Platform: { OS: 'android' }, nativeSleepDeadline: ref(0), waitingForPcIntent: ref(false), resumeCursor: ref(null), sourceUri: ref(null), preferredChunkTarget: 1000, sessionChunkTarget: 1000, chunkScope: ref({ chapterId: 'one', target: 1000 }), kokoroVoice: 'af_heart', voiceSwitchToken: ref(0), FileSystem: { deleteAsync: async () => {} }, activeAudio: null, handoffVoice: null, isPlaying: false, isRecaching: false, audioError: '', timeRemaining: 0, sleepTimer: null,
+    timedSleepActive: true,
     status: { isLoaded: true, currentTime: 5, duration: 20, didJustFinish: false, playing: false },
     cacheService: { set() {}, get() { return null; } },
     saveProgressToDb() {},
@@ -99,7 +101,7 @@ function harness() {
     'ProgressReady', 'IsGenerating', 'IsRecaching', 'RetryCount', 'SleepTimer', 'Book', 'UserId', 'Loading']) state['set' + name] = value => { stateWrites.push([name, value]); };
   state.setAudioError = value => { stateWrites.push(['AudioError', value]); errors.push(value); };
   state.setCurrentChapterIndex = value => { state.currentChapterIndex = value; stateWrites.push(['Chapter', value]); };
-  state.setTimeRemaining = updater => { state.timeRemaining = updater(state.timeRemaining); stateWrites.push(['Timer', state.timeRemaining]); };
+  state.setTimeRemaining = value => { state.timeRemaining = value; stateWrites.push(['Timer', state.timeRemaining]); };
   state.exports = state.module.exports;
   vm.runInNewContext(compile(code), state);
   const functions = state.module.exports;
@@ -511,7 +513,7 @@ test('PC playback configures the native chapter queue without changing notificat
  let config;app.player.setLocalChapterQueue=value=>{config=JSON.parse(value)};
  app.functions.applyFile(current,current.identity,0);
  assert.equal(config.voice,'af_bella');assert.equal(config.chapters.length,app.state.book.chapters.length);
- assert.equal(config.endOfChapter,false);assert.equal(config.deadline,0);
+ assert.equal(config.endOfChapter,false);assert.equal('deadline' in config,false);
  assert.equal(app.nativeCalls.filter(([name])=>name==='lockScreen').length,1);
 });
 test('chapter-end sleep timer disables native queue advancement', () => {
@@ -646,4 +648,41 @@ test('background audio readiness still applies a saved seek before starting play
  app.functions.handleBackgroundAudioStatus({isLoaded:true,playing:false,didJustFinish:false,currentTime:0,duration:20});await flush();
  assert.ok(app.nativeCalls.some(([name,value])=>name==='seekTo'&&value===7));assert.ok(app.nativeCalls.some(([name])=>name==='play'));
  assert.equal(app.state.pendingSeek.current,null);
+});
+
+test('a sleep timer can expire, rearm for the same duration, and expire after background suspension', async () => {
+  const app = harness();
+  let now = 1000;
+  app.state.Date = { now: () => now };
+  const { setTimer, setup } = app.functions;
+  const stop = setup.timer();
+  const stopAppState = setup.appState();
+
+  setTimer(5);
+  now += 301_000;
+  app.callbacks.timer();
+  assert.equal(app.state.timeRemaining, null);
+  assert.deepEqual(app.nativeCalls, [['sleepDeadline', 301000], ['pause']]);
+
+  app.state.playIntent.current = true;
+  app.state.waitingForPcIntent.current = true;
+  setTimer(5);
+  now += 180_000;
+  app.callbacks.timer();
+  assert.equal(app.state.timeRemaining, 120);
+  now += 120_000;
+  await app.callbacks.appState('active');
+  app.callbacks.timer();
+  assert.equal(app.state.timeRemaining, null);
+  assert.equal(app.state.playIntent.current, false);
+  assert.equal(app.state.waitingForPcIntent.current, false);
+  assert.deepEqual(app.nativeCalls.filter(([action]) => action !== 'status'), [['sleepDeadline', 301000], ['pause'], ['sleepDeadline', 602000], ['pause']]);
+
+  setTimer(5);
+  setTimer('EOC');
+  now += 301_000;
+  app.callbacks.timer();
+  assert.deepEqual(app.nativeCalls.slice(-2), [['sleepDeadline', 902000], ['sleepDeadline', 0]]);
+  stop();
+  stopAppState();
 });

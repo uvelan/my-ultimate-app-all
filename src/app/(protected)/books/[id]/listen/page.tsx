@@ -94,7 +94,7 @@ export default function ListenPage() {
     const [followAudio, setFollowAudio] = useState(true);
     const narrationCueRefs = useRef<(HTMLParagraphElement | null)[]>([]);
 
-    // Timer State
+    const sleepDeadline = useRef(0);
     const [sleepTimer, setSleepTimer] = useState<number | 'EOC' | null>(null);
     const [timeRemaining, setTimeRemaining] = useState<number | null>(null); // seconds
 
@@ -678,6 +678,7 @@ export default function ListenPage() {
     useEffect(() => {
         const resume = () => {
             if (document.visibilityState === 'hidden') return;
+            if (syncSleepTimer()) return;
             refillWindowRef.current();
             if (!playIntentRef.current) return;
             const audio = audioRef.current;
@@ -713,30 +714,34 @@ export default function ListenPage() {
         };
     }, [audioError, audioUrl, chapterId, chapterTitle, chapterContent, cacheUserId, ttsProvider, selectedVoice, grammarModel, sleepTimer, playbackSpeed, book, driveSelected, drive.url]);
 
-    // Timer logic
+    const syncSleepTimer = () => {
+        const deadline = sleepDeadline.current;
+        if (!deadline) return false;
+        const remaining = Math.ceil((deadline - Date.now()) / 1000);
+        if (remaining > 0) {
+            setTimeRemaining(remaining);
+            return false;
+        }
+        sleepDeadline.current = 0;
+        playIntentRef.current = false;
+        audioRef.current?.pause();
+        setIsPlaying(false);
+        setTimeRemaining(null);
+        setSleepTimer(null);
+        toast('Sleep timer ended.');
+        return true;
+    };
+
+    const timedSleepActive = typeof sleepTimer === 'number';
     useEffect(() => {
-        const interval = setInterval(() => {
-            setTimeRemaining(prev => {
-                if (prev === null) return null;
-                if (prev > 0) return prev - 1;
-
-                // Timer reached 0
-                playIntentRef.current = false;
-                if (audioRef.current) {
-                    audioRef.current.pause();
-                    setIsPlaying(false);
-                }
-                setSleepTimer(null);
-                toast('Sleep timer ended.');
-                return null;
-            });
-        }, 1000);
-
+        if (!timedSleepActive) return;
+        const interval = setInterval(syncSleepTimer, 1000);
         return () => clearInterval(interval);
-    }, [timeRemaining]);
+    }, [timedSleepActive]);
 
     const handleTimerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value;
+        sleepDeadline.current = val === 'OFF' || val === 'EOC' ? 0 : Date.now() + Number(val) * 60_000;
         if (val === 'OFF') {
             setSleepTimer(null);
             setTimeRemaining(null);

@@ -39,7 +39,7 @@ export function DriveAudioPanel({ book, userId, chapterIndex }: {
     };
     return <View style={{ padding: 16, marginVertical: 12, borderRadius: 14, backgroundColor: '#1e293b', gap: 10 }}>
         <Text style={{ color: '#f8fafc', fontSize: 17, fontWeight: '700' }}>Google Drive audio</Text>
-        <Text style={{ color: '#cbd5e1' }}>{book ? `Download all available Drive chapters from chapter ${chapterIndex + 1} onward. Already saved audio is skipped. Keep this screen open.` : 'Open a book in Listen, then open Sync to import its Drive audio.'}</Text>
+        <Text style={{ color: '#cbd5e1' }}>{book ? `Download all available Drive chapters from section ${chapterIndex + 1} onward${book.chapters[chapterIndex]?.title ? ` (${book.chapters[chapterIndex].title})` : ''}. Already saved audio is skipped. Keep this screen open.` : 'Open a book in Listen, then open Sync to import its Drive audio.'}</Text>
         {progress && <View style={{ gap: 8 }}>
             <Text style={{ color: '#fff', fontWeight: '700' }}>{progress.phase === 'downloading' ? `Downloading chapter ${progress.chapter}` : progress.phase === 'finished' ? (progress.unavailable + progress.mismatched ? 'Drive check finished with missing chapters' : 'Drive sync finished') : progress.phase === 'stopped' ? 'Drive sync stopped' : progress.phase === 'error' ? 'Drive sync failed' : `Matching chapter ${progress.chapter}`}</Text>
             <Text style={{ color: '#cbd5e1' }}>Checked {progress.checked}/{progress.total} · Imported {progress.saved} · Already saved {progress.skipped}</Text>

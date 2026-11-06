@@ -40,18 +40,22 @@ function paragraphs(content: unknown): string[] {
 }
 export function prepareBookExport(book: ExportBookInput): PreparedBookExport {
     const issues: string[] = [], orders = new Set<number>();
-    if (!book.chapters.length) issues.push('The book has no chapters');
-    const chapters = [...book.chapters].sort((a, b) => a.order - b.order).map((chapter, index) => {
+    const chapters: PreparedBookExport['chapters'] = [];
+    [...book.chapters].sort((a, b) => a.order - b.order).forEach((chapter, index) => {
         const label = `Chapter ${index + 1}`;
         if (!Number.isInteger(chapter.order) || chapter.order < 0 || orders.has(chapter.order)) issues.push(`${label}: invalid or duplicate reading order`);
         orders.add(chapter.order);
         if (!supportedContent(chapter.content)) issues.push(`${label}: unsupported content blocks`);
         const text = paragraphs(chapter.content);
+        // Older EPUB imports stored the image-only cover as an empty first section.
+        if (index === 0 && /^cover\.xhtml?$/i.test(chapter.title.trim())
+            && Array.isArray(chapter.content) && chapter.content.length === 0) return;
         if (!text.length) issues.push(`${label}: empty chapter text`);
         if (text.some(value => value.includes('[object Object]'))) issues.push(`${label}: corrupt object placeholder in text`);
         if (text.some(value => /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(value))) issues.push(`${label}: invalid Unicode text`);
-        return { title: cleanText(chapter.title || label), order: chapter.order, number: index + 1, paragraphs: text, sourceContent: chapter.content };
+        chapters.push({ title: cleanText(chapter.title || label), order: chapter.order, number: chapters.length + 1, paragraphs: text, sourceContent: chapter.content });
     });
+    if (!chapters.length && !issues.length) issues.push('The book has no chapters');
     if (issues.length) throw new BookExportValidationError(issues);
     return { title: cleanText(book.title || 'Untitled'), description: cleanText(book.description || ''), cover: book.cover || undefined, chapters };
 }

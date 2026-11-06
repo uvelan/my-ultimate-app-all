@@ -110,7 +110,7 @@ IMPORTANT RULES:
 - edgeCases must have at least 3 items.
 - revisionSummary.keyTakeaways must have exactly 5 items.
 - mcqs must have exactly 2 multiple choice questions.
-- codeExamples must use the most relevant language for the topic.
+- This preparation resource primarily targets Java engineers. Use Java for backend, microservices, system design, concurrency, and distributed systems examples; use Spring Boot, WebFlux, or Reactor when relevant to the question. Use another language only when the question explicitly concerns that language or requires a native language such as SQL, JavaScript, or TypeScript.
 - Treat this as a FAANG-level preparation resource for Senior/Lead/Staff role candidates.
 `;
 

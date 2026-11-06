@@ -14,10 +14,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const format = new URL(req.url).searchParams.get('format') || 'epub';
         if (format !== 'epub' && format !== 'json') return NextResponse.json({ error: 'Choose EPUB or JSON.' }, { status: 400 });
         const { id } = await params;
-        const book = await prisma.book.findUnique({ where: { id }, include: { chapters: { orderBy: { order: 'asc' } } } });
+        const book = await prisma.book.findUnique({ where: { id }, select: { title: true, description: true, cover: true, userName: true } });
         if (!book) return NextResponse.json({ error: 'Book not found' }, { status: 404 });
         if (auth.user.role !== 'ADMIN' && auth.user.role !== 'SUPERUSER' && book.userName !== auth.user.email) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        const prepared = prepareBookExport(book);
+        const chapters = await prisma.chapter.findMany({ where: { bookId: id }, orderBy: { order: 'asc' },
+            select: { title: true, order: true, content: true } });
+        const prepared = prepareBookExport({ ...book, chapters });
         let buffer: Buffer;
         if (format === 'json') buffer = bookJsonExport(prepared);
         else {

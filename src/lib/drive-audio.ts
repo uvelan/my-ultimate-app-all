@@ -7,11 +7,29 @@ export function driveBody(text: string, title: string): string {
     return heading && (body === heading || body.startsWith(heading + ' ') || body.startsWith(heading + '. '))
         ? body.slice(heading.length).replace(/^[ .:]+/, '') : body;
 }
+function comparisonText(value: string): string {
+    return cleanNarrationText(value).normalize('NFKC').toLowerCase()
+        .replace(/[\u00ad\u200b\ufeff'‘’ʼ]/g, '')
+        .replace(new RegExp('[\\p{P}\\p{Z}\\s]+', 'gu'), ' ').trim();
+}
+
+function comparisonBody(value: string, title: string): string {
+    const text = comparisonText(value), heading = comparisonText(title);
+    if (!heading) return text;
+    if (text === heading) return '';
+    return text.startsWith(heading + ' ') ? text.slice(heading.length + 1) : text;
+}
+
+/** Compare ordered prose while allowing cosmetic differences between EPUB editions. */
+export function driveTextMatches(actual: string, actualTitle: string, expected: string, expectedTitle: string): boolean {
+    const body = comparisonBody(expected, expectedTitle);
+    return !!body && comparisonBody(actual, actualTitle) === body;
+}
+
 export function driveManifestMatches(manifest: any, paragraphs: string[], title: string): boolean {
     if (!validNarrationSync(manifest?.sync) || manifest.format !== 'wav' || manifest.model !== 'kokoro-v1.0'
         || manifest.sampleRate !== 24000 || !['af_bella', 'af_heart'].includes(manifest.voice)) return false;
-    const expected = driveBody(paragraphs.join(' '), title);
-    return !!expected && driveBody(manifest.sync.paragraphs.join(' '), manifest.sync.title) === expected;
+    return driveTextMatches(manifest.sync.paragraphs.join(' '), manifest.sync.title, paragraphs.join(' '), title);
 }
 export function driveChapterNumber(title: string): number | null {
     const match = /\bchapter\s*(\d+)\b/i.exec(title.normalize('NFKC'));

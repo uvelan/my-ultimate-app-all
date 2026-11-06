@@ -12,3 +12,14 @@ export function chapterSyncProgress(start: number, end: number, saved: number[],
 export function batchDeliveryRequired(chapterIndex: number, playbackIndex: number): boolean {
     return chapterIndex - playbackIndex >= 4;
 }
+
+export function upcomingSyncRange(current: number, chapterCount: number, previewStart: number, count: number,
+    ...batches: ({ start: number; end: number } | null)[]) {
+    for (const batch of batches) {
+        if (!batch) continue;
+        const start = Math.max(current, batch.start);
+        const end = Math.min(chapterCount, batch.end);
+        if (start < end) return { start, end };
+    }
+    return { start: previewStart, end: Math.min(chapterCount, previewStart + count) };
+}

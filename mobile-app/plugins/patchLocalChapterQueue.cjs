@@ -20,6 +20,8 @@ function patchLocalChapterQueue(projectRoot) {
  patch('AudioPlayer.kt', 'localChapterQueue.release()', 'serviceConnection.release()', 'localChapterQueue.release()\n    serviceConnection.release()');
  patch('AudioModule.kt', 'Function("setLocalChapterQueue")', 'Function("replace") { player: AudioPlayer, source: AudioSource ->',
   'Function("setLocalChapterQueue") { player: AudioPlayer, config: String ->\n        runOnMain { player.localChapterQueue.configure(config) }\n      }\n\n      Function("replace") { player: AudioPlayer, source: AudioSource ->');
+ patch('AudioModule.kt', 'Function("setSleepDeadline")', 'Function("replace") { player: AudioPlayer, source: AudioSource ->',
+  'Function("setSleepDeadline") { player: AudioPlayer, deadline: Double ->\n        runOnMain { player.localChapterQueue.setSleepDeadline(deadline.toLong()) }\n      }\n\n      Function("replace") { player: AudioPlayer, source: AudioSource ->');
  patch('AudioModule.kt', 'player.localChapterQueue.clear()', 'val wasPlaying = player.ref.isPlaying',
   'player.localChapterQueue.clear()\n            val wasPlaying = player.ref.isPlaying');
 }

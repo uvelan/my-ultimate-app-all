@@ -156,3 +156,13 @@ test('direct Drive single-flight rejects a second sync and releases the guard on
  h.bridge.catalog = async () => JSON.stringify(catalog);
  await h.run(); assert.equal(h.calls.filter(c => c[0] === 'import').length, 1);
 });
+
+
+test('Drive prose accepts typography and layout variants but still rejects wrong or incomplete narration', () => {
+ const title = 'Chapter 556 - Small Luck';
+ const expected = 'Chapter 556: Small Luck. “It’s a long journey,” he said.';
+ const recording = 'CHAPTER ５５６ — Small Luck\nIT\'S a long journey ... he said!';
+ assert.equal(drive.driveTextMatches(recording, title, expected, title), true);
+ assert.equal(drive.driveTextMatches(recording.replace('long', 'short'), title, expected, title), false);
+ assert.equal(drive.driveTextMatches(recording.replace('he said!', ''), title, expected, title), false);
+});

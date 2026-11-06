@@ -3,7 +3,8 @@ import { validDriveId } from './drive-stream';
 export async function driveFetch(token: string, path: string, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers);
     headers.set('Authorization', `Bearer ${token}`);
-    const response = await fetch(`https://www.googleapis.com/drive/v3/${path}`, { ...init, headers, cache: 'no-store', redirect: 'error' });
+    const signal = init?.signal ?? AbortSignal.timeout(15_000);
+    const response = await fetch(`https://www.googleapis.com/drive/v3/${path}`, { ...init, signal, headers, cache: 'no-store', redirect: 'error' });
     if (!response.ok) {
         await response.body?.cancel();
         throw new Error(response.status === 401 ? 'Drive connection expired. Connect again.'
@@ -24,11 +25,13 @@ export async function driveJson(token: string, path: string): Promise<any> {
     } finally { await reader.cancel().catch(() => {}); }
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
-export async function driveChildren(token: string, parent: string): Promise<any[]> {
+export async function driveChildren(token: string, parent: string, names: readonly string[] = []): Promise<any[]> {
     if (parent !== 'root' && !validDriveId(parent)) throw new Error('Invalid Drive folder.');
+    const exactNames = names.map(name => "name = '" + name.replace(/[\\']/g, '\\$&') + "'");
+    const filter = `'${parent}' in parents and trashed = false` + (exactNames.length ? ` and (${exactNames.join(' or ')})` : '');
     const rows: any[] = []; let page = '';
     for (let i = 0; i < 20; i++) {
-        const query = new URLSearchParams({ q: `'${parent}' in parents and trashed = false`, pageSize: '1000',
+        const query = new URLSearchParams({ q: filter, pageSize: '1000',
             fields: 'nextPageToken,files(id,name,mimeType,size,version,sha256Checksum)', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' });
         if (page) query.set('pageToken', page);
         const result = await driveJson(token, `files?${query}`); rows.push(...result.files); page = result.nextPageToken || '';
