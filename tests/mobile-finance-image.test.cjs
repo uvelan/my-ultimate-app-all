@@ -92,3 +92,21 @@ test('full PDF export prints HTML and shares a PDF, cleaning the printer tempora
  assert.equal(calls[2][2].mimeType, 'application/pdf');
  assert.equal(calls[3][1], 'file:///print/temp.pdf');
 });
+
+
+test('expanded Android pages and PDF place collapsed totals before all transaction detail', () => {
+ const rows = [
+  { id: 'home', depth: 0, name: 'Home', amountPaise: 300, color: '#123456', percentage: 100 },
+  { id: 'food', depth: 1, name: 'Food', amountPaise: 300, color: '#123456', percentage: 100 },
+  { id: 'tx', depth: 2, name: 'Weekly groceries', amountPaise: 300, color: '#123456', detail: 'UPI' },
+ ];
+ const pages = financeImagePages(rows, '', true).pages;
+ assert.equal(pages[0].overview, true);
+ assert.deepEqual(Array.from(pages[0].rows, row => row.id), ['home']);
+ assert.deepEqual(Array.from(pages[1].rows, row => row.id), ['home', 'food', 'tx']);
+ const pdf = financeBreakdownPdfHtml({ rows, scope: 'all', rangeStart: '2026-10-22', rangeEnd: '2026-11-30', totalExpense: 300, grouping: 'category', hidden: '' });
+ const [overview, details] = pdf.split('<section class="expanded">');
+ assert.match(overview, /Expense overview/);
+ assert.doesNotMatch(overview, /Weekly groceries/);
+ assert.match(details, /Weekly groceries/);
+});

@@ -69,7 +69,7 @@ test('failed native validation closes and removes the cached Drive package', asy
  assert.deepEqual(h.closed, ['token']);
 });
 
-function directHarness({ cancelled = false, existing = false, missing = false, mismatch = false } = {}) {
+function directHarness({ cancelled = false, existing = false, missing = false, mismatch = false, incremental = false } = {}) {
  const calls = [], selections = new Map(), progress = [], messages = []; let progressListener;
  const bridge = {
   authorize: async user => { calls.push(['authorize', user]); return true; },
@@ -82,11 +82,11 @@ function directHarness({ cancelled = false, existing = false, missing = false, m
  const service = load('src/services/drive-audio.service.ts', {
   'react-native': { NativeModules: { GoogleDriveAudio: bridge }, DeviceEventEmitter: { addListener: (name, listener) => { progressListener = listener; return { remove() { calls.push(['unsubscribe']); } }; } } },
   'expo-document-picker': {}, '../lib/drive-audio': drive, '../lib/listen-audio': { audioIdentityKey: () => 'c'.repeat(16) }, '../lib/kokoro-text': narration,
-  './book.service': {}, './local-sync.service': { localSyncService: { get: async () => existing ? {} : null, refresh: async () => {} } },
+  './book.service': {}, './local-sync.service': { localSyncService: { get: async () => existing ? {} : null, refresh: async () => {}, cachedChapterIds: async () => existing ? ['mobile-chapter'] : [] } },
   '../lib/storage': { cacheService: { getObject: key => selections.get(key), setObject: (key, value) => selections.set(key, value), delete: key => selections.delete(key) } },
  }).directDriveService;
  const book = { id: 'mobile-book', title: 'Book', chapters: [{ id: 'mobile-chapter', title: 'Chapter 435', content: ['Actual prose.'] }] };
- return { service, calls, bridge, progress, messages, run: () => service.sync(book, 'u', { id: 'drive-folder', name: 'Book' }, 0, 1, text => messages.push(text), () => cancelled, value => progress.push(value)) };
+ return { service, calls, bridge, progress, messages, run: () => service.sync(book, 'u', { id: 'drive-folder', name: 'Book' }, 0, 1, text => messages.push(text), () => cancelled, value => progress.push(value), incremental ? 'af_bella' : undefined) };
 }
 test('Drive progress distinguishes checking, bytes, saved chapters and missing/text mismatch results', async () => {
  const success = directHarness(); await success.run();
@@ -171,4 +171,21 @@ test('Drive prose accepts typography and layout variants but still rejects wrong
  assert.equal(drive.driveTextMatches(recording, title, expected, title), true);
  assert.equal(drive.driveTextMatches(recording.replace('long', 'short'), title, expected, title), false);
  assert.equal(drive.driveTextMatches(recording.replace('he said!', ''), title, expected, title), false);
+});
+
+
+test('incremental Drive sync remembers unchanged mismatches and can explicitly retry them', async () => {
+ const h = directHarness({ mismatch: true, incremental: true });
+ await h.run();
+ await h.run();
+ assert.equal(h.calls.filter(call => call[0] === 'manifest').length, 1);
+ assert.equal(h.progress.at(-1).total, 0);
+ assert.equal(h.progress.at(-1).issues[0].title, 'Chapter 435');
+ h.service.resetChecks('u', 'mobile-book', 'drive-folder', 'af_bella');
+ await h.run();
+ assert.equal(h.calls.filter(call => call[0] === 'manifest').length, 2);
+ const saved = directHarness({ existing: true, incremental: true });
+ await saved.run();
+ assert.equal(saved.progress.at(-1).skipped, 1);
+ assert.equal(saved.progress.at(-1).total, 0);
 });

@@ -10,7 +10,7 @@ export function financeImageSvg(snapshot: FinanceReport) {
     let y = 168 + hidden.length * 20;
     const text = (x: number, top: number, content: string, size = 18, fill = '#041b3c', extra = '') =>
         `<text x="${x}" y="${top}" font-size="${size}" fill="${fill}" ${extra}>${xml(content)}</text>`;
-    const rows = snapshot.rows.map(row => {
+    const renderRows = (rows: FinanceReport['rows']) => rows.map(row => {
         const indent = Math.min(row.depth, 8) * 20;
         const lines = financeImageLines(row.name, Math.max(14, 39 - Math.min(row.depth, 8) * 2));
         const height = 34 + lines.length * 23 + (row.detail ? 24 : 0), top = y;
@@ -24,16 +24,21 @@ export function financeImageSvg(snapshot: FinanceReport) {
             ${row.percentage !== undefined ? `<rect x="${40 + indent}" y="${top + height - 10}" width="${640 - indent}" height="3" fill="#d7e2ff"/>
                 <rect x="${40 + indent}" y="${top + height - 10}" width="${(640 - indent) * Math.max(0, Math.min(100, row.percentage)) / 100}" height="3" fill="${color}"/>` : ''}</g>`;
     }).join('');
+    const all = snapshot.scope === 'all';
+    const overview = all ? renderRows(snapshot.rows.filter(row => row.depth === 0 && row.percentage !== undefined)) : '';
+    const detailsHeading = all && snapshot.rows.length ? text(28, (y += 34), 'All rows expanded', 21, '#001642', 'font-weight="bold"') : '';
+    if (detailsHeading) y += 18;
+    const rows = renderRows(snapshot.rows);
     const height = Math.max(260, y + 24), width = 1080, pixelHeight = Math.round(height * 1.5);
     if (width * pixelHeight > 24_000_000) throw new Error('This image is too tall. Choose PDF to export the full selection.');
     return { width, height: pixelHeight, svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${pixelHeight}" viewBox="0 0 720 ${height}" font-family="Arial, sans-serif">
         <rect width="720" height="${height}" fill="#fff"/>
-        ${text(28, 42, 'Expense breakdown', 26, '#001642', 'font-weight="bold"')}
+        ${text(28, 42, all ? 'Expense overview' : 'Expense breakdown', 26, '#001642', 'font-weight="bold"')}
         ${text(28, 75, `${snapshot.rangeStart} – ${snapshot.rangeEnd} (inclusive)`, 20, '#444650')}
         ${text(28, 110, 'Total expenses: ' + money(snapshot.totalExpense), 22, '#001642', 'font-weight="bold"')}
-        ${text(28, 140, 'Grouped by ' + snapshot.grouping + (snapshot.scope === 'all' ? ' · All rows expanded' : ' · As shown'), 17, '#747782')}
+        ${text(28, 140, 'Grouped by ' + snapshot.grouping + (all ? ' · Top-level totals' : ' · As shown'), 17, '#747782')}
         ${hidden.map((line, i) => text(28, 164 + i * 20, line, 15, '#747782')).join('')}
-        ${snapshot.rows.length ? rows : text(28, 202, 'No expenses match this selection.', 18, '#747782')}
+        ${snapshot.rows.length ? overview + detailsHeading + rows : text(28, 202, 'No expenses match this selection.', 18, '#747782')}
     </svg>` };
 }
 

@@ -22,7 +22,12 @@ object DriveAudioChecks {
             stream.fd.sync()
         }
         check(total == size && digest.digest().joinToString("") { "%02x".format(it) } == hash) { "Chapter checksum failed" }
-        RandomAccessFile(partial, "r").use { file ->
+        verifyWav(partial, size)
+    }
+
+    fun verifyWav(wav: File, size: Long) {
+        check(size in 46..200_000_000L && (size - 44) % 2 == 0L && wav.length() == size)
+        RandomAccessFile(wav, "r").use { file ->
             val header = ByteArray(44); file.readFully(header); val format = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
             check(String(header, 0, 4) == "RIFF" && String(header, 8, 8) == "WAVEfmt " && String(header, 36, 4) == "data")
             check(format.getInt(4).toLong() == size - 8 && format.getInt(16) == 16 && format.getShort(20).toInt() == 1

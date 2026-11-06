@@ -237,7 +237,7 @@ export function LocalSyncPanel({ book, chapterIndex = 0, userId = '', voice = 'a
                         </Pressable>)}
                     </View>
                     <View style={syncSource === 'drive' ? undefined : { display: 'none' }}>
-                        <DriveAudioPanel book={book} userId={userId} chapterIndex={chapterIndex} voice={scopeVoice} />
+                        <DriveAudioPanel book={book} userId={userId} chapterIndex={chapterIndex} voice={scopeVoice} chunkTarget={chunkTarget} />
                     </View>
                     {syncSource === 'pc' && <>
                     {(working || displayPhase === 'waiting' || displayPhase === 'error') && <View style={card}>

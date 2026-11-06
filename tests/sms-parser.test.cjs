@@ -126,7 +126,8 @@ test('HDFC card-on-UPI receipts without debit or successful wording appear on th
     assert.equal(parsed.reference, reference);
     assert.equal(parsed.merchant, merchant);
     assert.equal(parsed.account, 'XX1234');
-    assert.equal(parsed.source, 'UPI');
+    assert.equal(parsed.source, 'Card');
+    assert.equal(moduleObject.exports.smsPaymentMethod(parsed), 'Card');
     assert.equal(parsed.bank, 'HDFC');
     assert.equal(parseSmsTransaction({ ...message, date: received + 60000, _id: '99' }).fingerprint, parsed.fingerprint);
     for (const invalid of [body + ' failed', body + ' reversed', body + ' OTP 123456', body.replace('by UPI ' + reference, ''), body.replace('On HDFC Bank Card 1234', '')]) {
@@ -151,4 +152,17 @@ test('SMS totals use exact paise for the scanned period and update after review 
   items[0].amountPaise = 14000;
   assert.deepEqual(summary(), { expensePaise: 27030, incomePaise: 100000, netPaise: 72970 });
   assert.equal(smsTransactionTotals(items.filter(item => item.type === 'EXPENSE')).netPaise, -27030);
+});
+
+test('card subtype is preserved when stated and pure UPI remains UPI', () => {
+  const { smsPaymentMethod } = moduleObject.exports;
+  for (const [body, expected] of [
+    ['INR 200 paid via UPI using Credit Card XX4321', 'Credit Card'],
+    ['Debit-Card XX4321 spent INR 200 via UPI', 'Debit Card'],
+    ['INR 200 paid via UPI from A/c XX1234', 'UPI'],
+  ]) {
+    const transaction = parseSmsTransaction(sms(body));
+    assert.ok(transaction);
+    assert.equal(smsPaymentMethod(transaction), expected);
+  }
 });

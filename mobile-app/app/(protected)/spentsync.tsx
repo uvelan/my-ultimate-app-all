@@ -5,7 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { ChevronLeft, X } from 'lucide-react-native';
 import { api } from '@/src/lib/api-client';
 import { smsPeriodDates, smsBookingTimestamp, type SmsPeriod } from '@/src/lib/sms-date-range';
-import { parseSmsTransaction, smsTransactionTotals, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
+import { parseSmsTransaction, smsPaymentMethod, smsTransactionTotals, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
 import { buildSmsPageArguments, type SmsPageCursor } from '@/src/lib/sms-bridge';
 
 type Transaction = ParsedSmsTransaction;
@@ -159,7 +159,7 @@ export default function SpentSyncScreen() {
                 action: 'import', fingerprint: editing.fingerprint, type: editing.type,
                 amountPaise, categoryId, transactionDate,
                 description: description.trim().slice(0, 500),
-                paymentMethod: editing.source === 'Card' ? (/credit card/i.test(editing.rawBody) ? 'Credit Card' : /debit card/i.test(editing.rawBody) ? 'Debit Card' : 'Other') : editing.source === 'UPI' ? 'UPI' : editing.source === 'ATM' ? 'Cash' : 'Net Banking',
+                paymentMethod: smsPaymentMethod(editing),
             });
             setTransactions(previous => previous.map(item => item.fingerprint === editing.fingerprint ? { ...item, synced: true, ...(!response.data.duplicate ? { amount: numericAmount, amountPaise, date: bookingDate, type: editing.type, notes: description.trim() } : {}) } : item));
             setEditing(null);

@@ -15,9 +15,9 @@ export function FinanceBreakdownImage({ snapshot, onClose }: { snapshot: Finance
     const [scope, setScope] = useState<'shown' | 'all'>('shown');
     const rows = scope === 'all' ? snapshot.allRows : snapshot.rows;
     const layout = useMemo(() => {
-        try { return { ...financeImagePages(rows, snapshot.hidden), error: '' }; }
+        try { return { ...financeImagePages(rows, snapshot.hidden, scope === 'all'), error: '' }; }
         catch (error: any) { return { pages: [], hiddenLines: [], error: error.message || 'Use PDF for this breakdown.' }; }
-    }, [rows, snapshot.hidden]);
+    }, [rows, snapshot.hidden, scope]);
     const page = layout.pages[pageIndex], previewWidth = Math.max(240, Math.min(width - 32, FINANCE_IMAGE_WIDTH));
     const share = async (pdf = false) => {
         if (sharing || (!pdf && (!ready || !svg.current || !page))) return;
@@ -66,10 +66,10 @@ export function FinanceBreakdownImage({ snapshot, onClose }: { snapshot: Finance
                 {page && <Svg key={scope + pageIndex} ref={svg} width={previewWidth} height={FINANCE_IMAGE_HEIGHT * previewWidth / FINANCE_IMAGE_WIDTH}
                     viewBox={`0 0 ${FINANCE_IMAGE_WIDTH} ${FINANCE_IMAGE_HEIGHT}`} font={{ fontFamily: 'sans-serif' }} onLayout={() => setReady(true)}>
                     <Rect width={FINANCE_IMAGE_WIDTH} height={FINANCE_IMAGE_HEIGHT} fill="#fff" />
-                    <ImageText x={28} y={42} fontSize={28} fontWeight="bold" fill="#001642">Expense breakdown</ImageText>
+                    <ImageText x={28} y={42} fontSize={28} fontWeight="bold" fill="#001642">{page.overview ? 'Expense overview' : 'Expense breakdown'}</ImageText>
                     <ImageText x={28} y={78} fontSize={21} fill="#444650">{snapshot.rangeStart} – {snapshot.rangeEnd} (inclusive)</ImageText>
                     <ImageText x={28} y={114} fontSize={23} fontWeight="bold" fill="#001642">Total expenses: {money(snapshot.totalExpense)}</ImageText>
-                    <ImageText x={28} y={148} fontSize={18} fill="#747782">Grouped by {snapshot.grouping} · {scope === 'all' ? 'All rows expanded' : 'As shown'}</ImageText>
+                    <ImageText x={28} y={148} fontSize={18} fill="#747782">Grouped by {snapshot.grouping} · {page.overview ? 'Top-level totals' : scope === 'all' ? 'All rows expanded' : 'As shown'}</ImageText>
                     {layout.hiddenLines.map((line, i) => <ImageText key={i} x={28} y={174 + i * 22} fontSize={17} fill="#747782">{line}</ImageText>)}
                     {page.context.map((line, i) => <ImageText key={i} x={28} y={174 + (layout.hiddenLines.length + i) * 22} fontSize={17} fill="#747782">{line}</ImageText>)}
                     {!page.rows.length && <ImageText x={28} y={page.headerHeight + 30} fontSize={20} fill="#747782">No expenses match this selection.</ImageText>}
@@ -77,7 +77,10 @@ export function FinanceBreakdownImage({ snapshot, onClose }: { snapshot: Finance
                         <Rect x={24 + row.indent} y={row.y} width={672 - row.indent} height={row.height} rx={10} fill={row.detail ? '#fff' : '#f1f3ff'} />
                         <Circle cx={38 + row.indent} cy={row.y + 27} r={5} fill={row.color} />
                         {row.lines.map((line, i) => <ImageText key={i} x={52 + row.indent} y={row.y + 34 + i * 27} fontSize={22} fontWeight="600" fill="#041b3c">{line}</ImageText>)}
-                        <ImageText x={678} y={row.y + 34} textAnchor="end" fontSize={20} fill="#444650">{money(row.amountPaise)}{row.percentage !== undefined ? ' · ' + row.percentage.toLocaleString('en-IN', { maximumFractionDigits: 1 }) + '%' : ''}</ImageText>
+                        <ImageText x={row.percentage === undefined ? 678 : 590} y={row.y + 34} textAnchor="end" fontSize={20} fill="#444650">{money(row.amountPaise)}</ImageText>
+                        {row.percentage !== undefined && <ImageText x={678} y={row.y + 34} textAnchor="end" fontSize={20} fill="#444650">
+                            {row.percentage.toLocaleString('en-IN', { maximumFractionDigits: 1 }) + '%'}
+                        </ImageText>}
                         {row.detailLines.map((line, i) => <ImageText key={i} x={52 + row.indent} y={row.y + 38 + row.lines.length * 27 + i * 24} fontSize={18} fill="#747782">{line}</ImageText>)}
                         {row.percentage !== undefined && <>
                             <Rect x={40 + row.indent} y={row.y + row.height - 10} width={640 - row.indent} height={3} fill="#d7e2ff" />
@@ -85,7 +88,7 @@ export function FinanceBreakdownImage({ snapshot, onClose }: { snapshot: Finance
                         </>}
                     </React.Fragment>)}
                     <ImageText x={28} y={1056} fontSize={18} fill="#747782">{snapshot.rangeStart} – {snapshot.rangeEnd}</ImageText>
-                    <ImageText x={692} y={1056} textAnchor="end" fontSize={18} fill="#747782">Page {pageIndex + 1} of {layout.pages.length}</ImageText>
+                    <ImageText x={692} y={1056} textAnchor="end" fontSize={18} fill="#747782">{`Page ${pageIndex + 1} of ${layout.pages.length}`}</ImageText>
                 </Svg>}
             </ScrollView>
         </View>

@@ -6,8 +6,15 @@ export const FINANCE_IMAGE_SCALE = 3;
 export interface FinanceImagePageRow extends FinanceImageRow {
     indent: number; lines: string[]; detailLines: string[]; y: number; height: number;
 }
-export interface FinanceImagePage { rows: FinanceImagePageRow[]; context: string[]; headerHeight: number }
-export function financeImagePages(rows: FinanceImageRow[], hidden: string): { pages: FinanceImagePage[]; hiddenLines: string[] } {
+export interface FinanceImagePage { rows: FinanceImagePageRow[]; context: string[]; headerHeight: number; overview?: boolean }
+export function financeImagePages(rows: FinanceImageRow[], hidden: string, overviewFirst = false): { pages: FinanceImagePage[]; hiddenLines: string[] } {
+    if (overviewFirst) {
+        const overview = financeImagePages(rows.filter(row => row.depth === 0 && row.percentage !== undefined), hidden);
+        return { hiddenLines: overview.hiddenLines, pages: [
+            ...overview.pages.map(page => ({ ...page, overview: true })),
+            ...(rows.length ? financeImagePages(rows, hidden).pages : []),
+        ] };
+    }
     const allHidden = hidden ? financeImageLines('Hidden: ' + hidden, 62) : [];
     const hiddenLines = allHidden.slice(0, 2);
     if (allHidden.length > 2) hiddenLines[1] += '…';
@@ -16,7 +23,7 @@ export function financeImagePages(rows: FinanceImageRow[], hidden: string): { pa
     let page: FinanceImagePage | null = null, y = 0;
     for (const row of rows) {
         const indent = Math.min(row.depth, 6) * 20;
-        const lines = financeImageLines(row.name, Math.max(14, 28 - Math.min(row.depth, 6) * 2));
+        const lines = financeImageLines(row.name, Math.max(14, (row.percentage === undefined ? 28 : 24) - Math.min(row.depth, 6) * 2));
         const detailLines = row.detail ? financeImageLines(row.detail, 54 - Math.min(row.depth, 6) * 2) : [];
         const height = 34 + lines.length * 27 + detailLines.length * 24;
         if (!page || y + height > FINANCE_IMAGE_HEIGHT - 56) {

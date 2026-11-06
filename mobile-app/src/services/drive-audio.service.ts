@@ -8,7 +8,7 @@ import { bookService } from './book.service';
 import { localSyncService } from './local-sync.service';
 
 interface Book { id: string; title: string; chapters: { id: string; title: string; content?: unknown }[] }
-export interface DriveChapterIssue { section: number; title: string; reason: string }
+export interface DriveChapterIssue { section: number; chapterId: string; title: string; reason: string }
 export interface DriveSyncProgress {
     phase: 'matching' | 'downloading' | 'finished' | 'stopped' | 'error'; total: number; checked: number;
     saved: number; skipped: number; mismatched: number; chapter: number;
@@ -47,21 +47,42 @@ export async function importDriveAudio(book: Book, userId: string, start: number
     }
 }
 
+interface DriveCheckState {
+    savedIds: ReadonlySet<string>;
+    failed: Record<string, { revision: string; issue: DriveChapterIssue }>;
+    persist(): void;
+}
+
 interface ChapterSource { manifest(identity: string): Promise<string>; import(raw: string): Promise<string> }
 async function importMatching(book: Book, userId: string, start: number, count: number, recordings: any[],
-    source: ChapterSource, update: (message: string) => void, cancelled: () => boolean, progress?: (value: DriveSyncProgress) => void) {
+    source: ChapterSource, update: (message: string) => void, cancelled: () => boolean, progress?: (value: DriveSyncProgress) => void, checks?: DriveCheckState) {
     let saved = 0, skipped = 0, mismatched = 0, checked = 0;
     const issues: DriveChapterIssue[] = [];
     // Cloud sync follows the catalog, independently of PC batch size or gaps.
-    const indices = book.chapters.map((chapter, index) => ({ chapter, index }))
-        .filter(({ chapter, index }) => index >= start && driveCandidates(recordings, chapter.title, index).length)
-        .map(({ index }) => index);
-    const total = indices.length;
+    const pending = book.chapters.flatMap((chapter, index) => {
+        if (index < start) return [];
+        const candidates = driveCandidates(recordings, chapter.title, index);
+        if (!candidates.length) return [];
+        if (checks?.savedIds.has(chapter.id)) {
+            skipped++;
+            if (checks.failed[chapter.id]) { delete checks.failed[chapter.id]; checks.persist(); }
+            return [];
+        }
+        const revision = JSON.stringify([chapter.title, candidates.map(record => [record.identity, record.sha256]).sort()]);
+        const prior = checks?.failed[chapter.id];
+        if (prior?.revision === revision) {
+            issues.push({ ...prior.issue, section: index + 1, title: chapter.title });
+            mismatched++;
+            return [];
+        }
+        return [{ index, candidates, revision }];
+    });
+    const total = pending.length;
     const numbers = recordings.map(record => driveChapterNumber(record.title || '')).filter((value): value is number => value !== null);
     const available = `${recordings.length} WAV recordings${numbers.length ? ` · printed chapters ${Math.min(...numbers)}–${Math.max(...numbers)}` : ''}`;
     const report = (phase: DriveSyncProgress['phase'], chapter: number) => progress?.({ phase, total, checked, saved, skipped, mismatched, chapter, available, issues: [...issues] });
     report('matching', start + 1);
-    for (const index of indices) {
+    for (const { index, candidates, revision } of pending) {
         if (cancelled()) break;
         const chapter = book.chapters[index];
         report('matching', index + 1);
@@ -71,7 +92,6 @@ async function importMatching(book: Book, userId: string, start: number, count: 
         if (loaded.id !== chapter.id) throw new Error('Chapter list changed. Reopen the book and retry.');
         const narration = kokoroNarration(loaded.content, chapter.title);
         // Titles narrow the search. The ordered prose must match after formatting normalization.
-        const candidates = driveCandidates(recordings, chapter.title, index);
         let matched = false;
         let reason = 'The recording format or timing data is unsupported.';
         for (const record of candidates) {
@@ -108,14 +128,19 @@ async function importMatching(book: Book, userId: string, start: number, count: 
         }
         if (!matched && !cancelled()) {
             mismatched++;
-            issues.push({ section: index + 1, title: chapter.title, reason });
+            const issue = { section: index + 1, chapterId: chapter.id, title: chapter.title, reason };
+            issues.push(issue);
+            if (checks) { checks.failed[chapter.id] = { revision, issue }; checks.persist(); }
+        } else if (matched && checks?.failed[chapter.id]) {
+            delete checks.failed[chapter.id];
+            checks.persist();
         }
         checked++;
         report('matching', index + 1);
     }
     await localSyncService.refresh();
-    report(cancelled() ? 'stopped' : 'finished', indices.length ? indices[Math.max(0, checked - 1)] + 1 : start + 1);
-    update(total === 0 ? `No matching Drive chapters available from chapter ${start + 1} onward. ${available}. Generate the desired chapters in Colab or select the correct book.`
+    report(cancelled() ? 'stopped' : 'finished', pending.length ? pending[Math.max(0, checked - 1)].index + 1 : start + 1);
+    update(total === 0 && !skipped && !mismatched ? `No matching Drive chapters available from chapter ${start + 1} onward. ${available}. Generate the desired chapters in Colab or select the correct book.`
         : `${cancelled() ? 'Stopped' : 'Finished'} · ${saved} imported · ${skipped} already saved · ${mismatched} text/format mismatches.${mismatched ? ' Check that this is the same EPUB/text version.' : ' All available chapters ahead were checked.'}`);
 }
 
@@ -134,6 +159,7 @@ function google(): GoogleBridge {
     if (!bridge) throw new Error('Install Android 1.1.25 or later for direct Drive sync.');
     return bridge;
 }
+const checkKey = (user: string, book: string, folder: string, voice: string) => 'drive-checked-v1:' + JSON.stringify([user, book, folder, voice]);
 const selectionKey = (userId: string, bookId: string) => 'direct-drive-book-' + userId + '-' + bookId;
 export const directDriveService = {
     selected: (userId: string, bookId: string) => cacheService.getObject<DriveBookFolder>(selectionKey(userId, bookId)),
@@ -148,6 +174,9 @@ export const directDriveService = {
     async disconnect(userId: string, bookId: string) {
         cacheService.delete(selectionKey(userId, bookId));
         await google().disconnect(userId);
+    },
+    resetChecks(userId: string, bookId: string, folderId: string, voice: string) {
+        cacheService.delete(checkKey(userId, bookId, folderId, voice));
     },
     async cancel(userId: string) { await google().cancel(userId); },
     async sync(book: Book, userId: string, folder: DriveBookFolder, start: number, count: number,
@@ -174,10 +203,18 @@ export const directDriveService = {
                     }
                 } catch { /* Ignore malformed telemetry. */ }
             });
+            let checks: DriveCheckState | undefined;
+            if (voice) {
+                const key = checkKey(userId, book.id, folder.id, voice);
+                const failed = cacheService.getObject<DriveCheckState['failed']>(key) || {};
+                const savedIds = new Set(await localSyncService.cachedChapterIds(userId, book.id, voice));
+                checks = { savedIds, failed, persist: () => cacheService.setObject(key, failed) };
+            }
+            if (cancelled()) return;
             await importMatching(book, userId, start, count, recordings, {
                 manifest: identity => bridge.manifest(userId, folder.id, identity),
                 import: raw => bridge.importChapter(userId, folder.id, raw),
-            }, update, cancelled, report);
+            }, update, cancelled, report, checks);
         } finally { subscription?.remove(); importing = false; }
     },
 };

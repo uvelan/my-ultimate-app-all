@@ -546,6 +546,54 @@ class LocalSyncModule(context: ReactApplicationContext) : ReactContextBaseJavaMo
     @ReactMethod fun driveManifest(token: String, identity: String, promise: Promise) = task(promise) { DriveAudioImport.manifest(token, identity) }
     @ReactMethod fun importDriveChapter(token: String, request: String, promise: Promise) = task(promise) { DriveAudioImport.importChapter(reactApplicationContext, token, request) }
     @ReactMethod fun closeDrivePackage(token: String, promise: Promise) = task(promise) { DriveAudioImport.close(token) }
+    @ReactMethod fun savePhoneChapter(raw: String, promise: Promise) = task(promise) {
+        val request = JSONObject(raw)
+        val key = request.getString("key")
+        check(key.matches(Regex("[a-f0-9]{16}")) && request.getString("voice") in listOf("af_bella", "af_heart"))
+        for (field in listOf("userId", "bookId", "chapterId")) check(request.getString(field).length in 1..500)
+        check(request.getInt("chapterIndex") >= 0)
+        val uri = android.net.Uri.parse(request.getString("uri"))
+        val source = File(uri.path ?: error("Invalid phone audio file")).canonicalFile
+        val files = reactApplicationContext.filesDir
+        check(uri.scheme == "file" && source.parentFile == File(files, "listen-audio-parts").canonicalFile
+            && source.name.matches(Regex("kokoro-[a-f0-9-]{36}\\.wav"))) { "Invalid phone audio file" }
+        val size = request.getLong("bytes")
+        DriveAudioChecks.verifyWav(source, size)
+        val sync = request.getJSONObject("sync")
+        val segments = sync.getJSONArray("segments")
+        check(sync.getInt("version") == 1 && segments.length() in 1..10000)
+        var end = 0.0
+        for (index in 0 until segments.length()) {
+            val segment = segments.getJSONObject(index)
+            val start = segment.getDouble("start")
+            val next = segment.getDouble("end")
+            check(start.isFinite() && next.isFinite() && kotlin.math.abs(start - end) < .001 && next > start
+                && segment.getString("text").isNotBlank()) { "Invalid phone audio timings" }
+            end = next
+        }
+        check(kotlin.math.abs(end - (size - 44) / 48000.0) < .01) { "Phone audio duration differs from timings" }
+        val digest = MessageDigest.getInstance("SHA-256")
+        source.inputStream().use { input ->
+            val buffer = ByteArray(65536)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val directory = File(files, "local-pc-audio").apply { mkdirs() }
+        val output = File(directory, "kokoro-phone-$key-${java.util.UUID.randomUUID()}.wav")
+        check(source.renameTo(output)) { "Could not save phone audio" }
+        try {
+            request.put("uri", android.net.Uri.fromFile(output).toString())
+                .put("sha256", digest.digest().joinToString("") { "%02x".format(it) })
+            LocalSyncStore.commit(reactApplicationContext, request)
+        } catch (error: Exception) {
+            output.delete()
+            throw error
+        }
+        true
+    }
     @ReactMethod fun pair(bundle: String, host: String, port: Int, promise: Promise) = task(promise) {
         val fields = bundle.trim().split('.')
         check(fields.size == 4 && fields[0] == "svc1" && fields[1].matches(Regex("[a-f0-9]{32}")) && fields[2].matches(Regex("[a-f0-9]{64}"))) { "Paste or scan the pairing code displayed on the PC" }

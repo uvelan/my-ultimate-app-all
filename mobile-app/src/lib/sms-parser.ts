@@ -148,8 +148,12 @@ export function parseSmsTransaction(message: SmsMessage): ParsedSmsTransaction |
     const merchantMatch = body.match(/\b(?:to|at|info\s*:)\s+(.+?)(?=\s+(?:on|via|ref(?:erence)?|UPI\s*ref|UTR|RRN|bal(?:ance)?|avbl|available|a\/?c|account)\b|[;\n]|$)/i);
     let merchant = (hdfcCardReceipt?.[1] || merchantMatch?.[1])?.replace(/[.,\s]+$/, '').trim().slice(0, 80) || null;
     if (merchant && /^(?:your\s+)?(?:a\/?c|account|card)\b/i.test(merchant)) merchant = null;
-    const source: ParsedSmsTransaction['source'] = /\bATM\b/i.test(body) ? 'ATM'
-        : /\bUPI\b/i.test(body) ? 'UPI' : /\bcard\b/i.test(body) ? 'Card'
+    const card = /\bcard\b/i.test(body);
+    const upi = /\bUPI\b/i.test(body);
+    // UPI can be the network for a card-funded payment.
+    const source: ParsedSmsTransaction['source'] = card && upi ? 'Card'
+        : /\bATM\b/i.test(body) ? 'ATM'
+        : card ? 'Card' : upi ? 'UPI'
         : /\b(?:NEFT|RTGS|IMPS)\b/i.test(body) ? 'Transfer' : 'Bank';
     const fingerprint = fingerprintFor(message, { reference, bank, account, type, amountPaise });
     // The Android inbox timestamp is authoritative. Use its India calendar day,
@@ -170,4 +174,15 @@ export function smsTransactionTotals(items: Pick<ParsedSmsTransaction, 'type' | 
         else if (item.type === 'INCOME') incomePaise += item.amountPaise;
     }
     return { expensePaise, incomePaise, netPaise: incomePaise - expensePaise };
+}
+
+export function smsPaymentMethod({ source, rawBody }: Pick<ParsedSmsTransaction, 'source' | 'rawBody'>): string {
+    if (source === 'Card') {
+        if (/\bcredit[\s-]+card\b/i.test(rawBody)) return 'Credit Card';
+        if (/\bdebit[\s-]+card\b/i.test(rawBody)) return 'Debit Card';
+        return 'Card';
+    }
+    if (source === 'UPI') return 'UPI';
+    if (source === 'ATM') return 'Cash';
+    return 'Net Banking';
 }
