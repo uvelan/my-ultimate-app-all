@@ -3,6 +3,30 @@ import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth-server';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { encodeBookCover } from '@/lib/book-cover';
+
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const auth = await verifyAuth();
+    if (!auth.isAuthenticated || !auth.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { id } = await params;
+    const book = await prisma.book.findUnique({ where: { id }, select: { userName: true } });
+    if (!book) return NextResponse.json({ error: 'Book not found' }, { status: 404 });
+    if (book.userName !== auth.user.email && !['ADMIN', 'SUPERUSER'].includes(auth.user.role)) {
+        return NextResponse.json({ error: 'Only the owner or an admin can update this cover.' }, { status: 403 });
+    }
+    let cover: string;
+    try {
+        const file = (await req.formData()).get('cover');
+        if (!file || typeof file === 'string' || !file.size || file.size > 4_000_000) {
+            return NextResponse.json({ error: 'Choose an image under 4 MB.' }, { status: 400 });
+        }
+        cover = await encodeBookCover(Buffer.from(await file.arrayBuffer()));
+    } catch {
+        return NextResponse.json({ error: 'Could not read this image. Try a JPEG, PNG, or WebP cover.' }, { status: 400 });
+    }
+    await prisma.book.update({ where: { id }, data: { cover }, select: { id: true } });
+    return NextResponse.json({ cover });
+}
 
 export async function GET(
     req: NextRequest,

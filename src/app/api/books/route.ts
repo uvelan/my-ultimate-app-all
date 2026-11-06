@@ -6,7 +6,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import sharp from 'sharp';
+import { encodeBookCover } from '@/lib/book-cover';
 import { load } from 'cheerio';
 import AdmZip from 'adm-zip';
 
@@ -141,12 +141,7 @@ async function extractCover(epub: any, filePath: string): Promise<string | null>
             if (imageBuffer) {
                 try {
                     console.log(`Processing image buffer: length=${imageBuffer.length}, magic=${imageBuffer.toString('hex').slice(0, 20)}`);
-                    const resized = await sharp(imageBuffer)
-                        .resize(300, 450, { fit: "cover" })
-                        .toFormat("jpeg", { quality: 80 })
-                        .toBuffer();
-                    console.log('Cover extracted and resized successfully');
-                    return `data:image/jpeg;base64,${resized.toString("base64")}`;
+                    return await encodeBookCover(imageBuffer);
                 } catch (e) {
                     console.error('Sharp processing failed', e);
                 }
@@ -412,12 +407,7 @@ export async function POST(req: NextRequest) {
                     const coverEntry = zip.getEntry(indexData.cover_image);
                     if (coverEntry) {
                         try {
-                            const imageBuffer = coverEntry.getData();
-                            const resized = await sharp(imageBuffer)
-                                .resize(300, 450, { fit: "cover" })
-                                .toFormat("jpeg", { quality: 80 })
-                                .toBuffer();
-                            coverUrl = `data:image/jpeg;base64,${resized.toString("base64")}`;
+                            coverUrl = await encodeBookCover(coverEntry.getData());
                         } catch (e) {
                             console.error('Failed to process ZIP cover image:', e);
                         }
