@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Animated, BackHandler, Pressable, Platform, ScrollView } from 'react-native';
-import { Home, ShieldCheck, LogOut, Menu, X, Library, PieChart, CloudDownload, MessageSquare } from 'lucide-react-native';
+import { Home, ShieldCheck, LogOut, Menu, X, Library, PieChart, CloudDownload, MessageSquare, Timer } from 'lucide-react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { authService } from '@/src/services/auth.service';
 import { desktopContentMax, desktopRailWidth, useAndroidWindow } from '@/src/lib/android-window';
@@ -72,6 +72,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         { label: 'Finance Dashboard', icon: PieChart, route: '/(protected)/(tabs)/expenses' },
         { label: 'Budgets & Recurring', icon: PieChart, route: '/(protected)/finance' },
         { label: 'Tasks', icon: Home, route: '/(protected)/tasks' },
+        ...(Platform.OS === 'android' ? [{ label: 'Reminders', icon: Timer, route: '/(protected)/reminders' }] : []),
         { label: 'Interview', icon: MessageSquare, route: '/(protected)/interview' },
         { label: 'Resume builder', icon: Library, route: '/(protected)/resumes' },
         { label: 'Settings', icon: ShieldCheck, route: '/(protected)/settings' },

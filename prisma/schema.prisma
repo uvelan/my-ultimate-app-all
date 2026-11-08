@@ -33,6 +33,26 @@ enum Role {
   SUPERUSER
 }
 
+model ReminderSession {
+  id                 String   @id @map("_id")
+  userId             String   @db.ObjectId
+  sessionId          String
+  presetId           String
+  title              String
+  message            String
+  source             String
+  status             String
+  recordedAt         DateTime
+  startedAt          DateTime?
+  countdownStartedAt DateTime?
+  plannedEndAt       DateTime
+  endedAt            DateTime?
+  calendarEndAt      DateTime
+  revision           Int
+
+  @@index([userId, recordedAt])
+}
+
 enum TransactionType {
   INCOME
   EXPENSE

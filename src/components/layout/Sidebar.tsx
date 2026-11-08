@@ -16,7 +16,8 @@ import {
     ChevronLeft, 
     ChevronRight,
     ShieldCheck,
-    FileText
+    FileText,
+    Timer
 } from 'lucide-react';
 import { Typography } from '@/components/ui/Typography';
 
@@ -36,6 +37,7 @@ export default function Sidebar({
 
     const menuItems = [
         { name: 'Discover', href: '/dashboard', icon: Home },
+        { name: 'Reminders', href: '/reminders', icon: Timer },
         ...(['ADMIN', 'SUPERUSER'].includes(user?.role as string) ? [
             { name: 'Admin Panel', href: '/admin', icon: ShieldCheck }
         ] : []),

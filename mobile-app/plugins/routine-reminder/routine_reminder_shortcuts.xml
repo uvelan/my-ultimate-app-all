@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="start_routine_reminder"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/routine_reminder_shortcut">
+        <intent
+            android:action="com.uvelan.ultimateapp.START_ROUTINE_REMINDER"
+            android:targetPackage="com.uvelan.ultimateapp"
+            android:targetClass="com.uvelan.ultimateapp.RoutineReminderShortcutActivity" />
+    </shortcut>
+</shortcuts>

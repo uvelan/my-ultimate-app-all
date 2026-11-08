@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { NativeModules } from 'react-native';
 import { cacheService } from './storage';
 
 export const API_BASE_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://my-ultimate-app-all.vercel.app/api').replace(/\/+$/, '');
@@ -10,6 +11,7 @@ export function onSessionExpired(listener: () => void) { expiredListeners.add(li
 export async function clearSession() {
     cacheService.delete('session-profile');
     await Promise.all(['accessToken', 'refreshToken'].map(key => SecureStore.deleteItemAsync(key)));
+    await NativeModules.RoutineReminder?.clearHistoryAccount?.().catch(() => {});
     for (const listener of expiredListeners) listener();
 }
 
