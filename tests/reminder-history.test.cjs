@@ -104,7 +104,8 @@ test('account access tokens are not accepted as background upload grants', async
 });
 
 test('calendar includes a cross-midnight session on both days and progress uses the latest extension', () => {
-    const { calendarPeriod, sessionsOnDay, sessionProgress } = load('mobile-app/src/lib/reminder-calendar.ts');
+    const calendar = load('mobile-app/src/lib/calendar.ts');
+    const { sessionsOnDay, sessionProgress } = load('mobile-app/src/lib/reminder-calendar.ts', { './calendar': calendar });
     const started = new Date(2026, 10, 8, 23, 55).getTime();
     const extended = new Date(2026, 10, 9, 0, 5).getTime();
     const planned = new Date(2026, 10, 9, 0, 15).getTime();
@@ -112,7 +113,10 @@ test('calendar includes a cross-midnight session on both days and progress uses 
     assert.equal(sessionsOnDay([row], new Date(2026, 10, 8)).length, 1);
     assert.equal(sessionsOnDay([row], new Date(2026, 10, 9)).length, 1);
     assert.equal(sessionsOnDay([row], new Date(2026, 10, 10)).length, 0);
-    assert.equal(calendarPeriod(new Date(2026, 10, 8), 'week').days.length, 7);
+    const date = new Date(2026, 10, 8);
+    assert.equal(calendar.calendarPeriod(date, 'week').days.length, 7);
+    assert.equal(calendar.calendarPeriod(date, 'week').from.getDay(), 1);
+    assert.equal(calendar.calendarPeriod(date, 'week', 0).from.getDay(), 0);
     const progress = sessionProgress(row, extended + 300_000);
     assert.equal(progress.remaining, '05:00');
     assert.equal(progress.percent, 50);

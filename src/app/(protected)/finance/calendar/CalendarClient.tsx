@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { TransactionModal, type Cat, type Txn } from '../transactions/TransactionsClient'
+import { financeDayActivity, formatActivityAmount as fmt } from '../../../../../mobile-app/src/lib/finance-day-activity'
 
 interface Props {
   initialYear: number
@@ -11,9 +12,10 @@ interface Props {
   categories: Cat[]
 }
 
-function fmt(paise: number) {
-  return '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+const dayActionStyle = {
+  border: '1px solid var(--ft-glass-border)', borderRadius: 8, background: 'var(--ft-surface-low)',
+  color: 'var(--ft-on-surface)', padding: '6px 10px', minHeight: 32, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+} as const
 
 export default function CalendarClient({ initialYear, initialMonth, transactions, categories }: Props) {
   const router = useRouter()
@@ -22,24 +24,29 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTxn, setEditingTxn] = useState<Txn | null>(null)
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set())
+  const [refreshing, startRefresh] = useTransition()
+
+  useEffect(() => { setHiddenIds(new Set()) }, [transactions])
 
   const daysInMonth = new Date(initialYear, initialMonth + 1, 0).getDate()
   const firstDayOfMonth = new Date(initialYear, initialMonth, 1).getDay()
 
   // Map transactions by day
-  const txnsByDay: Record<number, { income: number, expense: number, txns: Txn[] }> = {}
-  for (let i = 1; i <= daysInMonth; i++) {
-    txnsByDay[i] = { income: 0, expense: 0, txns: [] }
-  }
-
-  transactions.forEach(t => {
-    const d = new Date(t.transactionDate).getDate()
-    if (txnsByDay[d]) {
-      txnsByDay[d].txns.push(t)
-      if (t.type === 'INCOME') txnsByDay[d].income += t.amountPaise
-      else txnsByDay[d].expense += t.amountPaise
+  const txnsByDay = useMemo(() => {
+    const grouped: Record<number, { income: number, expense: number, txns: Txn[] }> = {}
+    for (let i = 1; i <= daysInMonth; i++) {
+      grouped[i] = { income: 0, expense: 0, txns: [] }
     }
-  })
+    for (const t of transactions) {
+      const bucket = grouped[new Date(t.transactionDate).getDate()]
+      if (!bucket) continue
+      bucket.txns.push(t)
+      if (t.type === 'INCOME') bucket.income += t.amountPaise
+      else bucket.expense += t.amountPaise
+    }
+    return grouped
+  }, [daysInMonth, transactions])
 
   const prevMonth = () => {
     let y = initialYear
@@ -62,6 +69,12 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
   }
 
   const selectedTxns = selectedDate ? txnsByDay[parseInt(selectedDate.split('-')[2], 10)]?.txns || [] : []
+  const activity = financeDayActivity(selectedTxns, hiddenIds)
+
+  const refreshDay = () => {
+    setHiddenIds(new Set())
+    startRefresh(() => router.refresh())
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -121,7 +134,10 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
               return (
                 <div
                   key={day}
-                  onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                  onClick={() => {
+                    if (!isSelected) setHiddenIds(new Set())
+                    setSelectedDate(isSelected ? null : dateStr)
+                  }}
                   style={{
                     aspectRatio: '1/1',
                     borderRadius: 12,
@@ -180,22 +196,43 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
             )}
           </div>
 
+          {selectedDate && <>
+            <div aria-live="polite" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+              <div style={{ padding: 10, borderRadius: 10, background: 'var(--ft-surface-low)', color: 'var(--ft-secondary)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>Income</div>
+                <strong>+{fmt(activity.incomePaise)}</strong>
+              </div>
+              <div style={{ padding: 10, borderRadius: 10, background: 'var(--ft-surface-low)', color: 'var(--ft-error)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>Expense</div>
+                <strong>−{fmt(activity.expensePaise)}</strong>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <span role="status" style={{ fontSize: 12, color: 'var(--ft-on-surface-variant)' }}>
+                {activity.hiddenCount ? `${activity.hiddenCount} temporarily hidden` : 'Hide rows to preview different totals'}
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {activity.hiddenCount > 0 && <button type="button" style={dayActionStyle} onClick={() => setHiddenIds(new Set())}>Show all</button>}
+                <button type="button" style={dayActionStyle} disabled={refreshing} onClick={refreshDay}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+              </div>
+            </div>
+          </>}
           {!selectedDate ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--ft-on-surface-variant)', fontSize: 13, opacity: 0.6 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 32, marginBottom: 8 }}>touch_app</span>
               Click a day on the calendar
             </div>
-          ) : selectedTxns.length === 0 ? (
+          ) : activity.visible.length === 0 ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--ft-on-surface-variant)', fontSize: 13 }}>
-              No transactions for this day
+              {activity.hiddenCount ? 'All transactions for this day are hidden.' : 'No transactions for this day.'}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', paddingRight: 4 }}>
-              {selectedTxns.map(t => (
-                <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: 'var(--ft-surface-low)', borderRadius: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {activity.visible.map(t => (
+                <div key={t.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--ft-surface-low)', borderRadius: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: t.categoryColor, display: 'inline-block', flexShrink: 0 }} />
-                    <div>
+                    <div style={{ overflowWrap: 'anywhere' }}>
                       <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--ft-on-surface)' }}>{t.description || t.categoryName}</p>
                       <p style={{ fontSize: 11, color: 'var(--ft-on-surface-variant)' }}>{t.categoryName}</p>
                     </div>
@@ -204,6 +241,14 @@ export default function CalendarClient({ initialYear, initialMonth, transactions
                     <span style={{ fontSize: 13, fontWeight: 700, color: t.type === 'INCOME' ? 'var(--ft-secondary)' : 'var(--ft-error)' }}>
                       {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amountPaise)}
                     </span>
+                    <button
+                      type="button"
+                      aria-label={`Hide ${t.description || t.categoryName} temporarily`}
+                      onClick={() => setHiddenIds(current => new Set(current).add(t.id))}
+                      style={dayActionStyle}
+                    >
+                      Hide
+                    </button>
                     <button
                       onClick={() => { setEditingTxn(t); setModalOpen(true); }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ft-outline)', display: 'flex' }}

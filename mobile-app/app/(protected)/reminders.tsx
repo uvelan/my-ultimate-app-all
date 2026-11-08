@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, AppState, NativeModules, PermissionsAndroid, Platform, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
+import ReminderHistoryPopup from '@/src/components/ReminderHistoryPopup';
 
 type Preset = {
     id: string;
@@ -104,6 +105,7 @@ export default function RemindersScreen() {
     const [shortcuts, setShortcuts] = useState<ShortcutState>();
     const [shortcutError, setShortcutError] = useState(false);
     const [draft, setDraft] = useState<Draft>();
+    const [detailsId, setDetailsId] = useState<string>();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [now, setNow] = useState(Date.now);
@@ -308,7 +310,7 @@ export default function RemindersScreen() {
                                 </>}
                                 <View className="flex-row flex-wrap gap-2">
                                     {run ? <>
-                                        <Action secondary label="Details" onPress={() => router.push({ pathname: '/reminder-history', params: { sessionId: run.sessionId } } as never)} />
+                                        <Action secondary label="Details" onPress={() => setDetailsId(run.sessionId)} />
                                         <Action secondary label="Stop" disabled={busy} onPress={() => void act(() => reminder.stop(run.id))} />
                                         {run.finished && <Action label={`Extend ${run.extensionMinutes} min`} disabled={busy || !canExtend} onPress={() => void act(() => reminder.extend(run.id))} />}
                                     </> : <Action label="Start" disabled={busy || !canStart} onPress={() => void act(() => reminder.start(preset.id))} />}
@@ -341,6 +343,7 @@ export default function RemindersScreen() {
                     </>}
                 </>}
             </ScrollView>
+            {detailsId && <ReminderHistoryPopup key={detailsId} target={{ sessionId: detailsId }} onClose={() => setDetailsId(undefined)} />}
         </View>
     );
 }

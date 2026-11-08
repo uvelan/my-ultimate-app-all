@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, ScrollView, TouchableOpacity, Modal, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
+import { CalendarGrid } from '@/src/components/ui/CalendarGrid';
+import { calendarPeriod, calendarWeekdays } from '@/src/lib/calendar';
 import { api } from '@/src/lib/api-client';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from 'expo-router';
@@ -8,6 +10,7 @@ import { comparePlannedTasks, localTaskDay, matchesTaskPlan, parseTaskDay, taskA
 
 const statuses = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'ARCHIVED'];
 const priorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+const weekdays = calendarWeekdays(0).map(day => day.slice(0, 2));
 const fieldStyle = { color: '#fff', backgroundColor: '#27232e', padding: 12, borderRadius: 8, marginBottom: 12 };
 const emptyForm = () => ({ title: '', description: '', status: 'TODO', priority: 'MEDIUM', area: '', projectId: '', tagIds: [] as string[], frequency: '', startDate: '', dueDate: '' });
 
@@ -85,6 +88,19 @@ export default function TasksScreen() {
         <View className="flex-row flex-wrap mt-3">{chip(task.status === 'DONE' ? 'Reopen' : 'Complete', false, () => mutate('tasks', { status: task.status === 'DONE' ? 'TODO' : 'DONE' }, task.id))}{chip('Select', selected.includes(task.id), () => toggleSelection(task.id))}{chip('Delete', false, () => confirmDelete('tasks', task.id))}</View>
     </View>;
     const changeCalendarMonth = (offset: number) => { setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + offset, 1)); setCalendarDay(''); };
+    const calendarDays = useMemo(() => calendarPeriod(calendarMonth, 'month', 0).days
+        .map(day => day.getMonth() === calendarMonth.getMonth() ? day : null), [calendarMonth]);
+    const taskCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        if (view === 'Calendar') {
+            for (const task of filtered) {
+                for (const day of new Set([taskDay(task.startDate), taskDay(task.dueDate)])) {
+                    if (day) counts.set(day, (counts.get(day) ?? 0) + 1);
+                }
+            }
+        }
+        return counts;
+    }, [filtered, view]);
     return <View className="flex-1 bg-background">
         <View className="pt-12 px-5 pb-4 flex-row items-center justify-between"><View className="flex-row items-center"><SidebarToggle /><Text className="text-text-primary text-2xl font-bold ml-3">Tasks</Text></View><TouchableOpacity disabled={saving} onPress={() => openForm()} className="p-3 bg-accent rounded-xl"><Text className="text-white">Add task</Text></TouchableOpacity></View>
         <View className="flex-row flex-wrap px-5">{['List', 'Board', 'Calendar', 'Projects & tags'].map(item => chip(item, item === view, () => setView(item)))}</View>
@@ -115,11 +131,13 @@ export default function TasksScreen() {
                 {view === 'Board' && <ScrollView horizontal>{statuses.map(item => <View key={item} style={{ width: 280, marginRight: 12 }}><Text className="text-white font-bold mb-3">{item.replace(/_/g, ' ')} ({filtered.filter(task => task.status === item).length})</Text>{filtered.filter(task => task.status === item).map(card)}</View>)}</ScrollView>}
                 {view === 'Calendar' && <>
                     <View className="flex-row justify-between mb-3">{chip('Previous', false, () => changeCalendarMonth(-1))}<Text className="text-white pt-2">{calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>{chip('Next', false, () => changeCalendarMonth(1))}</View>
-                    <View className="flex-row flex-wrap mb-4">{['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(item => <Text key={item} style={{ width: '14.28%', color: '#aaa', textAlign: 'center', padding: 8 }}>{item}</Text>)}{Array.from({ length: calendarMonth.getDay() }, (_, i) => <View key={`blank-${i}`} style={{ width: '14.28%' }} />)}{Array.from({ length: new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate() }, (_, i) => {
-                        const date = localTaskDay(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), i + 1));
-                        const count = filtered.filter(task => [taskDay(task.startDate), taskDay(task.dueDate)].includes(date)).length;
-                        return <TouchableOpacity key={date} onPress={() => setCalendarDay(date === calendarDay ? '' : date)} style={{ width: '14.28%', padding: 10, borderRadius: 6, backgroundColor: calendarDay === date ? '#7c3aed' : '#211d28' }}><Text className="text-white text-center">{i + 1}</Text><Text className="text-gray-300 text-center text-xs">{count || ' '}</Text></TouchableOpacity>;
-                    })}</View>
+                    <View className="mb-4"><CalendarGrid weekdays={weekdays} days={calendarDays} itemLabel="tasks"
+                        countForDay={day => taskCounts.get(localTaskDay(day)) ?? 0}
+                        isSelected={day => localTaskDay(day) === calendarDay}
+                        onSelect={day => {
+                            const key = localTaskDay(day);
+                            setCalendarDay(current => current === key ? '' : key);
+                        }} /></View>
                     {!!calendarDay && chip('Add task on ' + calendarDay, false, () => openForm(undefined, calendarDay))}
                     {filtered.filter(task => [taskDay(task.startDate), taskDay(task.dueDate)].some(day =>
                         calendarDay ? day === calendarDay : day.startsWith(localTaskDay(calendarMonth).slice(0, 7)))).map(card)}

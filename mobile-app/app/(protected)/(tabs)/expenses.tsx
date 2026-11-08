@@ -2,20 +2,24 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { financeDateRange, financeDay } from '@/src/lib/finance-range';
 import { financePeriodRange, moveFinancePeriod, FinancePeriod } from '@/src/lib/finance-period';
 import { financeService } from '@/src/services/finance.service';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, StatusBar, ActivityIndicator, TouchableOpacity, Modal, TextInput } from 'react-native';
 import { FinanceDashboard } from '@/src/components/finance/FinanceDashboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
-import { Menu, LayoutDashboard, ReceiptText, Shapes, Wallet, PieChart as PieIcon, LineChart, History as HistoryIcon, Plus, X, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Trash2, Pencil } from 'lucide-react-native';
+import { Menu, LayoutDashboard, ReceiptText, Shapes, Wallet, PieChart as PieIcon, LineChart, History as HistoryIcon, Plus, X, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Trash2, Pencil, EyeOff } from 'lucide-react-native';
 import { Card } from '@/src/components/ui/Card';
 import { expenseService, incomeService, categoryService } from '@/src/services/features.service';
 import { useSidebar } from '@/src/components/ui/Sidebar';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { PAYMENT_METHODS } from '@/src/lib/payment-methods';
+import { dayStart } from '@/src/lib/calendar';
+import { financeDayActivity, formatActivityAmount } from '@/src/lib/finance-day-activity';
+import type { DashboardTransaction } from '@/src/lib/finance-dashboard';
 
 type Segment = 'overview' | 'history' | 'income' | 'categories' | 'calendar';
+type CalendarTransaction = DashboardTransaction & { category?: { name: string } };
 
 export default function ExpensesScreen() {
     const router = useRouter();
@@ -30,7 +34,7 @@ export default function ExpensesScreen() {
     const [activeSegment, setActiveSegment] = useState<Segment>('overview');
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [dashboardTransactions, setDashboardTransactions] = useState<any[]>([]);
+    const [dashboardTransactions, setDashboardTransactions] = useState<CalendarTransaction[]>([]);
     const [dashboardCategories, setDashboardCategories] = useState<any[]>([]);
     const [expenses, setExpenses] = useState<any[]>([]);
     const [incomes, setIncomes] = useState<any[]>([]);
@@ -74,6 +78,13 @@ export default function ExpensesScreen() {
     };
     const [selectedDay, setSelectedDay] = useState<Date | null>(null);
     const [isDayModalOpen, setIsDayModalOpen] = useState(false);
+    const [hiddenDayIds, setHiddenDayIds] = useState<Set<string>>(() => new Set());
+    const dayTransactions = useMemo(() => {
+        if (!selectedDay) return [];
+        const day = dayStart(selectedDay).getTime();
+        return dashboardTransactions.filter(item => dayStart(new Date(item.transactionDate)).getTime() === day);
+    }, [dashboardTransactions, selectedDay]);
+    const dayActivity = useMemo(() => financeDayActivity(dayTransactions, hiddenDayIds), [dayTransactions, hiddenDayIds]);
 
     const getDaysInMonth = (date: Date) => {
         const year = date.getFullYear();
@@ -124,6 +135,7 @@ export default function ExpensesScreen() {
             if (request !== financeRequest.current) return;
             const legacy = (item: any) => ({ ...item, amount: item.amountPaise / 100, date: item.transactionDate, notes: item.description, source: item.category?.name || item.description || 'Income' });
             setDashboardTransactions(transactions);
+            setHiddenDayIds(new Set());
             setDashboardCategories(allCategories);
             setExpenses(transactions.filter(item => item.type === 'EXPENSE').map(legacy));
             setIncomes(transactions.filter(item => item.type === 'INCOME').map(legacy));
@@ -143,8 +155,8 @@ export default function ExpensesScreen() {
     }, [currentMonth, period, dateRange, activeSegment === 'overview']);
 
     const onRefresh = () => {
-        setRefreshing(true);
-        fetchData();
+        setHiddenDayIds(new Set());
+        void fetchData();
     };
 
     const [selectedCategory, setSelectedCategory] = useState<string>('');
@@ -488,6 +500,7 @@ export default function ExpensesScreen() {
                                             key={idx}
                                             onPress={() => {
                                                 if (hasActivity) {
+                                                    if (day.getTime() !== selectedDay?.getTime()) setHiddenDayIds(new Set());
                                                     setSelectedDay(day);
                                                     setIsDayModalOpen(true);
                                                 }
@@ -676,9 +689,9 @@ export default function ExpensesScreen() {
             {/* Day Activity Modal */}
             <Modal visible={isDayModalOpen} animationType="slide" transparent={true} onRequestClose={() => setIsDayModalOpen(false)}>
                 <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#f9f9ff] rounded-t-3xl p-6 h-[70%] border-t border-border">
-                        <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-xl font-bold text-[#041b3c] font-serif">
+                    <View accessibilityViewIsModal className="bg-[#f9f9ff] rounded-t-3xl p-5 h-[80%] border-t border-border">
+                        <View className="flex-row justify-between items-center gap-2 mb-3">
+                            <Text accessibilityRole="header" className="flex-1 text-xl font-bold text-[#041b3c] font-serif">
                                 Activity for {selectedDay?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </Text>
                             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close day activity" onPress={() => setIsDayModalOpen(false)}>
@@ -686,63 +699,58 @@ export default function ExpensesScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-                            {(() => {
-                                if (!selectedDay) return null;
-                                
-                                const dayExp = expenses.filter(e => {
-                                    const d = new Date(e.date);
-                                    return d.getDate() === selectedDay.getDate() && d.getMonth() === selectedDay.getMonth() && d.getFullYear() === selectedDay.getFullYear();
-                                });
-                                const dayInc = incomes.filter(i => {
-                                    const d = new Date(i.date);
-                                    return d.getDate() === selectedDay.getDate() && d.getMonth() === selectedDay.getMonth() && d.getFullYear() === selectedDay.getFullYear();
-                                });
-                                
-                                const totalI = dayInc.reduce((sum, i) => sum + i.amount, 0);
-                                const totalE = dayExp.reduce((sum, e) => sum + e.amount, 0);
-
-                                return (
-                                    <>
-                                        <View className="flex-row gap-3 mb-6">
-                                            <View className="flex-1 bg-[#10b981]/10 p-3 rounded-xl border border-[#10b981]/20">
-                                                <Text className="text-[#087f5b] font-bold text-xs mb-1">Income</Text>
-                                                <Text className="text-[#087f5b] font-bold text-xl">+₹{totalI}</Text>
-                                            </View>
-                                            <View className="flex-1 bg-[#ef4444]/10 p-3 rounded-xl border border-[#ef4444]/20">
-                                                <Text className="text-[#b42331] font-bold text-xs mb-1">Expense</Text>
-                                                <Text className="text-[#b42331] font-bold text-xl">-₹{totalE}</Text>
-                                            </View>
+                        <View className="flex-row gap-3">
+                            <View className="flex-1 rounded-xl border border-[#10b981]/20 bg-[#10b981]/10 p-3">
+                                <Text className="text-[#087f5b] font-bold text-xs mb-1">Income</Text>
+                                <Text accessibilityLiveRegion="polite" className="text-[#087f5b] font-bold text-lg">+{formatActivityAmount(dayActivity.incomePaise)}</Text>
+                            </View>
+                            <View className="flex-1 rounded-xl border border-[#ef4444]/20 bg-[#ef4444]/10 p-3">
+                                <Text className="text-[#b42331] font-bold text-xs mb-1">Expense</Text>
+                                <Text accessibilityLiveRegion="polite" className="text-[#b42331] font-bold text-lg">−{formatActivityAmount(dayActivity.expensePaise)}</Text>
+                            </View>
+                        </View>
+                        <View className="my-2 flex-row flex-wrap items-center justify-between gap-2">
+                            <Text accessibilityLiveRegion="polite" className="flex-1 text-xs text-[#444650]">
+                                {dayActivity.hiddenCount ? `${dayActivity.hiddenCount} temporarily hidden` : 'Hide rows to preview different totals'}
+                            </Text>
+                            {dayActivity.hiddenCount > 0 && <TouchableOpacity accessibilityRole="button" onPress={() => setHiddenDayIds(new Set())} className="min-h-11 justify-center px-2">
+                                <Text className="font-bold text-[#087f5b]">Show all</Text>
+                            </TouchableOpacity>}
+                            <TouchableOpacity accessibilityRole="button" disabled={refreshing} accessibilityState={{ disabled: refreshing }}
+                                onPress={onRefresh} className="min-h-11 justify-center px-2">
+                                <Text className="font-bold text-[#041b3c]">{refreshing ? 'Refreshing…' : 'Refresh'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <ScrollView className="flex-1" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />}
+                            contentContainerStyle={{ paddingBottom: insets.bottom + 8 }}>
+                            {!!loadError && <Text className="mb-3 text-[#b42331]">{loadError}</Text>}
+                            {!dayActivity.visible.length && <Text className="py-6 text-center text-[#444650]">
+                                {dayActivity.hiddenCount ? 'All transactions for this day are hidden.' : 'No transactions for this day.'}
+                            </Text>}
+                            {(['INCOME', 'EXPENSE'] as const).flatMap(type => dayActivity.visible.filter(item => item.type === type)).map(item => {
+                                const income = item.type === 'INCOME';
+                                const title = item.category?.name || (income ? item.description || 'Income' : 'Expense');
+                                const color = income ? '#087f5b' : '#b42331';
+                                const method = income ? 'Income' : item.paymentMethod;
+                                return <Card key={item.id}
+                                    style={{ backgroundColor: '#fff', borderColor: '#e8eeff', borderLeftColor: income ? '#10b981' : '#ef4444' }}
+                                    className="mb-3 flex-row items-center gap-2 border-l-4 p-3 shadow-sm">
+                                    <View className="min-w-0 flex-1">
+                                        <View className="flex-row flex-wrap items-center gap-2">
+                                            <Text className="text-base font-bold" style={{ color: income ? color : '#041b3c' }}>{title}</Text>
+                                            {!!method && <Text className="rounded border border-[#dce3f4] bg-[#e8eeff] px-2 py-0.5 text-[10px] uppercase text-[#444650]">{method}</Text>}
                                         </View>
-
-                                        {dayInc.map(i => (
-                                            <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff', borderLeftColor: '#10b981' }} key={i.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#10b981]">
-                                                <View className="flex-1 min-w-0 mr-3">
-                                                    <View className="flex-row flex-wrap items-center gap-2">
-                                                        <Text className="text-[#087f5b] font-bold text-base">{i.source}</Text>
-                                                        <Text className="bg-[#e8eeff] text-[#444650] text-[10px] px-2 py-0.5 rounded border border-[#dce3f4]">Income</Text>
-                                                    </View>
-                                                    <Text className="text-[#444650] text-xs mt-1">{i.notes || 'No description'}</Text>
-                                                </View>
-                                                <Text className="text-[#087f5b] font-bold text-lg shrink-0">+₹{i.amount}</Text>
-                                            </Card>
-                                        ))}
-
-                                        {dayExp.map(e => (
-                                            <Card style={{ backgroundColor: '#fff', borderColor: '#e8eeff', borderLeftColor: '#ef4444' }} key={e.id} className="p-4 mb-3 flex-row justify-between items-center shadow-sm border-l-4 border-l-[#ef4444]">
-                                                <View className="flex-1 min-w-0 mr-3">
-                                                    <View className="flex-row flex-wrap items-center gap-2">
-                                                        <Text className="text-[#041b3c] font-bold text-base">{e.category?.name || 'Expense'}</Text>
-                                                        <Text className="bg-[#e8eeff] text-[#444650] text-[10px] px-2 py-0.5 rounded border border-[#dce3f4] uppercase">{e.paymentMethod}</Text>
-                                                    </View>
-                                                    <Text className="text-[#444650] text-xs mt-1">{e.notes || 'No description'}</Text>
-                                                </View>
-                                                <Text className="text-[#b42331] font-bold text-lg shrink-0">-₹{e.amount}</Text>
-                                            </Card>
-                                        ))}
-                                    </>
-                                )
-                            })()}
+                                        <Text className="mt-1 text-xs text-[#444650]">{item.description || 'No description'}</Text>
+                                    </View>
+                                    <Text className="shrink-0 text-base font-bold" style={{ color }}>{income ? '+' : '−'}{formatActivityAmount(item.amountPaise)}</Text>
+                                    <TouchableOpacity accessibilityRole="button"
+                                        accessibilityLabel={`Hide ${item.description || title} temporarily`}
+                                        onPress={() => setHiddenDayIds(current => new Set(current).add(item.id))}
+                                        className="h-11 w-11 items-center justify-center rounded-lg bg-[#e8eeff]">
+                                        <EyeOff size={18} color="#444650" />
+                                    </TouchableOpacity>
+                                </Card>;
+                            })}
                         </ScrollView>
                     </View>
                 </View>

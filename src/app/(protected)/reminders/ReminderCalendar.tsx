@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
-import {
-    calendarModes, calendarPeriod, calendarTitle, dayStart, movePeriod, sessionProgress, sessionsOnDay, sessionTime, weekdays,
-    type CalendarMode, type ReminderSession,
-} from '../../../../mobile-app/src/lib/reminder-calendar';
+import { CalendarGrid } from '@/components/ui/CalendarGrid';
+import { calendarModes, calendarPeriod, calendarTitle, calendarWeekdays, dayStart, movePeriod, type CalendarMode } from '../../../../mobile-app/src/lib/calendar';
+import { sessionProgress, sessionsOnDay, sessionTime, type ReminderSession } from '../../../../mobile-app/src/lib/reminder-calendar';
 
 const panel = 'rounded-xl border border-border bg-secondary p-4 sm:p-6';
 const button = 'min-h-10 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-background-muted';
+const weekdays = calendarWeekdays();
+type Snapshot = { from: number; to: number; sessions: ReminderSession[]; truncated: boolean };
 
 function Detail({ session, now }: { session: ReminderSession; now: number }) {
     const progress = sessionProgress(session, now);
     const lastLabel = session.status === 'running' ? 'Scheduled end' : session.status === 'stopped' ? 'Stopped' : 'Completed';
-    return <section aria-label="Selected reminder" className={panel}>
-        <h2 className="text-lg font-semibold">{session.title}</h2>
+    return <section aria-label="Reminder details">
         <p className="mt-1 text-sm text-text-secondary">
             {session.source === 'routine' ? 'Samsung Routine' : session.source === 'manual' ? 'Started manually' : 'Start source unavailable'}
         </p>
@@ -39,13 +39,20 @@ function Detail({ session, now }: { session: ReminderSession; now: number }) {
 export default function ReminderCalendar() {
     const [mode, setMode] = useState<CalendarMode>('month');
     const [date, setDate] = useState(() => dayStart(new Date()));
-    const [selectedId, setSelectedId] = useState<string>();
-    const [data, setData] = useState<{ sessions: ReminderSession[]; truncated: boolean }>();
+    const [popup, setPopup] = useState<{ day: Date; sessionId?: string }>();
+    const [loaded, setLoaded] = useState<Snapshot>();
+    const [dayLoaded, setDayLoaded] = useState<Snapshot>();
     const [error, setError] = useState('');
     const [now, setNow] = useState(Date.now);
     const { from, to, days } = useMemo(() => calendarPeriod(date, mode), [date, mode]);
     const fromTime = from.getTime();
     const toTime = to.getTime();
+    const dayPeriod = popup && calendarPeriod(popup.day, 'day');
+    const requestFrom = dayPeriod?.from.getTime() ?? fromTime;
+    const requestTo = dayPeriod?.to.getTime() ?? toTime;
+    const isOpen = !!popup;
+    const dialog = useRef<HTMLDialogElement>(null);
+    const popupHeading = useRef<HTMLHeadingElement>(null);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -54,39 +61,63 @@ export default function ReminderCalendar() {
             if (loading) return;
             loading = true;
             try {
-                const query = new URLSearchParams({ from: new Date(fromTime).toISOString(), to: new Date(toTime).toISOString() });
+                const query = new URLSearchParams({ from: new Date(requestFrom).toISOString(), to: new Date(requestTo).toISOString() });
                 const response = await authenticatedFetch('/api/reminders?' + query, { signal: controller.signal });
                 if (!response.ok) throw new Error('Could not load reminder history.');
                 const body = await response.json();
-                if (!controller.signal.aborted) { setData(body); setError(''); }
+                if (!controller.signal.aborted) {
+                    const snapshot = { from: requestFrom, to: requestTo, sessions: body.sessions, truncated: body.truncated };
+                    if (isOpen) setDayLoaded(snapshot);
+                    else setLoaded(snapshot);
+                    setError('');
+                }
             } catch (error) {
                 if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Could not load reminder history.');
             } finally {
                 loading = false;
             }
         };
-        setData(undefined);
+        setError('');
         void load();
         const refresh = window.setInterval(load, 8000);
         return () => { controller.abort(); window.clearInterval(refresh); };
-    }, [fromTime, toTime]);
+    }, [requestFrom, requestTo, isOpen]);
 
     useEffect(() => {
         const tick = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(tick);
     }, []);
 
-    const sessions = data?.sessions ?? [];
-    const selected = sessions.find(session => session.id === selectedId);
-    const visible = sessionsOnDay(sessions, date);
-    const selectDay = (day: Date) => { setDate(day); setSelectedId(undefined); };
+    useEffect(() => {
+        const element = dialog.current;
+        if (isOpen && element && !element.open) element.showModal();
+        if (!isOpen && element?.open) element.close();
+    }, [isOpen]);
+
+    const exactRange = loaded?.from === fromTime && loaded.to === toTime;
+    const coversRange = !!loaded && loaded.from <= fromTime && loaded.to >= toTime;
+    const data = exactRange || (coversRange && !loaded?.truncated) ? loaded : undefined;
+    const calendarSessions = data?.sessions;
+    const counts = useMemo(() => new Map(days.map(day => [day.getTime(), sessionsOnDay(calendarSessions ?? [], day).length])),
+        [calendarSessions, days]);
+    const exactDay = dayLoaded?.from === requestFrom && dayLoaded.to === requestTo ? dayLoaded : undefined;
+    const dayData = popup && (exactDay ?? (data && !data.truncated ? data : undefined));
+    const visible = popup && dayData ? sessionsOnDay(dayData.sessions, popup.day) : [];
+    const selected = visible.find(session => session.id === popup?.sessionId);
+
+    useEffect(() => {
+        if (isOpen) popupHeading.current?.focus();
+    }, [isOpen, selected?.id]);
+
+    const backToList = () => setPopup(current => current && { day: current.day });
+    const close = () => setPopup(undefined);
 
     return <main className="mx-auto grid w-full max-w-5xl gap-5 text-text-primary">
         <header>
             <h1 className="text-3xl font-semibold">Reminders</h1>
             <p className="mt-1 text-text-secondary">Countdowns and history synced from your Android app.</p>
         </header>
-        {!!error && <p role="alert" className="text-red-500">{error}</p>}
+        {!popup && !!error && <p role="alert" className="text-red-500">{error}</p>}
         <section aria-label="Reminder calendar" className={panel}>
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex gap-2" aria-label="Calendar view">
@@ -94,42 +125,61 @@ export default function ReminderCalendar() {
                         key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{value}</button>)}
                 </div>
                 <div className="flex gap-2">
-                    <button type="button" className={button} onClick={() => selectDay(movePeriod(date, mode, -1))}>Previous</button>
-                    <button type="button" className={button} onClick={() => selectDay(dayStart(new Date()))}>Today</button>
-                    <button type="button" className={button} onClick={() => selectDay(movePeriod(date, mode, 1))}>Next</button>
+                    <button type="button" className={button} onClick={() => setDate(movePeriod(date, mode, -1))}>Previous</button>
+                    <button type="button" className={button} onClick={() => setDate(dayStart(new Date()))}>Today</button>
+                    <button type="button" className={button} onClick={() => setDate(movePeriod(date, mode, 1))}>Next</button>
                 </div>
             </div>
             <h2 className="mt-4 text-lg font-semibold">{calendarTitle(date, mode)}</h2>
-            {mode !== 'day' && <div className="mt-3 grid grid-cols-7 gap-1 sm:gap-2">
-                {weekdays.map(day => <div key={day} className="text-center text-xs text-text-secondary">{day}</div>)}
-                {days.map(day => {
-                    const count = sessionsOnDay(sessions, day).length;
-                    return <button type="button" key={day.getTime()} onClick={() => selectDay(day)}
-                        aria-pressed={day.getTime() === date.getTime()} aria-label={`${calendarTitle(day, 'day')}, ${count} reminders`}
-                        className="grid min-h-12 place-items-center rounded-lg border border-border p-1 text-sm hover:bg-background-muted aria-pressed:bg-primary sm:p-2">
-                        <span>{day.getDate()}</span><span className="text-xs text-text-secondary">{count || '\u00a0'}</span>
-                    </button>;
-                })}
-            </div>}
-            {data?.truncated && <p className="mt-3 text-sm text-text-secondary">This range has more than 2,000 sessions. Choose a shorter view to see more.</p>}
-        </section>
-        {selected && <Detail session={selected} now={now} />}
-        <section className={panel}>
-            <h2 className="text-lg font-semibold">{calendarTitle(date, 'day')}</h2>
-            {!data && !error && <p className="mt-2 text-text-secondary">Loading reminders…</p>}
-            {!!data && !visible.length && <p className="mt-2 text-text-secondary">No reminder sessions on this day.</p>}
-            <ul className="mt-3 grid gap-2">
-                {visible.map(session => <li key={session.id}>
-                    <button type="button" aria-pressed={selectedId === session.id} onClick={() => setSelectedId(session.id)}
-                        className={button + ' grid w-full gap-1 text-left aria-pressed:bg-primary'}>
-                        <span className="break-words font-semibold">{session.title}</span>
-                        <span className="text-text-secondary">
-                            {session.status === 'running' ? `${sessionProgress(session, now).remaining} left` : session.status === 'stopped' ? 'Stopped' : 'Completed'}
-                            {' · '}{sessionTime(session.startedAt ?? session.recordedAt)}
+            <CalendarGrid weekdays={weekdays} days={days} headerClassName="mt-3 mb-1 gap-1 sm:mb-2 sm:gap-2" dayClassName="gap-1 sm:gap-2"
+                renderWeekday={day => <div className="text-center text-xs text-text-secondary">{day}</div>}
+                renderDay={day => {
+                    const count = counts.get(day.getTime()) ?? 0;
+                    return <button type="button" onClick={() => setPopup({ day })}
+                        aria-haspopup="dialog" aria-current={day.getTime() === dayStart(new Date(now)).getTime() ? 'date' : undefined}
+                        aria-label={`${calendarTitle(day, 'day')}, ${count} reminders`}
+                        className="grid min-h-12 place-items-center rounded-lg border border-border p-1 text-sm hover:bg-background-muted aria-[current=date]:bg-primary sm:p-2">
+                        <span>{day.getDate()}</span>
+                        <span className="flex min-h-5 max-w-full items-center">
+                            {count > 0 && <span className="min-w-5 rounded-full border border-[#64748b] bg-white px-1 text-center text-xs font-bold leading-4 tabular-nums text-[#141414]">{count}</span>}
                         </span>
-                    </button>
-                </li>)}
-            </ul>
+                    </button>;
+                }} />
+            {!data && !error && !popup && <p className="mt-3 text-text-secondary">Loading reminders…</p>}
+            {data?.truncated && <p className="mt-3 text-sm text-text-secondary">This range has more than 2,000 sessions. Open a date for its reminder list.</p>}
         </section>
+        <dialog ref={dialog} aria-labelledby="reminder-popup-title"
+            className="m-auto max-h-[85dvh] w-11/12 max-w-lg overflow-y-auto rounded-xl border border-border bg-secondary p-4 text-text-primary backdrop:bg-black/60 sm:p-6"
+            onCancel={event => { event.preventDefault(); if (selected) backToList(); else close(); }}>
+            {popup && <>
+                <div className="mb-3 flex items-start justify-between gap-3">
+                    <h2 id="reminder-popup-title" ref={popupHeading} tabIndex={-1} className="break-words text-xl font-semibold">
+                        {selected?.title ?? calendarTitle(popup.day, 'day')}
+                    </h2>
+                    <button type="button" className={button} onClick={close}>Close</button>
+                </div>
+                {!!error && <p role="alert" className="mb-3 text-red-500">{error}</p>}
+                {selected ? <>
+                    <button type="button" className={button + ' mb-3'} onClick={backToList}>Back to reminders</button>
+                    <Detail session={selected} now={now} />
+                </> : <>
+                    {!dayData && !error && <p className="text-text-secondary">Loading reminders…</p>}
+                    {!!dayData && !visible.length && <p className="text-text-secondary">No reminder sessions on this day.</p>}
+                    {exactDay?.truncated && <p className="text-sm text-text-secondary">Showing the most recent 2,000 sessions on this day.</p>}
+                    <ul className="grid gap-2">
+                        {visible.map(session => <li key={session.id}>
+                            <button type="button" onClick={() => setPopup({ day: popup.day, sessionId: session.id })}
+                                className={button + ' grid w-full gap-1 text-left'}>
+                                <span className="break-words font-semibold">{session.title}</span>
+                                <span className="text-text-secondary">
+                                    {session.status === 'running' ? `${sessionProgress(session, now).remaining} left` : session.status === 'stopped' ? 'Stopped' : 'Completed'}
+                                    {' · '}{sessionTime(session.startedAt ?? session.recordedAt)}
+                                </span>
+                            </button>
+                        </li>)}
+                    </ul>
+                </>}
+            </>}
+        </dialog>
     </main>;
 }

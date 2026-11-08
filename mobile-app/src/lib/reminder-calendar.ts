@@ -1,3 +1,5 @@
+import { addDays, dayStart } from './calendar';
+
 export type ReminderSession = {
     id: string;
     presetId: string;
@@ -11,38 +13,6 @@ export type ReminderSession = {
     plannedEndAt: number;
     endedAt: number | null;
 };
-
-export type CalendarMode = 'day' | 'week' | 'month';
-export const calendarModes: CalendarMode[] = ['day', 'week', 'month'];
-export const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-export function dayStart(date: Date) {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addDays(date: Date, days: number) {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
-}
-
-function weekStart(date: Date) {
-    return addDays(date, -((date.getDay() + 6) % 7));
-}
-
-export function calendarPeriod(date: Date, mode: CalendarMode) {
-    const first = mode === 'month' ? new Date(date.getFullYear(), date.getMonth(), 1) : dayStart(date);
-    const from = mode === 'day' ? first : weekStart(first);
-    const last = mode === 'month' ? new Date(date.getFullYear(), date.getMonth() + 1, 0) : first;
-    const to = mode === 'day' ? addDays(first, 1) : addDays(weekStart(last), 7);
-    const days: Date[] = [];
-    for (let day = from; day < to; day = addDays(day, 1)) days.push(day);
-    return { from, to, days };
-}
-
-export function movePeriod(date: Date, mode: CalendarMode, direction: -1 | 1) {
-    return mode === 'month'
-        ? new Date(date.getFullYear(), date.getMonth() + direction, 1)
-        : addDays(date, direction * (mode === 'week' ? 7 : 1));
-}
 
 export function sessionsOnDay(sessions: ReminderSession[], date: Date) {
     const from = dayStart(date).getTime();
@@ -66,14 +36,4 @@ export function sessionTime(value: number | null) {
     return value === null ? 'Unavailable' : new Date(value).toLocaleString([], {
         month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit',
     });
-}
-
-export function calendarTitle(date: Date, mode: CalendarMode) {
-    if (mode === 'month') return date.toLocaleDateString([], { month: 'long', year: 'numeric' });
-    const label = (day: Date) => day.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    if (mode === 'week') {
-        const first = weekStart(date);
-        return `${label(first)} – ${label(addDays(first, 6))}`;
-    }
-    return date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
 }

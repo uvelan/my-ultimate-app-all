@@ -10,17 +10,18 @@ import {
   subWeeks,
   addDays,
   subDays,
-  startOfMonth, 
-  endOfMonth, 
   startOfWeek, 
   endOfWeek, 
-  eachDayOfInterval, 
   isSameMonth, 
   isSameDay, 
   isToday 
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { taskDay } from "@/lib/tasks/task-planning";
+import { CalendarGrid } from "@/components/ui/CalendarGrid";
+import { calendarPeriod, calendarWeekdays } from "../../../mobile-app/src/lib/calendar";
+
+const weekDays = calendarWeekdays(0);
 
 type TaskWithRelations = Task & {
   project: Project | null;
@@ -50,19 +51,8 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
   const handleToday = () => setCurrentDate(new Date());
 
   // Generate the days for the calendar grid based on view
-  const days = useMemo(() => {
-    if (view === 'month') {
-      const start = startOfWeek(startOfMonth(currentDate));
-      const end = endOfWeek(endOfMonth(currentDate));
-      return eachDayOfInterval({ start, end });
-    } else if (view === 'week') {
-      const start = startOfWeek(currentDate);
-      const end = endOfWeek(currentDate);
-      return eachDayOfInterval({ start, end });
-    } else {
-      return [currentDate];
-    }
-  }, [currentDate, view]);
+  const days = useMemo(() => view === 'day' ? [currentDate] : calendarPeriod(currentDate, view, 0).days,
+    [currentDate, view]);
 
   // Pre-process tasks for fast lookup by date
   const tasksByDate = useMemo(() => {
@@ -82,8 +72,6 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
     return map;
   }, [tasks]);
 
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
   // Helper to get header title
   const getHeaderTitle = () => {
     if (view === 'month') return format(currentDate, 'MMMM yyyy');
@@ -96,9 +84,7 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
     return format(currentDate, 'EEEE, MMMM do, yyyy');
   };
 
-  const renderMonthView = () => (
-    <div className="grid grid-cols-7 flex-1 bg-border gap-[1px]">
-      {days.map((day) => {
+  const renderMonthDay = (day: Date) => {
         const dateStr = format(day, 'yyyy-MM-dd');
         const dayTasks = tasksByDate.get(dateStr) || [];
         const isCurrentMonth = isSameMonth(day, currentDate);
@@ -156,13 +142,9 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
             </div>
           </div>
         );
-      })}
-    </div>
-  );
+  };
 
-  const renderWeekView = () => (
-    <div className="grid grid-cols-7 flex-1 bg-border gap-[1px]">
-      {days.map((day) => {
+  const renderWeekDay = (day: Date) => {
         const dateStr = format(day, 'yyyy-MM-dd');
         const dayTasks = tasksByDate.get(dateStr) || [];
         const isDayToday = isToday(day);
@@ -213,9 +195,7 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
             </button>
           </div>
         );
-      })}
-    </div>
-  );
+  };
 
   const renderDayView = () => {
     const day = days[0];
@@ -368,21 +348,17 @@ export function TaskCalendar({ tasks, onSelectTask, onAddTask }: TaskCalendarPro
         </div>
       </div>
 
-      {/* Days of Week Header (Only for Month and Week views) */}
       {view !== 'day' && (
-        <div className="grid grid-cols-7 border-b border-border shrink-0">
-          {weekDays.map(day => (
-            <div key={day} className="py-2 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-text-muted uppercase tracking-wider">
+        <CalendarGrid weekdays={weekDays} days={days} headerClassName="border-b border-border shrink-0"
+          dayClassName="flex-1 bg-border gap-[1px]" renderDay={view === 'month' ? renderMonthDay : renderWeekDay}
+          renderWeekday={day => (
+            <div className="py-2 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-text-muted uppercase tracking-wider">
               <span className="hidden sm:inline">{day}</span>
               <span className="sm:hidden">{day.charAt(0)}</span>
             </div>
-          ))}
-        </div>
+          )} />
       )}
 
-      {/* Calendar Body */}
-      {view === 'month' && renderMonthView()}
-      {view === 'week' && renderWeekView()}
       {view === 'day' && renderDayView()}
       
     </div>
