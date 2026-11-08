@@ -53,6 +53,24 @@ model ReminderSession {
   @@index([userId, recordedAt])
 }
 
+model ReminderPreset {
+  id              String   @id @map("_id")
+  userId          String   @db.ObjectId
+  presetId        String
+  title           String
+  message         String
+  durationMinutes Int
+  extensionMinutes Int
+  intervalMinutes Int
+  routineEnabled  Boolean
+  deleted         Boolean  @default(false)
+  version         Int
+  operationId     String
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, deleted])
+}
+
 enum TransactionType {
   INCOME
   EXPENSE

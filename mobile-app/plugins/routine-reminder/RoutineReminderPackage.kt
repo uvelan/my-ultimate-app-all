@@ -27,21 +27,26 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
     ReactContextBaseJavaModule(context) {
     private val reminder = RoutineReminder(context)
     private val history = RoutineReminderHistory(context)
+    private val catalog = RoutineReminderCatalog(context)
 
     override fun getName() = "RoutineReminder"
 
     @ReactMethod
     fun getState(promise: Promise) = runOnMain(promise) {
         val notificationSettings = reminder.notificationSettings()
+        val operations = catalog.operationIds()
         Arguments.createMap().apply {
             putBoolean("notificationsEnabled", notificationSettings == null)
             putBoolean("progressNotificationsEnabled", reminder.notificationSettings(progress = true) == null)
             putBoolean("exactAlarmsEnabled", reminder.canSchedule())
             putBoolean("vibrationEnabled", reminder.canVibrate())
+            putInt("pendingPresetSync", catalog.pendingCount())
+            putInt("presetSyncConflicts", catalog.conflicts())
             putArray("presets", Arguments.createArray().apply {
                 for (preset in reminder.presets()) {
                     pushMap(Arguments.createMap().apply {
                         putString("id", preset.id)
+                        putString("operationId", operations[preset.id])
                         putString("title", preset.title)
                         putString("message", preset.message)
                         putInt("durationMinutes", preset.durationMinutes)
@@ -52,7 +57,7 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
                 }
             })
             putArray("runs", Arguments.createArray().apply {
-                for (run in reminder.current()) {
+                for (run in reminder.accountRuns()) {
                     pushMap(Arguments.createMap().apply {
                         putString("id", run.id)
                         putString("sessionId", run.sessionId)
@@ -73,9 +78,9 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
     @ReactMethod
     fun savePreset(
         id: String, title: String, message: String, durationMinutes: Int, extensionMinutes: Int,
-        intervalMinutes: Int, routineEnabled: Boolean, promise: Promise,
+        intervalMinutes: Int, routineEnabled: Boolean, expectedOperationId: String, promise: Promise,
     ) = runOnMain(promise) {
-        reminder.savePreset(ReminderPreset(id, title.trim(), message.trim(), durationMinutes, extensionMinutes, intervalMinutes, routineEnabled))
+        reminder.savePreset(ReminderPreset(id, title.trim(), message.trim(), durationMinutes, extensionMinutes, intervalMinutes, routineEnabled), expectedOperationId)
     }
 
     @ReactMethod
@@ -88,14 +93,27 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
     }
 
     @ReactMethod
-    fun bindHistoryAccount(userId: String, promise: Promise) = runOnMain(promise) { history.bind(userId) }
+    fun bindHistoryAccount(userId: String, promise: Promise) = runOnMain(promise) {
+        catalog.prepareAccountChange()
+        val historyReady = history.bind(userId)
+        catalog.bindAccount(userId)
+        historyReady
+    }
+
+    @ReactMethod
+    fun getPresetSyncBatch(userId: String, promise: Promise) = runOnMain(promise) { catalog.batch(userId) }
+
+    @ReactMethod
+    fun mergePresetSync(userId: String, payload: String, promise: Promise) = runOnMain(promise) { catalog.merge(userId, payload) }
 
     @ReactMethod
     fun configureHistory(userId: String, endpoint: String, token: String, expiresAt: Double, promise: Promise) =
         runOnMain(promise) { history.configure(userId, endpoint, token, expiresAt.toLong()) }
 
     @ReactMethod
-    fun clearHistoryAccount(promise: Promise) = runOnMain(promise) { history.clearAccount() }
+    fun clearHistoryAccount(promise: Promise) = runOnMain(promise) {
+        try { catalog.prepareAccountChange() } finally { history.clearAccount() }
+    }
 
     @ReactMethod
     fun retryHistorySync(promise: Promise) = runOnMain(promise) { history.retryFailed() }

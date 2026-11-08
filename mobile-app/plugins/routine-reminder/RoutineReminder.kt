@@ -93,11 +93,12 @@ internal class RoutineReminder(private val context: Context) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
     private val notifications = context.getSystemService(NotificationManager::class.java)
     private val history = RoutineReminderHistory(context)
+    private val catalog = RoutineReminderCatalog(context)
     private val bootCount get() = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
 
-    fun presets(): List<ReminderPreset> = readList("presets", "preset", ReminderPreset::fromJson)
+    fun presets(): List<ReminderPreset> = catalog.presets()
 
-    fun savePreset(preset: ReminderPreset) {
+    fun savePreset(preset: ReminderPreset, expectedOperationId: String) {
         require(preset.title.isNotBlank() && preset.title.length <= 40) { "Enter a reminder name." }
         require(preset.message.isNotBlank() && preset.message.length <= 180) { "Enter a completion message." }
         require(preset.durationMinutes in 1..5999) { "Enter a duration from 1 minute to 99 hours and 59 minutes." }
@@ -105,24 +106,13 @@ internal class RoutineReminder(private val context: Context) {
         require(preset.intervalMinutes == 0 || preset.intervalMinutes in 1 until preset.durationMinutes) {
             "Enter an interval shorter than the countdown duration."
         }
-        val existing = presets()
-        val updated = if (preset.id.isEmpty()) {
-            val id = if (!prefs.contains("presets") && existing.isEmpty()) ReminderPreset.ORIGINAL_ID else UUID.randomUUID().toString()
-            existing + preset.copy(id = id)
-        } else {
-            require(existing.any { it.id == preset.id }) { "This reminder was deleted." }
-            existing.map { if (it.id == preset.id) preset else it }
-        }
-        writePresets(updated)
+        catalog.save(preset, expectedOperationId)
     }
 
     fun deletePreset(id: String) {
-        check(current().none { it.preset.id == id }) { "Stop this reminder before deleting it." }
-        writePresets(presets().filterNot { it.id == id })
+        check(accountRuns().none { it.preset.id == id }) { "Stop this reminder before deleting it." }
+        catalog.delete(id)
     }
-
-    private fun writePresets(presets: List<ReminderPreset>) =
-        writeList("presets", "preset", presets.map { it.toJson() })
 
     fun canSchedule() = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()
 
@@ -144,12 +134,13 @@ internal class RoutineReminder(private val context: Context) {
             "Save and enable this reminder for Routines in Ultimate App."
         }
         val runs = current()
-        if (runs.any { it.preset.id == id }) return false
+        if (runs.any { it.preset.id == id && history.record(it.sessionId)?.owner == history.owner }) return false
         arm(runs, preset, preset.durationMinutes, source = if (fromShortcut) "routine" else "manual")
         return true
     }
 
     fun current() = reconcile()
+    fun accountRuns() = current().filter { history.record(it.sessionId)?.owner == history.owner }
     fun restore(afterBoot: Boolean, republish: Boolean) {
         reconcile(reschedule = true, republish = republish, afterBoot = afterBoot)
         history.schedule()
@@ -294,12 +285,6 @@ internal class RoutineReminder(private val context: Context) {
         history.write(editor, historyChanges)
         check(editor.commit()) { "Could not save reminders." }
         if (historyChanges.isNotEmpty()) history.schedule()
-    }
-
-    private fun writeList(key: String, legacyKey: String, entries: List<JSONObject>) {
-        check(prefs.edit().putString(key, JSONArray(entries).toString()).remove(legacyKey).commit()) {
-            "Could not save reminders."
-        }
     }
 
     private fun schedule(run: ReminderRun) {

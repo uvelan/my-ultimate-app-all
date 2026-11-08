@@ -70,6 +70,7 @@ function withRoutineReminder(config) {
       'RoutineReminderPackage.kt': path.join('java', ...packageName.split('.')),
       'RoutineReminderShortcuts.kt': path.join('java', ...packageName.split('.')),
       'RoutineReminderHistory.kt': path.join('java', ...packageName.split('.')),
+      'RoutineReminderCatalog.kt': path.join('java', ...packageName.split('.')),
       'routine_reminder_shortcuts.xml': 'res/xml',
       'routine_reminder_strings.xml': 'res/values',
       'ic_routine_reminder.xml': 'res/drawable',

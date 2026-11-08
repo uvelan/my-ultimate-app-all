@@ -60,6 +60,7 @@ internal class RoutineReminderHistory(private val context: Context) {
     private val jobs = context.getSystemService(JobScheduler::class.java)
     private val tokenFile = AtomicFile(File(context.noBackupFilesDir, "routine-reminder-grant.json"))
     val owner get() = prefs.getString(OWNER, null)
+    val hasBoundAccount get() = prefs.getBoolean(BOUND, false)
 
     data class Grant(val owner: String, val endpoint: String, val token: String, val expiresAt: Long)
 

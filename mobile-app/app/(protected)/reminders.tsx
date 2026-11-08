@@ -3,15 +3,12 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, AppState, NativeModules, PermissionsAndroid, Platform, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 import ReminderHistoryPopup from '@/src/components/ReminderHistoryPopup';
+import { onReminderPresetsSynced, syncReminderPresets } from '@/src/services/reminder-presets.service';
+import type { ReminderPresetFields } from '@/src/lib/reminder-presets';
 
-type Preset = {
+type Preset = ReminderPresetFields & {
     id: string;
-    title: string;
-    message: string;
-    durationMinutes: number;
-    extensionMinutes: number;
-    intervalMinutes: number;
-    routineEnabled: boolean;
+    operationId: string;
 };
 type ReminderRun = {
     id: string;
@@ -31,11 +28,13 @@ type ReminderState = {
     progressNotificationsEnabled: boolean;
     exactAlarmsEnabled: boolean;
     vibrationEnabled: boolean;
+    pendingPresetSync: number;
+    presetSyncConflicts: number;
 };
 type ShortcutState = { limit: number; published: string[]; retry: boolean };
 type ReminderModule = {
     getState(): Promise<ReminderState>;
-    savePreset(id: string, title: string, message: string, duration: number, extension: number, interval: number, routine: boolean): Promise<void>;
+    savePreset(id: string, title: string, message: string, duration: number, extension: number, interval: number, routine: boolean, operationId: string): Promise<void>;
     deletePreset(id: string): Promise<void>;
     syncShortcuts(): Promise<ShortcutState>;
     start(id: string): Promise<boolean>;
@@ -45,6 +44,7 @@ type ReminderModule = {
 };
 type Draft = {
     id: string;
+    operationId: string;
     title: string;
     message: string;
     hours: string;
@@ -108,6 +108,7 @@ export default function RemindersScreen() {
     const [detailsId, setDetailsId] = useState<string>();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [syncError, setSyncError] = useState('');
     const [now, setNow] = useState(Date.now);
 
     const refresh = useCallback(async () => {
@@ -133,11 +134,13 @@ export default function RemindersScreen() {
 
     useFocusEffect(useCallback(() => {
         if (!reminder) return;
-        const resume = () => { reload(); void syncShortcuts(); };
+        const update = () => { reload(); void syncShortcuts(); };
+        const unsubscribe = onReminderPresetsSynced(update);
+        const resume = () => { update(); void syncReminderPresets().catch(() => {}); };
         resume();
         const change = AppState.addEventListener('change', status => { if (status === 'active') resume(); });
         const focus = AppState.addEventListener('focus', reload);
-        return () => { change.remove(); focus.remove(); };
+        return () => { unsubscribe(); change.remove(); focus.remove(); };
     }, [reload, syncShortcuts]));
 
     const runs = state?.runs;
@@ -163,7 +166,10 @@ export default function RemindersScreen() {
             await operation();
             if (saved) setDraft(undefined);
             await refresh();
-            if (saved) await syncShortcuts();
+            if (saved) {
+                void syncShortcuts();
+                void syncReminderPresets().catch(() => {});
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Could not update the reminder.');
         } finally {
@@ -177,6 +183,7 @@ export default function RemindersScreen() {
         const routineCount = state?.presets.filter(item => item.routineEnabled).length ?? 0;
         setDraft({
             id: preset?.id ?? '',
+            operationId: preset?.operationId ?? '',
             title: preset?.title ?? '',
             message: preset?.message ?? '',
             hours: String(Math.floor(duration / 60)),
@@ -209,7 +216,7 @@ export default function RemindersScreen() {
             return;
         }
         void act(() => reminder.savePreset(
-            draft.id, draft.title.trim(), draft.message.trim(), duration, draft.extension, interval, draft.routineEnabled,
+            draft.id, draft.title.trim(), draft.message.trim(), duration, draft.extension, interval, draft.routineEnabled, draft.operationId,
         ), true);
     }
 
@@ -235,6 +242,25 @@ export default function RemindersScreen() {
 
     const ready = !!state?.notificationsEnabled && state.exactAlarmsEnabled;
 
+    function runStatus(run: ReminderRun) {
+        return <>
+            <Text className="text-2xl font-bold text-white">
+                {run.finished ? 'Time’s up' : formatRemaining(Math.max(0, Math.ceil((run.endsAt - now) / 1000)))}
+            </Text>
+            <Text className="text-text-secondary">{run.finished ? run.message : 'Time remaining'}</Text>
+        </>;
+    }
+
+    function runActions(run: ReminderRun) {
+        if (!reminder) return null;
+        const canExtend = ready && (!run.intervalMinutes || run.intervalMinutes >= run.extensionMinutes || state?.progressNotificationsEnabled);
+        return <>
+            <Action secondary label="Details" onPress={() => setDetailsId(run.sessionId)} />
+            <Action secondary label="Stop" disabled={busy} onPress={() => void act(() => reminder.stop(run.id))} />
+            {run.finished && <Action label={`Extend ${run.extensionMinutes} min`} disabled={busy || !canExtend} onPress={() => void act(() => reminder.extend(run.id))} />}
+        </>;
+    }
+
     return (
         <View className="flex-1 bg-background">
             <View className="flex-row items-center px-5 pb-4 pt-12">
@@ -247,6 +273,15 @@ export default function RemindersScreen() {
                 {!!error && <Text accessibilityLiveRegion="polite" className="text-red-400">{error}</Text>}
                 {reminder && state && <>
                     <Action label="History & calendar" secondary onPress={() => router.push('/reminder-history' as never)} />
+                    <View className="gap-2">
+                        {state.pendingPresetSync > 0 && <Text className="text-text-secondary">{state.pendingPresetSync} reminder changes waiting to sync.</Text>}
+                        {state.presetSyncConflicts > 0 && <Text className="text-text-secondary">A newer reminder edit from another device was kept.</Text>}
+                        {!!syncError && <Text accessibilityLiveRegion="polite" className="text-red-400">{syncError}</Text>}
+                        <Action label="Sync reminders" secondary onPress={() => {
+                            setSyncError('');
+                            void syncReminderPresets().then(reload).catch(() => setSyncError('Could not sync right now. Your reminders are saved on this phone.'));
+                        }} />
+                    </View>
                     {draft ? <View className={cardClass}>
                         <Text accessibilityRole="header" className="text-lg font-bold text-white">{draft.id ? 'Edit reminder' : 'New reminder'}</Text>
                         <View>
@@ -293,7 +328,6 @@ export default function RemindersScreen() {
                             const run = state.runs.find(item => item.presetId === preset.id);
                             const published = shortcuts?.published.includes(preset.id);
                             const canStart = ready && (!preset.intervalMinutes || state.progressNotificationsEnabled);
-                            const canExtend = ready && (!run?.intervalMinutes || run.intervalMinutes >= run.extensionMinutes || state.progressNotificationsEnabled);
                             return <View key={preset.id} className={cardClass}>
                                 <Text className="text-lg font-bold text-white">{run?.title ?? preset.title}</Text>
                                 <Text className="text-text-secondary">
@@ -302,24 +336,20 @@ export default function RemindersScreen() {
                                 {preset.routineEnabled && <Text className="text-text-secondary">
                                     {published ? `Routine action “${preset.title}”` : 'Named Routine shortcut pending'}
                                 </Text>}
-                                {run && <>
-                                    <Text className="text-2xl font-bold text-white">
-                                        {run.finished ? 'Time’s up' : formatRemaining(Math.max(0, Math.ceil((run.endsAt - now) / 1000)))}
-                                    </Text>
-                                    <Text className="text-text-secondary">{run.finished ? run.message : 'Time remaining'}</Text>
-                                </>}
+                                {run && runStatus(run)}
                                 <View className="flex-row flex-wrap gap-2">
-                                    {run ? <>
-                                        <Action secondary label="Details" onPress={() => setDetailsId(run.sessionId)} />
-                                        <Action secondary label="Stop" disabled={busy} onPress={() => void act(() => reminder.stop(run.id))} />
-                                        {run.finished && <Action label={`Extend ${run.extensionMinutes} min`} disabled={busy || !canExtend} onPress={() => void act(() => reminder.extend(run.id))} />}
-                                    </> : <Action label="Start" disabled={busy || !canStart} onPress={() => void act(() => reminder.start(preset.id))} />}
+                                    {run ? runActions(run) : <Action label="Start" disabled={busy || !canStart} onPress={() => void act(() => reminder.start(preset.id))} />}
                                     {!run && <Action secondary label="History" onPress={() => router.push({ pathname: '/reminder-history', params: { presetId: preset.id } } as never)} />}
                                     <Action label="Edit" secondary disabled={busy} onPress={() => edit(preset)} />
                                     {!run && <Action label="Delete" secondary disabled={busy} onPress={() => remove(preset)} />}
                                 </View>
                             </View>;
                         })}
+                        {state.runs.filter(run => !state.presets.some(preset => preset.id === run.presetId)).map(run => <View key={run.id} className={cardClass}>
+                            <Text className="text-lg font-bold text-white">{run.title}</Text>
+                            {runStatus(run)}
+                            <View className="flex-row flex-wrap gap-2">{runActions(run)}</View>
+                        </View>)}
                         <View className={cardClass}>
                             <Text accessibilityRole="header" className="text-lg font-bold text-white">Samsung Modes and Routines</Text>
                             <Text className="text-text-secondary">Under Then, choose Open an app or do an app action. Select the reminder by name under uvelan.ultimateapp.</Text>

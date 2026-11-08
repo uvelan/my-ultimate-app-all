@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
 import { CalendarGrid } from '@/components/ui/CalendarGrid';
+import ReminderPresets from './ReminderPresets';
 import { calendarModes, calendarPeriod, calendarTitle, calendarWeekdays, dayStart, movePeriod, type CalendarMode } from '../../../../mobile-app/src/lib/calendar';
 import { sessionProgress, sessionsOnDay, sessionTime, type ReminderSession } from '../../../../mobile-app/src/lib/reminder-calendar';
 
@@ -117,6 +118,7 @@ export default function ReminderCalendar() {
             <h1 className="text-3xl font-semibold">Reminders</h1>
             <p className="mt-1 text-text-secondary">Countdowns and history synced from your Android app.</p>
         </header>
+        <ReminderPresets />
         {!popup && !!error && <p role="alert" className="text-red-500">{error}</p>}
         <section aria-label="Reminder calendar" className={panel}>
             <div className="flex flex-wrap items-center justify-between gap-3">
