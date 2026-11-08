@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
-import type { ReminderCatalogSync, ReminderPresetFields, ReminderPresetRecord } from '../../../../mobile-app/src/lib/reminder-presets';
+import type { ActivityCatalogSync, ReminderPresetFields, ReminderPresetRecord } from '@shared/reminder-presets';
+import { activityGroups, activityGroupLabels, type ActivityGroup } from '@shared/activity-groups';
 
 type Draft = Omit<ReminderPresetFields, 'durationMinutes'> & { id: string; version: number; hours: number; minutes: number; progress: boolean };
 const control = 'rounded-lg border border-border bg-background px-3 py-2 text-text-primary';
 const button = 'rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-background-surface disabled:opacity-50';
 
-export default function ReminderPresets() {
+export default function ActivityPresets() {
     const [presets, setPresets] = useState<ReminderPresetRecord[]>();
     const [draft, setDraft] = useState<Draft>();
     const [error, setError] = useState('');
@@ -22,15 +23,15 @@ export default function ReminderPresets() {
         if (saveInFlight.current) return;
         const id = ++request.current;
         try {
-            const response = await authenticatedFetch('/api/reminders', { signal });
-            if (!response.ok) throw new Error('Could not refresh saved reminders.');
-            const body: { reminders: ReminderPresetRecord[] } = await response.json();
+            const response = await authenticatedFetch('/api/activities', { signal });
+            if (!response.ok) throw new Error('Could not refresh saved activities.');
+            const body: { activities: ReminderPresetRecord[] } = await response.json();
             if (!signal.aborted && id === request.current) {
-                setPresets(body.reminders);
+                setPresets(body.activities);
                 setLoadError('');
             }
         } catch {
-            if (!signal.aborted && id === request.current) setLoadError('Could not refresh saved reminders.');
+            if (!signal.aborted && id === request.current) setLoadError('Could not refresh saved activities.');
         }
     }, []);
 
@@ -54,6 +55,7 @@ export default function ReminderPresets() {
         setDraft({
             id: preset?.id ?? crypto.randomUUID(), version: preset?.version ?? 0,
             title: preset?.title ?? '', message: preset?.message ?? '',
+            group: preset?.group ?? 'PERSONAL',
             hours: Math.floor(duration / 60), minutes: duration % 60,
             extensionMinutes: preset?.extensionMinutes ?? 10, intervalMinutes: preset?.intervalMinutes || 10,
             progress: !!preset?.intervalMinutes, routineEnabled: preset?.routineEnabled ?? true,
@@ -67,9 +69,9 @@ export default function ReminderPresets() {
     async function save(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         if (!draft || saveInFlight.current) return;
-        const { id, version, title, message, extensionMinutes, routineEnabled, progress, intervalMinutes } = draft;
+        const { id, version, title, message, group, extensionMinutes, routineEnabled, progress, intervalMinutes } = draft;
         const fields = {
-            id, expectedVersion: version, title: title.trim(), message: message.trim(),
+            id, expectedVersion: version, title: title.trim(), message: message.trim(), group,
             durationMinutes: draft.hours * 60 + draft.minutes, extensionMinutes,
             intervalMinutes: progress ? intervalMinutes : 0, routineEnabled, deleted: false,
         };
@@ -81,38 +83,43 @@ export default function ReminderPresets() {
         setSaving(true);
         setError('');
         try {
-            const response = await authenticatedFetch('/api/reminders', {
+            const response = await authenticatedFetch('/api/activities', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mutations: [{ ...fields, operationId }] }),
                 signal: AbortSignal.timeout(20000),
             });
-            const body: ReminderCatalogSync & { error?: string } = await response.json();
-            if (!response.ok) throw new Error(body.error || 'Could not save the reminder.');
-            setPresets(body.reminders.filter(preset => !preset.deleted));
+            const body: ActivityCatalogSync & { error?: string } = await response.json();
+            if (!response.ok) throw new Error(body.error || 'Could not save the activity.');
+            setPresets(body.activities.filter(preset => !preset.deleted));
             setLoadError('');
             if (body.outcomes.find(item => item.operationId === operationId)?.status !== 'applied') {
-                setError('This reminder changed on another device. Reopen the latest version to edit it.');
+                setError('This activity changed on another device. Reopen the latest version to edit it.');
                 return;
             }
             setDraft(undefined);
         } catch (error) {
-            setError(error instanceof Error ? error.message : 'Could not save the reminder.');
+            setError(error instanceof Error ? error.message : 'Could not save the activity.');
         } finally {
             saveInFlight.current = false;
             setSaving(false);
         }
     }
 
-    return <section aria-label="Saved reminders" className="rounded-xl border border-border bg-secondary p-4 sm:p-6">
+    return <section aria-label="Saved activities" className="rounded-xl border border-border bg-secondary p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">Saved reminders</h2>
-            <button type="button" className={button} disabled={saving} onClick={() => open()}>New reminder</button>
+            <h2 className="text-lg font-semibold">Saved activities</h2>
+            <button type="button" className={button} disabled={saving} onClick={() => open()}>New activity</button>
         </div>
         {!!(error || loadError) && <p role="alert" className="mt-3 text-sm text-red-500">{error || loadError}</p>}
         {draft && <form className="mt-4 grid gap-3" onSubmit={save}>
-            <h3 className="font-semibold">{draft.version ? 'Edit reminder' : 'New reminder'}</h3>
-            <label className="grid gap-1 text-sm">Reminder name
+            <h3 className="font-semibold">{draft.version ? 'Edit activity' : 'New activity'}</h3>
+            <label className="grid gap-1 text-sm">Activity name
                 <input className={control} value={draft.title} onChange={event => update({ title: event.target.value })} maxLength={40} required />
+            </label>
+            <label className="grid gap-1 text-sm">Group
+                <select className={control} value={draft.group} onChange={event => update({ group: event.target.value as ActivityGroup })}>
+                    {activityGroups.map(group => <option key={group} value={group}>{activityGroupLabels[group]}</option>)}
+                </select>
             </label>
             <div className="grid grid-cols-2 gap-3">
                 <label className="grid gap-1 text-sm">Hours
@@ -147,20 +154,28 @@ export default function ReminderPresets() {
                 Show shortcut in Samsung Routines
             </label>
             <div className="flex flex-wrap gap-2">
-                <button type="submit" className={button + ' bg-primary'} disabled={saving}>{saving ? 'Saving…' : 'Save reminder'}</button>
+                <button type="submit" className={button + ' bg-primary'} disabled={saving}>{saving ? 'Saving…' : 'Save activity'}</button>
                 <button type="button" className={button} disabled={saving} onClick={() => setDraft(undefined)}>Cancel</button>
             </div>
         </form>}
-        {!presets && !error && !loadError && <p className="mt-3 text-sm text-text-secondary">Loading saved reminders…</p>}
-        {presets?.length === 0 && <p className="mt-3 text-sm text-text-secondary">No saved reminders yet.</p>}
-        {!!presets?.length && <ul className="mt-3 grid gap-2">
-            {presets.map(preset => <li key={preset.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
-                <div className="min-w-0">
-                    <p className="break-words font-semibold">{preset.title}</p>
-                    <p className="text-sm text-text-secondary">{preset.durationMinutes} min · {preset.intervalMinutes ? `Every ${preset.intervalMinutes} min` : 'End alert only'}</p>
-                </div>
-                <button type="button" className={button} disabled={saving} onClick={() => open(preset)} aria-label={`Edit ${preset.title}`}>Edit</button>
-            </li>)}
-        </ul>}
+        {!presets && !error && !loadError && <p className="mt-3 text-sm text-text-secondary">Loading saved activities…</p>}
+        {presets && <div className="mt-4 grid gap-4">
+            {activityGroups.map(group => {
+                const items = presets.filter(preset => preset.group === group);
+                return <section key={group} aria-label={activityGroupLabels[group]}>
+                    <h3 className="font-semibold">{activityGroupLabels[group]}</h3>
+                    {!items.length && <p className="mt-1 text-sm text-text-secondary">No activities yet.</p>}
+                    {!!items.length && <ul className="mt-2 grid gap-2">
+                        {items.map(preset => <li key={preset.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
+                            <div className="min-w-0">
+                                <p className="break-words font-semibold">{preset.title}</p>
+                                <p className="text-sm text-text-secondary">{preset.durationMinutes} min · {preset.intervalMinutes ? `Every ${preset.intervalMinutes} min` : 'End alert only'}</p>
+                            </div>
+                            <button type="button" className={button} disabled={saving} onClick={() => open(preset)} aria-label={`Edit ${preset.title}`}>Edit</button>
+                        </li>)}
+                    </ul>}
+                </section>;
+            })}
+        </div>}
     </section>;
 }

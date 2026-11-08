@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { TransactionModal, type Cat, type Txn } from '../transactions/TransactionsClient'
-import { financeDayActivity, formatActivityAmount as fmt } from '../../../../../mobile-app/src/lib/finance-day-activity'
+import { financeDayActivity, formatActivityAmount as fmt } from '@shared/finance-day-activity'
 
 interface Props {
   initialYear: number

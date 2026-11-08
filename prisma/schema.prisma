@@ -39,6 +39,7 @@ model ReminderSession {
   sessionId          String
   presetId           String
   title              String
+  group              ActivityGroup?
   message            String
   source             String
   status             String
@@ -58,6 +59,7 @@ model ReminderPreset {
   userId          String   @db.ObjectId
   presetId        String
   title           String
+  group           ActivityGroup?
   message         String
   durationMinutes Int
   extensionMinutes Int
@@ -69,6 +71,12 @@ model ReminderPreset {
   updatedAt       DateTime @updatedAt
 
   @@index([userId, deleted])
+}
+
+enum ActivityGroup {
+  PERSONAL
+  OFFICE
+  REMINDERS
 }
 
 enum TransactionType {

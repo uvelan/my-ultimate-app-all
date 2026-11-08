@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, ScrollView, TouchableOpacity, Modal, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 import { CalendarGrid } from '@/src/components/ui/CalendarGrid';
-import { calendarPeriod, calendarWeekdays } from '@/src/lib/calendar';
+import { calendarPeriod, calendarWeekdays } from '@shared/calendar';
 import { api } from '@/src/lib/api-client';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from 'expo-router';

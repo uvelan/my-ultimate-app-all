@@ -14,8 +14,8 @@ import { expenseService, incomeService, categoryService } from '@/src/services/f
 import { useSidebar } from '@/src/components/ui/Sidebar';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { PAYMENT_METHODS } from '@/src/lib/payment-methods';
-import { dayStart } from '@/src/lib/calendar';
-import { financeDayActivity, formatActivityAmount } from '@/src/lib/finance-day-activity';
+import { dayStart } from '@shared/calendar';
+import { financeDayActivity, formatActivityAmount } from '@shared/finance-day-activity';
 import type { DashboardTransaction } from '@/src/lib/finance-dashboard';
 
 type Segment = 'overview' | 'history' | 'income' | 'categories' | 'calendar';

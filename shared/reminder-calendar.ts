@@ -1,9 +1,11 @@
 import { addDays, dayStart } from './calendar';
+import type { ActivityGroup } from './activity-groups';
 
 export type ReminderSession = {
     id: string;
     presetId: string;
     title: string;
+    group: ActivityGroup;
     message: string;
     source: 'manual' | 'routine' | 'unknown';
     status: 'running' | 'completed' | 'stopped';

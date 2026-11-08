@@ -1,9 +1,5 @@
-import DashboardLayout from '@/components/layout/DashboardLayout';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import ReminderCalendar from './ReminderCalendar';
+import { redirect } from 'next/navigation';
 
-export const metadata = { title: 'Reminder history' };
-
-export default function RemindersPage() {
-    return <ProtectedRoute><DashboardLayout><ReminderCalendar /></DashboardLayout></ProtectedRoute>;
+export default function LegacyRemindersPage() {
+    redirect('/activities');
 }

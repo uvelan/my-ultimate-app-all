@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { ReminderPreset } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import type { ReminderCatalogSync, ReminderPresetRecord } from '../../mobile-app/src/lib/reminder-presets';
+import { activityGroups } from '@shared/activity-groups';
+import type { ReminderCatalogSync, ReminderPresetRecord } from '@shared/reminder-presets';
 
 const mutation = z.object({
     id: z.union([z.literal('original'), z.string().uuid()]),
@@ -9,6 +10,7 @@ const mutation = z.object({
     expectedVersion: z.number().int().min(0).max(2_147_483_646),
     deleted: z.boolean(),
     title: z.string().trim().min(1).max(40),
+    group: z.enum(activityGroups).optional(),
     message: z.string().trim().min(1).max(180),
     durationMinutes: z.number().int().min(1).max(5999),
     extensionMinutes: z.number().int().refine(value => [5, 10, 15, 30].includes(value)),
@@ -26,7 +28,7 @@ export const reminderCatalogUpload = z.object({
 
 function serialize(row: ReminderPreset): ReminderPresetRecord {
     return {
-        id: row.presetId, title: row.title, message: row.message, durationMinutes: row.durationMinutes,
+        id: row.presetId, title: row.title, message: row.message, group: row.group ?? 'REMINDERS', durationMinutes: row.durationMinutes,
         extensionMinutes: row.extensionMinutes, intervalMinutes: row.intervalMinutes, routineEnabled: row.routineEnabled,
         version: row.version, operationId: row.operationId, deleted: row.deleted,
     };
@@ -48,7 +50,7 @@ export async function syncReminderPresets(userId: string, mutations: z.infer<typ
         let applied = false;
         if (expectedVersion === 0) {
             try {
-                await prisma.reminderPreset.create({ data: { ...data, id, userId, presetId } });
+                await prisma.reminderPreset.create({ data: { ...data, group: data.group ?? 'REMINDERS', id, userId, presetId } });
                 applied = true;
             } catch (error) {
                 if ((error as { code?: string })?.code !== 'P2002') throw error;

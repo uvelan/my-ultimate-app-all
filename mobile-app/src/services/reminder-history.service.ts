@@ -2,7 +2,7 @@ import { NativeModules, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { api, API_BASE_URL } from '@/src/lib/api-client';
 import { cacheService } from '@/src/lib/storage';
-import type { ReminderSession } from '@/src/lib/reminder-calendar';
+import type { ReminderSession } from '@shared/reminder-calendar';
 
 export type HistoryResult = { sessions: ReminderSession[]; selected: ReminderSession | null; syncReady: boolean; pending: number; failed: number };
 
@@ -27,10 +27,10 @@ export function linkReminderHistory() {
         if (cached?.id && await SecureStore.getItemAsync('refreshToken') === session) {
             if (await module.bindHistoryAccount(cached.id)) return;
         }
-        const { data } = await api.post<{ userId: string; token: string; expiresAt: number }>('/mobile/reminders/grant');
+        const { data } = await api.post<{ userId: string; token: string; expiresAt: number }>('/mobile/activities/grant');
         if (await SecureStore.getItemAsync('refreshToken') !== session) return;
         await module.bindHistoryAccount(data.userId);
-        await module.configureHistory(data.userId, API_BASE_URL + '/mobile/reminders/sync', data.token, data.expiresAt);
+        await module.configureHistory(data.userId, API_BASE_URL + '/mobile/activities/sync', data.token, data.expiresAt);
     })().finally(() => { enrollment = undefined; });
     return enrollment;
 }

@@ -30,11 +30,12 @@ internal data class ReminderHistoryRecord(
     val endedAt: Long?,
     val revision: Int,
     val owner: String?,
+    val group: String = "REMINDERS",
 ) {
     val calendarEnd get() = maxOf(recordedAt, endedAt ?: plannedEndAt)
 
     fun toJson(includeOwner: Boolean = false) = JSONObject()
-        .put("id", id).put("presetId", presetId).put("title", title).put("message", message)
+        .put("id", id).put("presetId", presetId).put("title", title).put("message", message).put("group", group)
         .put("source", source).put("status", status).put("recordedAt", recordedAt)
         .put("startedAt", startedAt ?: JSONObject.NULL)
         .put("countdownStartedAt", countdownStartedAt ?: JSONObject.NULL)
@@ -48,6 +49,7 @@ internal data class ReminderHistoryRecord(
             json.time("startedAt"), json.time("countdownStartedAt"), json.getLong("plannedEndAt"),
             json.time("endedAt"), json.getInt("revision"),
             json.optString("owner").ifEmpty { null },
+            json.optString("group", "REMINDERS"),
         )
 
         private fun JSONObject.time(key: String): Long? = if (isNull(key)) null else getLong(key)

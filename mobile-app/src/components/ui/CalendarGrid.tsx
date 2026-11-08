@@ -1,5 +1,5 @@
 import { Text, TouchableOpacity, View } from 'react-native';
-import { calendarTitle } from '@/src/lib/calendar';
+import { calendarTitle } from '@shared/calendar';
 
 export function CalendarGrid({ weekdays, days, countForDay, isSelected, onSelect, itemLabel }: {
     weekdays: string[];

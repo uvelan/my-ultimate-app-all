@@ -55,7 +55,8 @@ function harness() {
             },
         },
     };
-    const service = load('src/lib/reminder-history-server.ts', { '@/lib/prisma': { prisma } });
+    const groups = load('shared/activity-groups.ts');
+    const service = load('src/lib/reminder-history-server.ts', { '@/lib/prisma': { prisma }, '@shared/activity-groups': groups });
     const route = load('src/app/api/mobile/reminders/sync/route.ts', {
         '@/lib/prisma': { prisma },
         '@/lib/reminder-history-server': service,
@@ -104,8 +105,8 @@ test('account access tokens are not accepted as background upload grants', async
 });
 
 test('calendar includes a cross-midnight session on both days and progress uses the latest extension', () => {
-    const calendar = load('mobile-app/src/lib/calendar.ts');
-    const { sessionsOnDay, sessionProgress } = load('mobile-app/src/lib/reminder-calendar.ts', { './calendar': calendar });
+    const calendar = load('shared/calendar.ts');
+    const { sessionsOnDay, sessionProgress } = load('shared/reminder-calendar.ts', { './calendar': calendar });
     const started = new Date(2026, 10, 8, 23, 55).getTime();
     const extended = new Date(2026, 10, 9, 0, 5).getTime();
     const planned = new Date(2026, 10, 9, 0, 15).getTime();

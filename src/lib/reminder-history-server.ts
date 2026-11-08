@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { activityGroups } from '@shared/activity-groups';
 
 const purpose = 'reminder-history-upload';
 const ttlSeconds = 30 * 24 * 60 * 60;
@@ -11,6 +12,7 @@ export const reminderSessionUpload = z.object({
     id: z.string().uuid(),
     presetId: z.union([z.literal('original'), z.string().uuid()]),
     title: z.string().min(1).max(40),
+    group: z.enum(activityGroups).optional(),
     message: z.string().max(180),
     source: z.enum(['manual', 'routine', 'unknown']),
     status: z.enum(['running', 'stopped', 'completed']),
@@ -65,7 +67,7 @@ export async function saveReminderSessions(userId: string, sessions: z.infer<typ
         if ((await prisma.reminderSession.updateMany({ where: older, data })).count) continue;
         // A retry or concurrent uploader may have already inserted this session.
         try {
-            await prisma.reminderSession.create({ data: { ...data, id, userId, sessionId } });
+            await prisma.reminderSession.create({ data: { ...data, group: data.group ?? 'REMINDERS', id, userId, sessionId } });
         } catch (error) {
             if ((error as { code?: string })?.code !== 'P2002') throw error;
             await prisma.reminderSession.updateMany({ where: older, data });
@@ -82,7 +84,7 @@ export async function listReminderSessions(userId: string, from: Date, to: Date)
     return {
         truncated: rows.length > 2000,
         sessions: rows.slice(0, 2000).map(row => ({
-            id: row.sessionId, presetId: row.presetId, title: row.title, message: row.message,
+            id: row.sessionId, presetId: row.presetId, title: row.title, message: row.message, group: row.group ?? 'REMINDERS',
             source: row.source, status: row.status, recordedAt: row.recordedAt.getTime(),
             startedAt: row.startedAt?.getTime() ?? null, countdownStartedAt: row.countdownStartedAt?.getTime() ?? null,
             plannedEndAt: row.plannedEndAt.getTime(), endedAt: row.endedAt?.getTime() ?? null,

@@ -48,6 +48,7 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
                         putString("id", preset.id)
                         putString("operationId", operations[preset.id])
                         putString("title", preset.title)
+                        putString("group", preset.group)
                         putString("message", preset.message)
                         putInt("durationMinutes", preset.durationMinutes)
                         putInt("extensionMinutes", preset.extensionMinutes)
@@ -63,6 +64,7 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
                         putString("sessionId", run.sessionId)
                         putString("presetId", run.preset.id)
                         putString("title", run.preset.title)
+                        putString("group", run.preset.group)
                         putString("message", run.preset.message)
                         putInt("extensionMinutes", run.preset.extensionMinutes)
                         putInt("intervalMinutes", run.preset.intervalMinutes)
@@ -78,9 +80,9 @@ internal class RoutineReminderModule(private val context: ReactApplicationContex
     @ReactMethod
     fun savePreset(
         id: String, title: String, message: String, durationMinutes: Int, extensionMinutes: Int,
-        intervalMinutes: Int, routineEnabled: Boolean, expectedOperationId: String, promise: Promise,
+        intervalMinutes: Int, routineEnabled: Boolean, group: String, expectedOperationId: String, promise: Promise,
     ) = runOnMain(promise) {
-        reminder.savePreset(ReminderPreset(id, title.trim(), message.trim(), durationMinutes, extensionMinutes, intervalMinutes, routineEnabled), expectedOperationId)
+        reminder.savePreset(ReminderPreset(id, title.trim(), message.trim(), durationMinutes, extensionMinutes, intervalMinutes, routineEnabled, group), expectedOperationId)
     }
 
     @ReactMethod

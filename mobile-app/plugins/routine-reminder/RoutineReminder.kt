@@ -28,6 +28,7 @@ internal data class ReminderPreset(
     val extensionMinutes: Int,
     val intervalMinutes: Int,
     val routineEnabled: Boolean,
+    val group: String = "REMINDERS",
 ) {
     fun toJson() = JSONObject()
         .put("id", id)
@@ -37,6 +38,7 @@ internal data class ReminderPreset(
         .put("extensionMinutes", extensionMinutes)
         .put("intervalMinutes", intervalMinutes)
         .put("routineEnabled", routineEnabled)
+        .put("group", group)
 
     companion object {
         const val ORIGINAL_ID = "original"
@@ -49,6 +51,7 @@ internal data class ReminderPreset(
             json.getInt("extensionMinutes"),
             json.optInt("intervalMinutes"),
             json.optBoolean("routineEnabled", true),
+            json.optString("group", "REMINDERS"),
         )
     }
 }
@@ -99,7 +102,8 @@ internal class RoutineReminder(private val context: Context) {
     fun presets(): List<ReminderPreset> = catalog.presets()
 
     fun savePreset(preset: ReminderPreset, expectedOperationId: String) {
-        require(preset.title.isNotBlank() && preset.title.length <= 40) { "Enter a reminder name." }
+        require(preset.title.isNotBlank() && preset.title.length <= 40) { "Enter an activity name." }
+        require(preset.group in setOf("PERSONAL", "OFFICE", "REMINDERS")) { "Choose an activity group." }
         require(preset.message.isNotBlank() && preset.message.length <= 180) { "Enter a completion message." }
         require(preset.durationMinutes in 1..5999) { "Enter a duration from 1 minute to 99 hours and 59 minutes." }
         require(preset.extensionMinutes in listOf(5, 10, 15, 30)) { "Choose an extension length." }
@@ -131,7 +135,7 @@ internal class RoutineReminder(private val context: Context) {
 
     fun start(id: String, fromShortcut: Boolean = false): Boolean {
         val preset = checkNotNull(presets().find { it.id == id && (!fromShortcut || it.routineEnabled) }) {
-            "Save and enable this reminder for Routines in Ultimate App."
+            "Save and enable this activity for Routines in Ultimate App."
         }
         val runs = current()
         if (runs.any { it.preset.id == id && history.record(it.sessionId)?.owner == history.owner }) return false
@@ -238,7 +242,7 @@ internal class RoutineReminder(private val context: Context) {
                 endedAt = null, revision = previous.revision + 1,
             ) ?: ReminderHistoryRecord(
                 run.sessionId, preset.id, preset.title, preset.message, source, "running",
-                wallNow, wallNow, wallNow, run.endWallTime, null, 1, history.owner,
+                wallNow, wallNow, wallNow, run.endWallTime, null, 1, history.owner, preset.group,
             )
             saveRuns(runs.filterNot { it.id == replacing?.id } + run, listOf(record))
         } catch (error: IllegalStateException) {
@@ -277,7 +281,7 @@ internal class RoutineReminder(private val context: Context) {
     private fun unknownHistory(run: ReminderRun, now: Long) = ReminderHistoryRecord(
         run.sessionId, run.preset.id, run.preset.title, run.preset.message, "unknown",
         if (run.finished) "completed" else "running", minOf(now, run.endWallTime),
-        null, null, run.endWallTime, null, 1, history.owner,
+        null, null, run.endWallTime, null, 1, history.owner, run.preset.group,
     )
 
     private fun saveRuns(runs: List<ReminderRun>, historyChanges: List<ReminderHistoryRecord> = emptyList()) {
@@ -327,12 +331,12 @@ internal class RoutineReminder(private val context: Context) {
 
     private fun createChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val countdown = NotificationChannel(COUNTDOWN_CHANNEL, "Reminder countdowns", NotificationManager.IMPORTANCE_LOW)
+        val countdown = NotificationChannel(COUNTDOWN_CHANNEL, "Activity countdowns", NotificationManager.IMPORTANCE_LOW)
         countdown.setSound(null, null)
-        val finished = NotificationChannel(FINISHED_CHANNEL, "Reminder alerts", NotificationManager.IMPORTANCE_HIGH)
+        val finished = NotificationChannel(FINISHED_CHANNEL, "Activity alerts", NotificationManager.IMPORTANCE_HIGH)
         finished.setSound(null, null)
         finished.vibrationPattern = VIBRATION
-        val progress = NotificationChannel(PROGRESS_CHANNEL, "Reminder progress", NotificationManager.IMPORTANCE_DEFAULT)
+        val progress = NotificationChannel(PROGRESS_CHANNEL, "Activity progress", NotificationManager.IMPORTANCE_DEFAULT)
         progress.setSound(null, null)
         notifications.createNotificationChannels(listOf(countdown, finished, progress))
     }
@@ -351,7 +355,7 @@ internal class RoutineReminder(private val context: Context) {
     }
 
     private fun details(run: ReminderRun): PendingIntent {
-        val uri = Uri.Builder().scheme("my-ultimate-app").authority("reminder-history")
+        val uri = Uri.Builder().scheme("my-ultimate-app").authority("activity-history")
             .appendQueryParameter("sessionId", run.sessionId).build()
         val intent = Intent(Intent.ACTION_VIEW, uri, context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

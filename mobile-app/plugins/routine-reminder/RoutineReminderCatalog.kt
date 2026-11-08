@@ -91,7 +91,7 @@ internal class RoutineReminderCatalog(context: Context) {
         check(owner == userId) { "The reminder account changed." }
         val response = JSONObject(payload)
         val current = entries()
-        val remote = response.getJSONArray("reminders").objects { Entry.fromJson(getJSONObject(it)) }
+        val remote = response.getJSONArray("activities").objects { Entry.fromJson(getJSONObject(it)) }
             .associateBy { it.preset.id }
         val outcomes = response.getJSONArray("outcomes").objects { getJSONObject(it) }
             .associateBy { it.getString("operationId") }

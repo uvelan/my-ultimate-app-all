@@ -37,7 +37,7 @@ export default function Sidebar({
 
     const menuItems = [
         { name: 'Discover', href: '/dashboard', icon: Home },
-        { name: 'Reminders', href: '/reminders', icon: Timer },
+        { name: 'Activity Tracker', href: '/activities', icon: Timer },
         ...(['ADMIN', 'SUPERUSER'].includes(user?.role as string) ? [
             { name: 'Admin Panel', href: '/admin', icon: ShieldCheck }
         ] : []),

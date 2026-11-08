@@ -2,7 +2,7 @@ import { NativeModules, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { api } from '@/src/lib/api-client';
 import { cacheService } from '@/src/lib/storage';
-import type { ReminderCatalogSync, ReminderPresetMutation } from '@/src/lib/reminder-presets';
+import type { ActivityCatalogSync, ReminderPresetMutation } from '@shared/reminder-presets';
 
 const native = Platform.OS === 'android' ? NativeModules.RoutineReminder : undefined;
 const listeners = new Set<() => void>();
@@ -23,7 +23,7 @@ async function synchronize() {
     await native.bindHistoryAccount(userId);
     const mutations = JSON.parse(await native.getPresetSyncBatch(userId)) as ReminderPresetMutation[];
     if (await SecureStore.getItemAsync('refreshToken') !== session) return;
-    const { data } = await api.post<ReminderCatalogSync>('/reminders', { accountId: userId, mutations });
+    const { data } = await api.post<ActivityCatalogSync>('/activities', { accountId: userId, mutations });
     if (await SecureStore.getItemAsync('refreshToken') !== session) return;
     const changed = await native.mergePresetSync(userId, JSON.stringify(data));
     if (changed) {

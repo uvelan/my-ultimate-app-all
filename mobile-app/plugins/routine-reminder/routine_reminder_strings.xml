@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="routine_reminder_shortcut">Start reminder</string>
+    <string name="routine_reminder_shortcut">Start activity</string>
 </resources>

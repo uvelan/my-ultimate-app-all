@@ -1,6 +1,9 @@
+import type { ActivityGroup } from './activity-groups';
+
 export type ReminderPresetFields = {
     title: string;
     message: string;
+    group: ActivityGroup;
     durationMinutes: number;
     extensionMinutes: number;
     intervalMinutes: number;
@@ -25,3 +28,5 @@ export type ReminderCatalogSync = {
     reminders: ReminderPresetRecord[];
     outcomes: { id: string; operationId: string; status: 'applied' | 'conflict' }[];
 };
+
+export type ActivityCatalogSync = Omit<ReminderCatalogSync, 'reminders'> & { activities: ReminderPresetRecord[] };

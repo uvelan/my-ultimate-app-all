@@ -19,7 +19,7 @@ import {
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { taskDay } from "@/lib/tasks/task-planning";
 import { CalendarGrid } from "@/components/ui/CalendarGrid";
-import { calendarPeriod, calendarWeekdays } from "../../../mobile-app/src/lib/calendar";
+import { calendarPeriod, calendarWeekdays } from "@shared/calendar";
 
 const weekDays = calendarWeekdays(0);
 

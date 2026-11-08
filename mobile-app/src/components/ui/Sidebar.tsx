@@ -72,7 +72,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         { label: 'Finance Dashboard', icon: PieChart, route: '/(protected)/(tabs)/expenses' },
         { label: 'Budgets & Recurring', icon: PieChart, route: '/(protected)/finance' },
         { label: 'Tasks', icon: Home, route: '/(protected)/tasks' },
-        ...(Platform.OS === 'android' ? [{ label: 'Reminders', icon: Timer, route: '/(protected)/reminders' }] : []),
+        ...(Platform.OS === 'android' ? [{ label: 'Activity Tracker', icon: Timer, route: '/(protected)/activities' }] : []),
         { label: 'Interview', icon: MessageSquare, route: '/(protected)/interview' },
         { label: 'Resume builder', icon: Library, route: '/(protected)/resumes' },
         { label: 'Settings', icon: ShieldCheck, route: '/(protected)/settings' },

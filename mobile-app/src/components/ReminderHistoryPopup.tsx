@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { calendarPeriod, calendarTitle } from '@/src/lib/calendar';
-import { sessionProgress, sessionTime, type ReminderSession } from '@/src/lib/reminder-calendar';
+import { calendarPeriod, calendarTitle } from '@shared/calendar';
+import { sessionProgress, sessionTime, type ReminderSession } from '@shared/reminder-calendar';
 import { getReminderHistory, type HistoryResult } from '@/src/services/reminder-history.service';
+import { activityGroupLabels, type ActivityGroup } from '@shared/activity-groups';
 
 export type ReminderPopupTarget =
-    | { day: Date; presetId?: string; sessionId?: never }
-    | { sessionId: string; day?: never; presetId?: never };
+    | { day: Date; presetId?: string; group?: ActivityGroup; sessionId?: never }
+    | { sessionId: string; day?: never; presetId?: never; group?: never };
 
 function Action({ label, onPress }: { label: string; onPress: () => void }) {
     return <Pressable accessibilityRole="button" onPress={onPress} className="min-h-11 justify-center rounded-lg bg-background px-3">
@@ -18,7 +19,7 @@ function SessionDetails({ session, now }: { session: ReminderSession; now: numbe
     const progress = sessionProgress(session, now);
     return <View className="gap-3">
         <Text className="text-text-secondary">
-            {session.source === 'routine' ? 'Samsung Routine' : session.source === 'manual' ? 'Started manually' : 'Start source unavailable'}
+            {activityGroupLabels[session.group]} · {session.source === 'routine' ? 'Samsung Routine' : session.source === 'manual' ? 'Started manually' : 'Start source unavailable'}
         </Text>
         <Text className="text-text-primary">Started · {sessionTime(session.startedAt)}</Text>
         {session.status === 'running' ? <>
@@ -37,7 +38,7 @@ function SessionDetails({ session, now }: { session: ReminderSession; now: numbe
 export default function ReminderHistoryPopup({ target, initialSessions, onClose }: {
     target: ReminderPopupTarget; initialSessions?: ReminderSession[]; onClose: () => void;
 }) {
-    const { day, presetId, sessionId } = target;
+    const { day, presetId, group, sessionId } = target;
     const [selectedId, setSelectedId] = useState<string>();
     const [result, setResult] = useState<HistoryResult>();
     const [error, setError] = useState('');
@@ -54,7 +55,7 @@ export default function ReminderHistoryPopup({ target, initialSessions, onClose 
                 const data = await getReminderHistory(from, to, sessionId ?? null);
                 if (current) { setResult(data); setError(''); }
             } catch {
-                if (current) setError('Could not refresh reminder history.');
+                if (current) setError('Could not refresh activity history.');
             } finally {
                 loading = false;
             }
@@ -65,11 +66,12 @@ export default function ReminderHistoryPopup({ target, initialSessions, onClose 
         return () => { current = false; clearInterval(refresh); clearInterval(clock); };
     }, [day, sessionId]);
 
-    const sessions = (result?.sessions ?? initialSessions ?? []).filter(session => !presetId || session.presetId === presetId);
+    const sessions = (result?.sessions ?? initialSessions ?? []).filter(session =>
+        (!presetId || session.presetId === presetId) && (!group || session.group === group));
     const selected = day ? sessions.find(session => session.id === selectedId) : result?.selected;
     const ready = !!result || initialSessions !== undefined;
     const backToList = () => setSelectedId(undefined);
-    const title = selected?.title ?? (day ? calendarTitle(day, 'day') : 'Reminder details');
+    const title = selected?.title ?? (day ? calendarTitle(day, 'day') : 'Activity details');
 
     return <Modal visible transparent animationType="fade" onRequestClose={day && selected ? backToList : onClose}>
         <View className="flex-1 justify-center bg-black/60 px-4 py-10">
@@ -78,16 +80,17 @@ export default function ReminderHistoryPopup({ target, initialSessions, onClose 
                     <Text accessibilityRole="header" className="flex-1 text-xl font-bold text-white">{title}</Text>
                     <Action label="Close" onPress={onClose} />
                 </View>
-                {day && selected && <View className="mb-3 self-start"><Action label="Back to reminders" onPress={backToList} /></View>}
+                {day && selected && <View className="mb-3 self-start"><Action label="Back to activities" onPress={backToList} /></View>}
                 <ScrollView key={selected?.id ?? 'sessions'} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 10 }}>
                     {!!error && <Text accessibilityLiveRegion="polite" className="text-red-400">{error}</Text>}
                     {selected ? <SessionDetails session={selected} now={now} /> : <>
-                        {!ready && !error && <Text className="text-text-secondary">Loading reminders…</Text>}
-                        {day && ready && sessions.length === 0 && <Text className="text-text-secondary">No reminder sessions on this day.</Text>}
-                        {!day && ready && <Text className="text-text-secondary">This reminder session is unavailable.</Text>}
+                        {!ready && !error && <Text className="text-text-secondary">Loading activities…</Text>}
+                        {day && ready && sessions.length === 0 && <Text className="text-text-secondary">No activity sessions on this day.</Text>}
+                        {!day && ready && <Text className="text-text-secondary">This activity session is unavailable.</Text>}
                         {day && sessions.map(session => <Pressable key={session.id} accessibilityRole="button"
                             onPress={() => setSelectedId(session.id)} className="gap-1 rounded-xl border border-border bg-background p-3">
                             <Text className="font-semibold text-white">{session.title}</Text>
+                            <Text className="text-xs text-text-secondary">{activityGroupLabels[session.group]}</Text>
                             <Text className="text-text-secondary">
                                 {session.status === 'running' ? `${sessionProgress(session, now).remaining} left` : session.status === 'stopped' ? 'Stopped' : 'Completed'}
                                 {' · '}{sessionTime(session.startedAt ?? session.recordedAt)}

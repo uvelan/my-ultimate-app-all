@@ -50,21 +50,27 @@ function harness() {
             },
         },
     };
-    const service = load('src/lib/reminder-presets-server.ts', { '@/lib/prisma': { prisma } });
-    const route = load('src/app/api/reminders/route.ts', {
+    const groups = load('shared/activity-groups.ts', {});
+    const service = load('src/lib/reminder-presets-server.ts', { '@/lib/prisma': { prisma }, '@shared/activity-groups': groups });
+    const handlers = load('src/lib/activity-tracker-api.ts', {
         'next/server': { NextResponse: Response },
         '@/lib/prisma': { prisma },
         '@/lib/auth-server': { verifyAuth: async () => ({ user: userId ? { id: userId } : null }) },
         '@/lib/reminder-presets-server': service,
         '@/lib/reminder-history-server': { listReminderSessions: async () => ({ sessions: [], truncated: false }) },
     });
+    const route = load('src/app/api/reminders/route.ts', { '@/lib/activity-tracker-api': handlers });
+    const activities = load('src/app/api/activities/route.ts', { '@/lib/activity-tracker-api': handlers });
+    const request = (path, mutations, accountId) => new Request('https://example.test' + path, {
+        method: 'POST', body: JSON.stringify({ accountId, mutations }),
+    });
     return {
         records,
         as: id => { userId = id; },
         get: (query = '') => route.GET({ nextUrl: new URL('https://example.test/api/reminders' + query) }),
-        sync: (mutations, accountId = userId) => route.POST(new Request('https://example.test/api/reminders', {
-            method: 'POST', body: JSON.stringify({ accountId, mutations }),
-        })),
+        sync: (mutations, accountId = userId) => route.POST(request('/api/reminders', mutations, accountId)),
+        getActivities: () => activities.GET({ nextUrl: new URL('https://example.test/api/activities') }),
+        syncActivities: mutations => activities.POST(request('/api/activities', mutations, userId)),
     };
 }
 
@@ -120,4 +126,19 @@ test('account switches cannot upload queued settings to another user', async () 
     api.as(null);
     assert.equal((await api.get()).status, 401);
     assert.equal(api.records.size, 1);
+});
+
+test('Activity Tracker returns groups and the legacy endpoint preserves them on updates', async () => {
+    const api = harness();
+    const office = { ...preset(), title: 'Office timer', group: 'OFFICE' };
+    const first = await (await api.syncActivities([office])).json();
+    assert.equal(first.activities[0].group, 'OFFICE');
+    assert.equal(first.activities[0].version, 1);
+    const { group, ...legacy } = office;
+    const edit = { ...legacy, expectedVersion: 1, operationId: randomUUID(), title: 'Updated office timer' };
+    assert.equal((await (await api.sync([edit])).json()).reminders[0].group, 'OFFICE');
+    await api.sync([preset()]);
+    const current = await (await api.getActivities()).json();
+    assert.deepEqual(current.activities.map(activity => activity.group).sort(), ['OFFICE', 'REMINDERS']);
+    assert.equal((await api.syncActivities([{ ...preset(), group: 'OTHER' }])).status, 400);
 });
