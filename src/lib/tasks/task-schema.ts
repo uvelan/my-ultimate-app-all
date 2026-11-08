@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { activityAreas } from "@shared/activity-groups";
 import { TaskStatus, Priority, Frequency } from "@prisma/client";
 
 export const baseTaskSchema = z.object({
@@ -6,7 +7,10 @@ export const baseTaskSchema = z.object({
   description: z.string().max(1000, "Description is too long").optional(),
   status: z.nativeEnum(TaskStatus).default(TaskStatus.TODO),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
-  area: z.enum(["OFFICE", "PERSONAL", ""]).transform(value => value || null).nullable().optional(),
+  area: z.enum([...activityAreas, ""]).transform(value => value || null).nullable().optional(),
+  colleague: z.string().trim().max(80).transform(value => value || null).nullable().optional(),
+  jiraKey: z.string().trim().toUpperCase().refine(value => !value || /^[A-Z][A-Z0-9_]{0,31}-[1-9]\d{0,11}$/.test(value), "Enter a Jira issue key like OPS-142").transform(value => value || null).nullable().optional(),
+  shareWith: z.union([z.literal(""), z.string().trim().toLowerCase().email()]).nullable().optional(),
   frequency: z.union([z.nativeEnum(Frequency), z.literal("")]).transform(value => value || null).optional().nullable(),
   startDate: z.date().optional().nullable(),
   dueDate: z.date().optional().nullable(),

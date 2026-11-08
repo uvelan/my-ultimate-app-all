@@ -17,6 +17,8 @@ interface TaskBoardProps {
   onToggleStatus: (taskId: string, currentStatus: string) => void;
   onDragEnd: (taskId: string, newStatus: string) => void;
   selectedIds: string[];
+  viewerId?: string;
+  jiraBaseUrl?: string;
   onSelect: (taskId: string) => void;
 }
 
@@ -34,6 +36,8 @@ export function TaskBoard({
   onToggleStatus,
   onDragEnd,
   selectedIds,
+  viewerId,
+  jiraBaseUrl,
   onSelect
 }: TaskBoardProps) {
   const [isMounted, setIsMounted] = useState(false);
@@ -93,7 +97,9 @@ export function TaskBoard({
                             style={provided.draggableProps.style as React.CSSProperties}
                           >
                             <TaskCard 
-                              task={task} 
+                              task={task}
+                              readOnly={!!viewerId && task.userId !== viewerId}
+                              jiraBaseUrl={jiraBaseUrl}
                               onEdit={onEdit}
                               onDelete={onDelete}
                               onToggleStatus={onToggleStatus}

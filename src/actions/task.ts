@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { verifyAuth } from "@/lib/auth-server";
+import { prisma } from "@/lib/prisma";
 import {
   createTask,
   updateTask,
@@ -33,15 +34,16 @@ export async function createTaskAction(data: CreateTaskInput) {
 
   try {
     const task = await createTask(user.id, parsed.data);
+    revalidatePath("/activities");
     revalidatePath("/tasks");
     return { success: true, data: task };
   } catch (error) {
     console.error("Error creating task:", error);
-    return { success: false, error: "Failed to create task" };
+    return { success: false, error: error instanceof Error && error.message.startsWith("Enter the email") ? error.message : "Failed to create task" };
   }
 }
 
-export async function updateTaskAction(data: UpdateTaskInput) {
+export async function updateTaskAction(data: UpdateTaskInput, assigned = false) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) {
     return { success: false, error: "Unauthorized" };
@@ -53,12 +55,19 @@ export async function updateTaskAction(data: UpdateTaskInput) {
   }
 
   try {
-    const task = await updateTask(user.id, parsed.data);
+    if (assigned && (Object.keys(parsed.data).length !== 2 || !parsed.data.status)) {
+      return { success: false, error: "Only the status of a shared task can be changed." };
+    }
+    if (assigned && !await prisma.user.findFirst({ where: { id: user.id, isActive: true }, select: { id: true } })) {
+      return { success: false, error: "Unauthorized" };
+    }
+    const task = await updateTask(user.id, parsed.data, assigned);
+    revalidatePath("/activities");
     revalidatePath("/tasks");
     return { success: true, data: task };
   } catch (error) {
     console.error("Error updating task:", error);
-    return { success: false, error: "Failed to update task" };
+    return { success: false, error: error instanceof Error && error.message.startsWith("Enter the email") ? error.message : "Failed to update task" };
   }
 }
 

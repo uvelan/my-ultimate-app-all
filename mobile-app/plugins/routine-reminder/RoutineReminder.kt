@@ -29,6 +29,9 @@ internal data class ReminderPreset(
     val intervalMinutes: Int,
     val routineEnabled: Boolean,
     val group: String = "REMINDERS",
+    val durationMode: String = "DAILY",
+    val kind: String = "REMINDER",
+    val linkedTaskId: String? = null,
 ) {
     fun toJson() = JSONObject()
         .put("id", id)
@@ -39,6 +42,9 @@ internal data class ReminderPreset(
         .put("intervalMinutes", intervalMinutes)
         .put("routineEnabled", routineEnabled)
         .put("group", group)
+        .put("durationMode", durationMode)
+        .put("kind", kind)
+        .put("linkedTaskId", linkedTaskId ?: JSONObject.NULL)
 
     companion object {
         const val ORIGINAL_ID = "original"
@@ -52,6 +58,9 @@ internal data class ReminderPreset(
             json.optInt("intervalMinutes"),
             json.optBoolean("routineEnabled", true),
             json.optString("group", "REMINDERS"),
+            json.optString("durationMode", if (json.getInt("durationMinutes") > 5999) "WEEKLY" else "DAILY"),
+            json.optString("kind", "REMINDER"),
+            if (json.isNull("linkedTaskId")) null else json.getString("linkedTaskId"),
         )
     }
 }
@@ -103,9 +112,14 @@ internal class RoutineReminder(private val context: Context) {
 
     fun savePreset(preset: ReminderPreset, expectedOperationId: String) {
         require(preset.title.isNotBlank() && preset.title.length <= 40) { "Enter an activity name." }
-        require(preset.group in setOf("PERSONAL", "OFFICE", "REMINDERS")) { "Choose an activity group." }
+        require(preset.group in setOf("PERSONAL", "OFFICE", "HEALTH", "CAREER", "REMINDERS")) { "Choose an activity group." }
         require(preset.message.isNotBlank() && preset.message.length <= 180) { "Enter a completion message." }
-        require(preset.durationMinutes in 1..5999) { "Enter a duration from 1 minute to 99 hours and 59 minutes." }
+        require(preset.kind in setOf("TIMER", "REMINDER")) { "Choose an activity type." }
+        require(when (preset.durationMode) {
+            "DAILY" -> preset.durationMinutes in 1..5999
+            "WEEKLY" -> preset.durationMinutes in 60..10080 && preset.durationMinutes % 60 == 0
+            else -> false
+        }) { "Enter a valid daily or weekly duration." }
         require(preset.extensionMinutes in listOf(5, 10, 15, 30)) { "Choose an extension length." }
         require(preset.intervalMinutes == 0 || preset.intervalMinutes in 1 until preset.durationMinutes) {
             "Enter an interval shorter than the countdown duration."

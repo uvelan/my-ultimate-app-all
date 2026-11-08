@@ -30,9 +30,14 @@ interface TaskManagerProps {
   initialTasks: TaskWithRelations[];
   projects: Project[];
   tags: Tag[];
+  embedded?: boolean;
+  initialArea?: string;
+  viewerId?: string;
+  jiraBaseUrl?: string;
+  onChanged?: () => void;
 }
 
-export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) {
+export function TaskManager({ initialTasks, projects, tags, embedded = false, initialArea = "all", viewerId, jiraBaseUrl, onChanged }: TaskManagerProps) {
   const [tasks, setTasks] = useState<TaskWithRelations[]>(initialTasks);
   const [view, setView] = useState<"list" | "board" | "calendar">("list");
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -40,7 +45,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
   const [editingTask, setEditingTask] = useState<TaskWithRelations | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [area, setArea] = useState("all");
+  const [area, setArea] = useState(initialArea);
   const [plan, setPlan] = useState<TaskPlan>("active");
   const [initialDate, setInitialDate] = useState<Date | null>(null);
   const [filters, setFilters] = useState<TaskFiltersState>({
@@ -56,12 +61,12 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     setTasks(initialTasks);
   }, [initialTasks]);
 
-  const scopedTasks = useMemo(() => tasks.filter(task => area === "all" || (task.area || "") === area), [tasks, area]);
+  const scopedTasks = useMemo(() => tasks.filter(task => area === "all" || (task.area || (embedded ? "PERSONAL" : "")) === area), [tasks, area, embedded]);
   const filteredTasks = useMemo(() => {
     const now = new Date();
     return scopedTasks.filter(task => {
       if (!matchesTaskPlan(task, plan, now)) return false;
-      if (filters.search && !task.title.toLowerCase().includes(filters.search.toLowerCase()) && !task.description?.toLowerCase().includes(filters.search.toLowerCase())) return false;
+      if (filters.search && ![task.title, task.description, task.colleague, task.jiraKey].some(value => value?.toLowerCase().includes(filters.search.toLowerCase()))) return false;
       if (filters.status && task.status !== filters.status) return false;
       if (filters.priority && task.priority !== filters.priority) return false;
       if (filters.projectId && task.projectId !== filters.projectId) return false;
@@ -77,7 +82,10 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     setIsFormOpen(true);
   };
 
+  const isAssigned = (taskId: string) => !!viewerId && tasks.some(task => task.id === taskId && task.userId !== viewerId);
+
   const handleSelect = (taskId: string) => {
+    if (isAssigned(taskId)) return;
     setSelectedIds(prev => 
       prev.includes(taskId) 
         ? prev.filter(id => id !== taskId) 
@@ -90,24 +98,24 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     // Optimistic update
     setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t));
     
-    const res = await updateTaskAction({ id: taskId, status: newStatus as TaskStatus });
+    const res = await updateTaskAction({ id: taskId, status: newStatus as TaskStatus }, isAssigned(taskId));
     if (!res.success) {
       toast.error(res.error || "Failed to update status");
       // Revert on failure
       setTasks(initialTasks);
-    }
+    } else onChanged?.();
   };
 
   const handleDragEnd = async (taskId: string, newStatus: string) => {
     // Optimistic update
     setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t));
     
-    const res = await updateTaskAction({ id: taskId, status: newStatus as TaskStatus });
+    const res = await updateTaskAction({ id: taskId, status: newStatus as TaskStatus }, isAssigned(taskId));
     if (!res.success) {
       toast.error(res.error || "Failed to move task");
       // Revert on failure
       setTasks(initialTasks);
-    }
+    } else onChanged?.();
   };
 
   const handleDelete = async (taskId: string) => {
@@ -123,6 +131,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
       setTasks(initialTasks);
     } else {
       toast.success("Task deleted");
+      onChanged?.();
     }
   };
 
@@ -137,6 +146,11 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
 
     if (res.success) {
       toast.success(editingTask ? "Task updated" : "Task created");
+      if (res.data) {
+        const saved = res.data;
+        setTasks(current => editingTask ? current.map(task => task.id === saved.id ? saved : task) : [...current, saved]);
+      }
+      onChanged?.();
       setIsFormOpen(false);
       setEditingTask(null);
     } else {
@@ -153,6 +167,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     const res = await bulkUpdateTaskStatusAction({ taskIds: selectedIds, status });
     if (res.success) {
       toast.success("Tasks updated");
+      onChanged?.();
       setSelectedIds([]);
     } else {
       toast.error(res.error || "Failed to update tasks");
@@ -169,6 +184,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     const res = await bulkDeleteTasksAction({ taskIds: selectedIds });
     if (res.success) {
       toast.success("Tasks deleted");
+      onChanged?.();
       setSelectedIds([]);
     } else {
       toast.error(res.error || "Failed to delete tasks");
@@ -181,14 +197,14 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-3 sm:gap-4">
-          <Button 
+          {!embedded && <Button
             variant="ghost" 
             onClick={() => window.location.href = '/dashboard'} 
             className="p-1.5 sm:p-2 h-auto text-text-muted hover:text-text-primary bg-background-surface border border-border hover:border-text-muted shrink-0"
             title="Back to Dashboard"
           >
             <ChevronLeft size={18} className="sm:w-5 sm:h-5" />
-          </Button>
+          </Button>}
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-text-primary">Tasks</h1>
             <p className="text-text-secondary text-xs sm:text-small">Manage your tasks and projects</p>
@@ -211,13 +227,13 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
             >
               <LayoutDashboard size={18} />
             </button>
-            <button 
+            {!embedded && <button
               className={`p-1.5 rounded ${view === 'calendar' ? 'bg-background shadow-sm text-accent' : 'text-text-muted hover:text-text-primary'}`}
               onClick={() => setView('calendar')}
               title="Calendar View"
             >
               <CalendarIcon size={18} />
-            </button>
+            </button>}
           </div>
           
           <Button 
@@ -262,7 +278,9 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
 
       {view === 'list' && (
         <TaskList 
-          tasks={filteredTasks} 
+          tasks={filteredTasks}
+          viewerId={viewerId}
+          jiraBaseUrl={jiraBaseUrl}
           onEdit={(task) => {
             setEditingTask(task);
             setIsFormOpen(true);
@@ -276,7 +294,9 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
       
       {view === 'board' && (
         <TaskBoard 
-          tasks={filteredTasks} 
+          tasks={filteredTasks}
+          viewerId={viewerId}
+          jiraBaseUrl={jiraBaseUrl}
           onEdit={(task) => {
             setEditingTask(task);
             setIsFormOpen(true);
@@ -294,7 +314,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
           tasks={filteredTasks}
           onSelectTask={(taskId) => {
             const task = tasks.find(t => t.id === taskId);
-            if (task) {
+            if (task && !isAssigned(task.id)) {
               setEditingTask(task);
               setIsFormOpen(true);
             }
@@ -307,7 +327,7 @@ export function TaskManager({ initialTasks, projects, tags }: TaskManagerProps) 
         <TaskForm 
           initialData={editingTask}
           initialDate={initialDate}
-          initialArea={area === "OFFICE" || area === "PERSONAL" ? area : ""}
+          initialArea={area === "all" ? "" : area}
           projects={projects}
           tags={tags}
           onSubmit={handleFormSubmit}

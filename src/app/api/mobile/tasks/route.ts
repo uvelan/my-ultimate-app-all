@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
+import { jiraIssueUrl } from '@shared/activity-tasks';
 import { verifyAuth } from '@/lib/auth-server';
 import { prisma } from '@/lib/prisma';
 import { createTaskSchema, updateTaskSchema, projectSchema, tagSchema } from '@/lib/tasks/task-schema';
@@ -14,6 +15,9 @@ function failure(error: unknown) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message || 'Invalid input' }, { status: 400 });
     if ((error as any)?.code === 'P2025') return NextResponse.json({ error: 'Record not found' }, { status: 404 });
     if ((error as any)?.code === 'P2002') return NextResponse.json({ error: 'This name already exists' }, { status: 409 });
+    if (error instanceof Error && error.message === 'Enter the email of an active colleague account.') {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof SyntaxError) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     console.error('Mobile tasks request failed', error instanceof Error ? error.name : 'Unknown');
     return NextResponse.json({ error: 'Unable to complete task request' }, { status: 500 });
@@ -22,8 +26,10 @@ export async function GET() {
     const auth = await verifyAuth();
     if (!auth.isAuthenticated || !auth.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     try {
+        if (!await prisma.user.findFirst({ where: { id: auth.user.id, isActive: true }, select: { id: true } })) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         const [tasks, projects, tags] = await Promise.all([getTasks(auth.user.id), getProjects(auth.user.id), getTags(auth.user.id)]);
-        return NextResponse.json({ tasks, projects, tags });
+        return NextResponse.json({ tasks, projects, tags, viewerId: auth.user.id,
+            jiraBaseUrl: jiraIssueUrl(process.env.JIRA_BASE_URL, 'TEST-1') ? process.env.JIRA_BASE_URL : undefined }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (error) { return failure(error); }
 }
 async function mutate(req: NextRequest) {
@@ -31,6 +37,7 @@ async function mutate(req: NextRequest) {
     if (!auth.isAuthenticated || !auth.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const userId = auth.user.id;
     try {
+        if (!await prisma.user.findFirst({ where: { id: userId, isActive: true }, select: { id: true } })) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         const body = z.object({ resource: z.enum(['tasks', 'projects', 'tags', 'bulk']), id: idSchema.optional(), data: z.record(z.string(), z.unknown()).default({}) }).parse(await req.json());
         const { resource, id } = body;
         const raw: Record<string, any> = { ...body.data };
@@ -48,6 +55,10 @@ async function mutate(req: NextRequest) {
         let existing: any;
         if (id) {
             existing = await (delegates[resource] as any).findFirst({ where: { id, userId } });
+            if (!existing && resource === 'tasks' && req.method === 'PATCH' && Object.keys(raw).length === 1 && raw.status) {
+                await updateTask(userId, { id, status: statusSchema.parse(raw.status) }, true);
+                return NextResponse.json({ success: true });
+            }
             if (!existing) return NextResponse.json({ error: 'Record not found' }, { status: 404 });
         }
         if (req.method === 'DELETE') {
@@ -82,7 +93,8 @@ async function mutate(req: NextRequest) {
                 if (start && due && start > due) return NextResponse.json({ error: 'Start date must precede due date' }, { status: 400 });
                 if (existing.status === 'DONE' && parsed.status === 'DONE') delete parsed.status;
                 result = await updateTask(userId, parsed);
-            } else result = await createTask(userId, { ...createTaskSchema.parse(raw), tagIds: raw.tagIds || [] });
+            } else result = await createTask(userId, { ...createTaskSchema.parse(raw), tagIds: raw.tagIds || [] },
+                z.string().uuid().optional().parse(raw.requestId));
         } else {
             const parsed = (resource === 'projects' ? projectSchema : tagSchema).parse(raw);
             result = id ? await (delegates[resource] as any).update({ where: { id, userId }, data: parsed }) : await (delegates[resource] as any).create({ data: { ...parsed, userId } });

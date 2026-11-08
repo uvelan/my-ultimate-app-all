@@ -3,18 +3,23 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { authenticatedFetch } from '@/lib/authenticated-fetch';
 import type { ActivityCatalogSync, ReminderPresetFields, ReminderPresetRecord } from '@shared/reminder-presets';
-import { activityGroups, activityGroupLabels, type ActivityGroup } from '@shared/activity-groups';
+import { durationMode, durationModes, durationParts, durationText, validDuration, type DurationMode } from '@shared/activity-duration';
+import { taskActivityGroup, type ActivityTask } from '@shared/activity-tasks';
+import { activityAreas, activityGroups, activityGroupLabels, type ActivityGroup } from '@shared/activity-groups';
 
-type Draft = Omit<ReminderPresetFields, 'durationMinutes'> & { id: string; version: number; hours: number; minutes: number; progress: boolean };
+type Draft = Omit<ReminderPresetFields, 'durationMinutes'> & { id: string; version: number; days: number; hours: number; minutes: number; progress: boolean; durationMode: DurationMode };
 const control = 'rounded-lg border border-border bg-background px-3 py-2 text-text-primary';
 const button = 'rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-background-surface disabled:opacity-50';
 
-export default function ActivityPresets() {
+export default function ActivityPresets({ view, area, tasks = [] }: {
+    view: 'new' | 'details'; area: ActivityGroup | 'ALL'; tasks?: ActivityTask[];
+}) {
     const [presets, setPresets] = useState<ReminderPresetRecord[]>();
     const [draft, setDraft] = useState<Draft>();
     const [error, setError] = useState('');
     const [loadError, setLoadError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [saved, setSaved] = useState('');
     const request = useRef(0);
     const saveInFlight = useRef(false);
     const attempt = useRef<{ key: string; operationId: string } | undefined>(undefined);
@@ -36,6 +41,7 @@ export default function ActivityPresets() {
     }, []);
 
     useEffect(() => {
+        if (view !== "details") return;
         const controller = new AbortController();
         const refresh = () => { if (!document.hidden) void load(controller.signal); };
         refresh();
@@ -46,21 +52,29 @@ export default function ActivityPresets() {
             window.clearInterval(poll);
             document.removeEventListener('visibilitychange', refresh);
         };
-    }, [load]);
+    }, [load, view]);
 
     function open(preset?: ReminderPresetRecord) {
         setError('');
+        setSaved('');
         attempt.current = undefined;
         const duration = preset?.durationMinutes ?? 45;
+        const mode = durationMode(duration, preset?.durationMode);
         setDraft({
             id: preset?.id ?? crypto.randomUUID(), version: preset?.version ?? 0,
             title: preset?.title ?? '', message: preset?.message ?? '',
-            group: preset?.group ?? 'PERSONAL',
-            hours: Math.floor(duration / 60), minutes: duration % 60,
+            group: preset?.group ?? (area === 'ALL' || area === 'REMINDERS' ? 'PERSONAL' : area),
+            ...durationParts(duration, mode), durationMode: mode, kind: preset?.kind ?? 'TIMER', linkedTaskId: preset?.linkedTaskId ?? null,
             extensionMinutes: preset?.extensionMinutes ?? 10, intervalMinutes: preset?.intervalMinutes || 10,
             progress: !!preset?.intervalMinutes, routineEnabled: preset?.routineEnabled ?? true,
         });
     }
+
+    useEffect(() => {
+        if (view === 'new') open();
+    // A new form is initialized once for the selected area.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [view, area]);
 
     function update(change: Partial<Draft>) {
         setDraft(current => current && { ...current, ...change });
@@ -69,10 +83,18 @@ export default function ActivityPresets() {
     async function save(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         if (!draft || saveInFlight.current) return;
-        const { id, version, title, message, group, extensionMinutes, routineEnabled, progress, intervalMinutes } = draft;
+        const { id, version, title, message, group, extensionMinutes, routineEnabled, progress, intervalMinutes, durationMode, kind, linkedTaskId } = draft;
+        const duration = draft.days * 1440 + draft.hours * 60 + draft.minutes;
+        if (!title.trim()) return setError('Enter an activity name.');
+        if (!validDuration(duration, durationMode) || (durationMode === 'WEEKLY' ? draft.hours > 23 : draft.minutes > 59 || draft.hours > 99)) {
+            return setError('Enter a valid countdown. Weekly durations must be between 1 hour and 7 days.');
+        }
+        if (progress && (!Number.isInteger(intervalMinutes) || intervalMinutes < 1 || intervalMinutes >= duration)) {
+            return setError('Enter a notification interval shorter than the countdown.');
+        }
         const fields = {
-            id, expectedVersion: version, title: title.trim(), message: message.trim(), group,
-            durationMinutes: draft.hours * 60 + draft.minutes, extensionMinutes,
+            id, expectedVersion: version, title: title.trim(), message: message.trim() || title.trim() + ' is complete.', group, durationMode, kind, linkedTaskId,
+            durationMinutes: duration, extensionMinutes,
             intervalMinutes: progress ? intervalMinutes : 0, routineEnabled, deleted: false,
         };
         const key = JSON.stringify(fields);
@@ -88,8 +110,9 @@ export default function ActivityPresets() {
                 body: JSON.stringify({ mutations: [{ ...fields, operationId }] }),
                 signal: AbortSignal.timeout(20000),
             });
-            const body: ActivityCatalogSync & { error?: string } = await response.json();
-            if (!response.ok) throw new Error(body.error || 'Could not save the activity.');
+            const body = await response.json().catch(() => null) as (ActivityCatalogSync & { error?: string }) | null;
+            if (!response.ok) throw new Error(body?.error || (response.status === 401 ? 'Sign in again to save this activity.' : 'Could not save the activity. Try again.'));
+            if (!Array.isArray(body?.activities) || !Array.isArray(body?.outcomes)) throw new Error('The server did not confirm the save. Try again.');
             setPresets(body.activities.filter(preset => !preset.deleted));
             setLoadError('');
             if (body.outcomes.find(item => item.operationId === operationId)?.status !== 'applied') {
@@ -97,8 +120,10 @@ export default function ActivityPresets() {
                 return;
             }
             setDraft(undefined);
+            setSaved('Activity saved. It will sync to Android when connected.');
         } catch (error) {
-            setError(error instanceof Error ? error.message : 'Could not save the activity.');
+            setError(error instanceof Error && error.name !== 'TimeoutError' && !(error instanceof TypeError)
+                ? error.message : 'Could not confirm the save. Your draft is kept. Try again.');
         } finally {
             saveInFlight.current = false;
             setSaving(false);
@@ -107,30 +132,56 @@ export default function ActivityPresets() {
 
     return <section aria-label="Saved activities" className="rounded-xl border border-border bg-secondary p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">Saved activities</h2>
-            <button type="button" className={button} disabled={saving} onClick={() => open()}>New activity</button>
+            <h2 className="text-lg font-semibold">{view === "new" ? "Set up a countdown" : "Saved activities"}</h2>
+            {view === 'new' && !draft && <button type="button" className={button} disabled={saving} onClick={() => open()}>Add another activity</button>}
         </div>
-        {!!(error || loadError) && <p role="alert" className="mt-3 text-sm text-red-500">{error || loadError}</p>}
-        {draft && <form className="mt-4 grid gap-3" onSubmit={save}>
+        {!!saved && <p role="status" className="mt-3 text-emerald-600">{saved}</p>}
+        {!!(error || (view === "details" && loadError)) && <p role="alert" className="mt-3 text-sm text-red-500">{error || loadError}</p>}
+        {draft && <form noValidate className="mt-4 grid gap-3" onSubmit={save}>
             <h3 className="font-semibold">{draft.version ? 'Edit activity' : 'New activity'}</h3>
             <label className="grid gap-1 text-sm">Activity name
                 <input className={control} value={draft.title} onChange={event => update({ title: event.target.value })} maxLength={40} required />
             </label>
             <label className="grid gap-1 text-sm">Group
-                <select className={control} value={draft.group} onChange={event => update({ group: event.target.value as ActivityGroup })}>
-                    {activityGroups.map(group => <option key={group} value={group}>{activityGroupLabels[group]}</option>)}
+                <select className={control} value={draft.group} onChange={event => update({ group: event.target.value as ActivityGroup, linkedTaskId: null })}>
+                    {(draft.group === "REMINDERS" ? activityGroups : activityAreas).map(group => <option key={group} value={group}>{activityGroupLabels[group]}</option>)}
                 </select>
             </label>
-            <div className="grid grid-cols-2 gap-3">
-                <label className="grid gap-1 text-sm">Hours
-                    <input className={control} type="number" min={0} max={99} required value={draft.hours} onChange={event => update({ hours: Number(event.target.value) })} />
+            <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm">Type
+                    <select className={control} value={draft.kind} onChange={event => update({ kind: event.target.value === 'TIMER' ? 'TIMER' : 'REMINDER' })}>
+                        <option value="TIMER">Timed Activity</option><option value="REMINDER">Reminder</option>
+                    </select>
                 </label>
-                <label className="grid gap-1 text-sm">Minutes
-                    <input className={control} type="number" min={0} max={59} required value={draft.minutes} onChange={event => update({ minutes: Number(event.target.value) })} />
+                <label className="grid gap-1 text-sm">Duration format
+                    <select className={control} value={draft.durationMode} onChange={event => {
+                        const mode = event.target.value as DurationMode;
+                        update({ durationMode: mode, ...durationParts(mode === 'WEEKLY' ? 1440 : 45, mode) });
+                    }}>
+                        {durationModes.map(mode => <option value={mode} key={mode}>{mode === 'DAILY' ? 'Daily' : 'Weekly'}</option>)}
+                    </select>
                 </label>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+                {draft.durationMode === 'WEEKLY' && <label className="grid gap-1 text-sm">Days
+                    <input className={control} type="number" min={0} max={7} value={draft.days} onChange={event => update({ days: Math.max(0, Math.min(7, Math.floor(Number(event.target.value)))) })} />
+                </label>}
+                <label className="grid gap-1 text-sm">Hours
+                    <input className={control} type="number" min={0} max={draft.durationMode === 'WEEKLY' ? 23 : 99} value={draft.hours}
+                        onChange={event => update({ hours: Math.max(0, Math.floor(Number(event.target.value))) })} />
+                </label>
+                {draft.durationMode === 'DAILY' && <label className="grid gap-1 text-sm">Minutes
+                    <input className={control} type="number" min={0} max={59} value={draft.minutes} onChange={event => update({ minutes: Math.max(0, Math.floor(Number(event.target.value))) })} />
+                </label>}
+            </div>
+            {tasks.some(task => taskActivityGroup(task) === draft.group) && <label className="grid gap-1 text-sm">Linked task (optional)
+                <select className={control} value={draft.linkedTaskId ?? ''} onChange={event => update({ linkedTaskId: event.target.value || null })}>
+                    <option value="">No linked task</option>
+                    {tasks.filter(task => taskActivityGroup(task) === draft.group).map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
+                </select>
+            </label>}
             <label className="grid gap-1 text-sm">Message when time is up
-                <textarea className={control} rows={2} value={draft.message} onChange={event => update({ message: event.target.value })} maxLength={180} required />
+                <textarea className={control} rows={2} value={draft.message} onChange={event => update({ message: event.target.value })} maxLength={180} placeholder="Defaults to the activity name" />
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1 text-sm">Notifications
@@ -146,7 +197,7 @@ export default function ActivityPresets() {
                 </label>
             </div>
             {draft.progress && <label className="grid gap-1 text-sm">Notify every (minutes)
-                <input className={control} type="number" min={1} max={Math.max(1, draft.hours * 60 + draft.minutes - 1)}
+                <input className={control} type="number" min={1} max={Math.max(1, draft.days * 1440 + draft.hours * 60 + draft.minutes - 1)}
                     required value={draft.intervalMinutes} onChange={event => update({ intervalMinutes: Number(event.target.value) })} />
             </label>}
             <label className="flex items-center gap-2 text-sm">
@@ -158,9 +209,9 @@ export default function ActivityPresets() {
                 <button type="button" className={button} disabled={saving} onClick={() => setDraft(undefined)}>Cancel</button>
             </div>
         </form>}
-        {!presets && !error && !loadError && <p className="mt-3 text-sm text-text-secondary">Loading saved activities…</p>}
-        {presets && <div className="mt-4 grid gap-4">
-            {activityGroups.map(group => {
+        {view === "details" && !presets && !error && !loadError && <p className="mt-3 text-sm text-text-secondary">Loading saved activities…</p>}
+        {view === "details" && presets && <div className="mt-4 grid gap-4">
+            {activityGroups.filter(group => area === "ALL" || group === area).map(group => {
                 const items = presets.filter(preset => preset.group === group);
                 return <section key={group} aria-label={activityGroupLabels[group]}>
                     <h3 className="font-semibold">{activityGroupLabels[group]}</h3>
@@ -169,9 +220,11 @@ export default function ActivityPresets() {
                         {items.map(preset => <li key={preset.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
                             <div className="min-w-0">
                                 <p className="break-words font-semibold">{preset.title}</p>
-                                <p className="text-sm text-text-secondary">{preset.durationMinutes} min · {preset.intervalMinutes ? `Every ${preset.intervalMinutes} min` : 'End alert only'}</p>
+                                <p className="text-sm text-text-secondary">{durationText(preset.durationMinutes)} · {preset.intervalMinutes ? `Every ${preset.intervalMinutes} min` : 'End alert only'}</p>
                             </div>
-                            <button type="button" className={button} disabled={saving} onClick={() => open(preset)} aria-label={`Edit ${preset.title}`}>Edit</button>
+                            {preset.linkedTaskId && tasks.some(task => task.id === preset.linkedTaskId) &&
+                            <span className="text-sm text-text-secondary">Linked task · {tasks.find(task => task.id === preset.linkedTaskId)?.title}</span>}
+                        <button type="button" className={button} disabled={saving} onClick={() => open(preset)} aria-label={`Edit ${preset.title}`}>Edit</button>
                         </li>)}
                     </ul>}
                 </section>;

@@ -49,3 +49,45 @@ test('bulk completion carries area into one recurring successor even if the task
  assert.equal(successors[0].dueDate.toISOString(), '2026-11-13T00:00:00.000Z');
  assert.deepEqual(successors[0].tagIds, ['office-tag']);
 });
+
+
+test('office sharing restricts visibility and uses the same task for a retried save', async () => {
+ const rows = new Map();
+ const delegate = {
+  findUnique: async ({ where }) => rows.get(where.id)?.userId === where.userId ? rows.get(where.id) : null,
+  findMany: async ({ where }) => [...rows.values()].filter(task => where.OR.some(scope =>
+   Object.entries(scope).every(([key, value]) => task[key] === value))),
+  create: async ({ data }) => {
+   const task = { ...data, project: { name: 'Private project' }, tags: [{ name: 'Private tag' }] };
+   rows.set(task.id, task);
+   return task;
+  },
+  update: async ({ where, data }) => {
+   const current = rows.get(where.id);
+   if (!current || !Object.entries(where).every(([key, value]) => current[key] === value)) throw Error('Record not found');
+   const task = { ...current, ...data };
+   rows.set(task.id, task);
+   return task;
+  },
+ };
+ const prisma = {
+  task: delegate,
+  user: { findUnique: async () => ({ id: 'colleague', isActive: true }) },
+ };
+ const { createTask, getTasks, updateTask } = load('src/lib/tasks/task-service.ts', {
+  '@/lib/prisma': { prisma }, 'date-fns': require('date-fns'), 'node:crypto': require('node:crypto'),
+ });
+ const draft = { title: 'Review work', area: 'OFFICE', jiraKey: 'OPS-142', colleague: 'Alex', shareWith: 'alex@example.test' };
+ const office = await createTask('owner', draft, 'same-request');
+ assert.equal((await createTask('owner', draft, 'same-request')).id, office.id);
+ assert.equal((await getTasks('colleague')).length, 1);
+ assert.equal((await getTasks('colleague'))[0].project, null);
+ assert.equal((await getTasks('stranger')).length, 0);
+ assert.equal(rows.size, 1);
+ await assert.rejects(updateTask('stranger', { id: office.id, status: 'IN_PROGRESS' }, true), /not found/i);
+ await updateTask('colleague', { id: office.id, status: 'IN_PROGRESS' }, true);
+ assert.equal((await getTasks('owner'))[0].status, 'IN_PROGRESS');
+ await updateTask('owner', { id: office.id, area: 'HEALTH' });
+ assert.equal((await getTasks('colleague')).length, 0);
+ assert.equal((await getTasks('owner'))[0].jiraKey, null);
+});

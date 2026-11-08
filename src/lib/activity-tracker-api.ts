@@ -12,6 +12,15 @@ async function activeUserId() {
 const headers = { 'Cache-Control': 'no-store' };
 
 export async function readActivities(request: NextRequest, legacy = false) {
+    try {
+        return await loadActivities(request, legacy);
+    } catch (error) {
+        console.error("Activity read failed", (error as { code?: string }).code ?? "unknown");
+        return NextResponse.json({ error: "Activities are temporarily unavailable. Try again." }, { status: 503, headers });
+    }
+}
+
+async function loadActivities(request: NextRequest, legacy: boolean) {
     const userId = await activeUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!request.nextUrl.searchParams.has('from') && !request.nextUrl.searchParams.has('to')) {
@@ -28,6 +37,15 @@ export async function readActivities(request: NextRequest, legacy = false) {
 }
 
 export async function writeActivities(request: NextRequest, legacy = false) {
+    try {
+        return await saveActivities(request, legacy);
+    } catch (error) {
+        console.error("Activity save failed", (error as { code?: string }).code ?? "unknown");
+        return NextResponse.json({ error: "Activity sync is temporarily unavailable. Try again." }, { status: 503, headers });
+    }
+}
+
+async function saveActivities(request: NextRequest, legacy: boolean) {
     const userId = await activeUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const parsed = reminderCatalogUpload.safeParse(await request.json().catch(() => null));
@@ -35,10 +53,6 @@ export async function writeActivities(request: NextRequest, legacy = false) {
     if (parsed.data.accountId && parsed.data.accountId !== userId) {
         return NextResponse.json({ error: 'The activity account changed.' }, { status: 409 });
     }
-    try {
-        const { outcomes, reminders } = await syncReminderPresets(userId, parsed.data.mutations);
-        return NextResponse.json(legacy ? { outcomes, reminders } : { outcomes, activities: reminders }, { headers });
-    } catch {
-        return NextResponse.json({ error: 'Activity sync is temporarily unavailable.' }, { status: 503 });
-    }
+    const { outcomes, reminders } = await syncReminderPresets(userId, parsed.data.mutations);
+    return NextResponse.json(legacy ? { outcomes, reminders } : { outcomes, activities: reminders }, { headers });
 }

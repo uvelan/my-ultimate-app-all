@@ -16,7 +16,7 @@ function load(file, mocks) {
     }).outputText;
     const module = { exports: {} };
     vm.runInNewContext(source, {
-        module, exports: module.exports,
+        module, exports: module.exports, console: { error() {} },
         require: name => name in mocks ? mocks[name] : require(name),
     }, { filename });
     return module.exports;
@@ -25,6 +25,7 @@ function load(file, mocks) {
 function harness() {
     const records = new Map();
     let userId = account;
+    let failRead = false;
     const prisma = {
         user: { findUnique: async () => ({ isActive: true }) },
         reminderPreset: {
@@ -45,13 +46,16 @@ function harness() {
                 return current?.userId === where.userId ? current : null;
             },
             async findMany({ where }) {
+                if (failRead) { failRead = false; throw new Error("Connection dropped"); }
                 return [...records.values()].filter(row => row.userId === where.userId
                     && (where.deleted === undefined || row.deleted === where.deleted));
             },
         },
     };
     const groups = load('shared/activity-groups.ts', {});
-    const service = load('src/lib/reminder-presets-server.ts', { '@/lib/prisma': { prisma }, '@shared/activity-groups': groups });
+    const service = load('src/lib/reminder-presets-server.ts', { '@/lib/prisma': { prisma }, '@shared/activity-groups': groups,
+        '@shared/activity-duration': load('shared/activity-duration.ts', {}),
+    });
     const handlers = load('src/lib/activity-tracker-api.ts', {
         'next/server': { NextResponse: Response },
         '@/lib/prisma': { prisma },
@@ -66,6 +70,7 @@ function harness() {
     });
     return {
         records,
+        failNextRead: () => { failRead = true; },
         as: id => { userId = id; },
         get: (query = '') => route.GET({ nextUrl: new URL('https://example.test/api/reminders' + query) }),
         sync: (mutations, accountId = userId) => route.POST(request('/api/reminders', mutations, accountId)),
@@ -141,4 +146,23 @@ test('Activity Tracker returns groups and the legacy endpoint preserves them on 
     const current = await (await api.getActivities()).json();
     assert.deepEqual(current.activities.map(activity => activity.group).sort(), ['OFFICE', 'REMINDERS']);
     assert.equal((await api.syncActivities([{ ...preset(), group: 'OTHER' }])).status, 400);
+});
+
+
+test('Office weekly saves survive a lost response and return a retryable error', async () => {
+    const api = harness();
+    const draft = { ...preset(), group: 'OFFICE', kind: 'TIMER', durationMode: 'WEEKLY', durationMinutes: 2 * 1440 + 4 * 60 };
+    api.failNextRead();
+    const failure = await api.syncActivities([draft]);
+    assert.equal(failure.status, 503);
+    assert.match((await failure.json()).error, /try again/i);
+    const retried = await (await api.syncActivities([draft])).json();
+    assert.equal(retried.outcomes[0].status, 'applied');
+    assert.equal(retried.activities[0].durationMode, 'WEEKLY');
+    assert.equal(retried.activities[0].durationMinutes, 3120);
+    assert.equal(retried.activities[0].kind, 'TIMER');
+    assert.equal(api.records.size, 1);
+    assert.equal((await api.syncActivities([{ ...preset(), durationMode: 'WEEKLY', durationMinutes: 61 }])).status, 400);
+    assert.equal((await api.syncActivities([{ ...preset(), group: 'HEALTH', durationMode: 'WEEKLY', durationMinutes: 10080 }])).status, 200);
+    assert.equal((await api.syncActivities([{ ...preset(), group: 'CAREER', durationMode: 'DAILY', durationMinutes: 90 }])).status, 200);
 });

@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, Modal, Alert, RefreshControl, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, TextInput, ScrollView, TouchableOpacity, Modal, Alert, RefreshControl, ActivityIndicator, Linking } from 'react-native';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 import { CalendarGrid } from '@/src/components/ui/CalendarGrid';
 import { calendarPeriod, calendarWeekdays } from '@shared/calendar';
 import { api } from '@/src/lib/api-client';
+import { jiraIssueUrl } from '@shared/activity-tasks';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from 'expo-router';
 import { comparePlannedTasks, localTaskDay, matchesTaskPlan, parseTaskDay, taskAreas, taskDay, taskPlans, type TaskPlan } from '@/src/lib/task-planning';
@@ -12,10 +13,14 @@ const statuses = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'ARCHIVED'];
 const priorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 const weekdays = calendarWeekdays(0).map(day => day.slice(0, 2));
 const fieldStyle = { color: '#fff', backgroundColor: '#27232e', padding: 12, borderRadius: 8, marginBottom: 12 };
-const emptyForm = () => ({ title: '', description: '', status: 'TODO', priority: 'MEDIUM', area: '', projectId: '', tagIds: [] as string[], frequency: '', startDate: '', dueDate: '' });
+const emptyForm = () => ({ title: '', description: '', status: 'TODO', priority: 'MEDIUM', area: '', colleague: '', jiraKey: '', shareWith: '', projectId: '', tagIds: [] as string[], frequency: '', startDate: '', dueDate: '' });
 
-export default function TasksScreen() {
-    const [data, setData] = useState<{ tasks: any[]; projects: any[]; tags: any[] }>({ tasks: [], projects: [], tags: [] });
+export default function TasksScreen() { return <TaskWorkspace />; }
+
+export function TaskWorkspace({ embedded = false, createOnly = false, initialArea = 'all', onFinish }: {
+    embedded?: boolean; createOnly?: boolean; initialArea?: string; onFinish?: () => void;
+}) {
+    const [data, setData] = useState<{ tasks: any[]; projects: any[]; tags: any[]; viewerId?: string; jiraBaseUrl?: string }>({ tasks: [], projects: [], tags: [] });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -24,14 +29,18 @@ export default function TasksScreen() {
     const [status, setStatus] = useState('All');
     const [priority, setPriority] = useState('All');
     const [plan, setPlan] = useState<TaskPlan>('active');
-    const [area, setArea] = useState('all');
+    const [area, setArea] = useState(initialArea);
     const [showFilters, setShowFilters] = useState(false);
     const [dateField, setDateField] = useState<'startDate' | 'dueDate' | null>(null);
     const [project, setProject] = useState('');
     const [tag, setTag] = useState('');
     const [selected, setSelected] = useState<string[]>([]);
     const [editingId, setEditingId] = useState<string | undefined>();
-    const [form, setForm] = useState(emptyForm());
+    const [form, setForm] = useState(() => ({ ...emptyForm(), area: initialArea === 'all' ? 'PERSONAL' : initialArea }));
+    const [removeSharing, setRemoveSharing] = useState(false);
+    const [formError, setFormError] = useState('');
+    const attempt = useRef<{ payload: string; id: string } | undefined>(undefined);
+    const inFlight = useRef(false);
     const [formOpen, setFormOpen] = useState(false);
     const [metaName, setMetaName] = useState('');
     const [metaColor, setMetaColor] = useState('#8b5cf6');
@@ -42,36 +51,45 @@ export default function TasksScreen() {
     const load = useCallback(async () => {
         setLoading(true);
         setError('');
-        try { setData((await api.get('/mobile/tasks')).data); }
+        try { setData((await api.get(embedded ? '/activities/tasks' : '/mobile/tasks')).data); }
         catch (err: any) { setError(err.response?.data?.error || 'Unable to load tasks. Pull down to retry.'); }
         finally { setLoading(false); }
-    }, []);
+    }, [embedded]);
     useFocusEffect(useCallback(() => { void load(); }, [load]));
     const mutate = async (resource: string, value: any = {}, id?: string, method?: string) => {
+        if (inFlight.current) return false;
+        inFlight.current = true;
         setSaving(true);
+        setFormError('');
         try {
-            await api.request({ url: '/mobile/tasks', method: method || (id ? 'PATCH' : 'POST'), data: { resource, id, data: value } });
+            await api.request({ url: embedded ? '/activities/tasks' : '/mobile/tasks', method: method || (id ? 'PATCH' : 'POST'), data: { resource, id, data: value } });
             await load();
             return true;
-        } catch (err: any) { Alert.alert('Unable to save', err.response?.data?.error || err.message); return false; }
-        finally { setSaving(false); }
+        } catch (err: any) {
+            const message = err.response?.data?.error || 'Could not confirm the update. Try again.';
+            if (formOpen || createOnly) setFormError(message); else Alert.alert('Unable to save', message);
+            return false;
+        } finally { inFlight.current = false; setSaving(false); }
     };
     const chip = (label: string, active: boolean, action: () => void) => <TouchableOpacity key={label} accessibilityRole="button" accessibilityState={{ selected: active, disabled: saving }} disabled={saving} onPress={action} style={{ backgroundColor: active ? '#7c3aed' : '#28232f', borderRadius: 8, padding: 10, marginRight: 7, marginBottom: 7 }}><Text style={{ color: '#fff', fontSize: 12 }}>{label.replace(/_/g, ' ')}</Text></TouchableOpacity>;
     const toggleSelection = (id: string) => setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id].slice(0, 200));
-    const scoped = useMemo(() => data.tasks.filter(task => area === 'all' || (task.area || '') === area), [data.tasks, area]);
+    const scoped = useMemo(() => data.tasks.filter(task => area === 'all' || (task.area || (embedded ? 'PERSONAL' : '')) === area), [data.tasks, area, embedded]);
     const filtered = useMemo(() => {
         const now = new Date();
         const query = search.trim().toLowerCase();
         return scoped.filter(task => matchesTaskPlan(task, plan, now)
-            && `${task.title} ${task.description || ''}`.toLowerCase().includes(query)
+            && [task.title, task.description, task.colleague, task.jiraKey].some(value => value?.toLowerCase().includes(query))
             && (status === 'All' || task.status === status) && (priority === 'All' || task.priority === priority)
             && (!project || task.projectId === project) && (!tag || task.tagIds.includes(tag))).sort(comparePlannedTasks);
     }, [scoped, search, status, priority, plan, project, tag]);
     useEffect(() => { setSelected([]); }, [search, status, priority, area, plan, project, tag]);
     const openForm = (task?: any, date = '') => {
+        attempt.current = undefined;
+        setFormError('');
+        setRemoveSharing(false);
         setEditingId(task?.id);
         setDateField(null);
-        setForm(task ? { title: task.title, description: task.description || '', status: task.status, priority: task.priority, area: task.area || '', projectId: task.projectId || '', tagIds: task.tagIds || [], frequency: task.frequency || '', startDate: taskDay(task.startDate), dueDate: taskDay(task.dueDate) }
+        setForm(task ? { title: task.title, description: task.description || '', status: task.status, priority: task.priority, area: task.area || '', colleague: task.colleague || '', jiraKey: task.jiraKey || '', shareWith: '', projectId: task.projectId || '', tagIds: task.tagIds || [], frequency: task.frequency || '', startDate: taskDay(task.startDate), dueDate: taskDay(task.dueDate) }
             : { ...emptyForm(), area: area === 'all' ? '' : area, dueDate: date });
         setFormOpen(true);
     };
@@ -80,12 +98,34 @@ export default function TasksScreen() {
         const start = parseTaskDay(form.startDate), end = parseTaskDay(form.dueDate);
         if ((form.startDate && !start) || (form.dueDate && !end)) return Alert.alert('Invalid date', 'Choose a valid date or use YYYY-MM-DD.');
         if (form.startDate && form.dueDate && form.startDate > form.dueDate) return Alert.alert('Invalid dates', 'Start date must precede due date.');
-        if (await mutate('tasks', { ...form, title: form.title.trim(), area: form.area || null, frequency: form.frequency || null, projectId: form.projectId || null, startDate: start?.toISOString() || null, dueDate: end?.toISOString() || null }, editingId)) setFormOpen(false);
+        const data = { ...form, title: form.title.trim(), area: form.area || null, shareWith: removeSharing ? null : form.shareWith.trim() || undefined,
+            frequency: form.frequency || null, projectId: form.projectId || null, startDate: start?.toISOString() || null, dueDate: end?.toISOString() || null };
+        if (!editingId) {
+            const payload = JSON.stringify(data);
+            if (attempt.current?.payload !== payload) {
+                // This identifier deduplicates retries. The server scopes it to the signed-in account.
+                const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+                    const value = Math.floor(Math.random() * 16);
+                    return (char === 'x' ? value : (value & 3) | 8).toString(16);
+                });
+                attempt.current = { payload, id };
+            }
+        }
+        if (await mutate('tasks', { ...data, requestId: editingId ? undefined : attempt.current?.id }, editingId)) {
+            attempt.current = undefined;
+            if (createOnly) { Alert.alert('Task saved'); onFinish?.(); }
+            else setFormOpen(false);
+        }
     };
     const confirmDelete = (resource: string, id: string) => Alert.alert('Delete entry?', resource === 'tasks' ? 'This task will be permanently deleted.' : 'Tasks will remain; this label will be removed.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => mutate(resource, {}, id, 'DELETE') }]);
+    const assigned = (task: any) => !!data.viewerId && data.viewerId !== task.userId;
     const card = (task: any) => <View key={task.id} className="bg-background-surface p-4 rounded-xl mb-3">
-        <TouchableOpacity onPress={() => openForm(task)} onLongPress={() => toggleSelection(task.id)}><Text className="text-text-primary text-lg font-bold">{selected.includes(task.id) ? '☑ ' : ''}{task.title}</Text><Text className="text-text-secondary mt-1">{task.status.replace(/_/g, ' ')} · {task.priority}{taskDay(task.dueDate) ? ` · Due ${taskDay(task.dueDate)}` : ''}</Text>{!!task.description && <Text className="text-text-secondary mt-2">{task.description}</Text>}<Text className="text-text-secondary mt-2">{[taskAreas.find(item => item.value === task.area)?.label, task.project?.name, ...task.tags.map((item: any) => item.name), task.frequency].filter(Boolean).join(' · ')}</Text></TouchableOpacity>
-        <View className="flex-row flex-wrap mt-3">{chip(task.status === 'DONE' ? 'Reopen' : 'Complete', false, () => mutate('tasks', { status: task.status === 'DONE' ? 'TODO' : 'DONE' }, task.id))}{chip('Select', selected.includes(task.id), () => toggleSelection(task.id))}{chip('Delete', false, () => confirmDelete('tasks', task.id))}</View>
+        <TouchableOpacity disabled={assigned(task)} onPress={() => openForm(task)} onLongPress={() => toggleSelection(task.id)}><Text className="text-text-primary text-lg font-bold">{selected.includes(task.id) ? '☑ ' : ''}{task.title}</Text><Text className="text-text-secondary mt-1">{task.status.replace(/_/g, ' ')} · {task.priority}{taskDay(task.dueDate) ? ` · Due ${taskDay(task.dueDate)}` : ''}</Text>{!!task.description && <Text className="text-text-secondary mt-2">{task.description}</Text>}<Text className="text-text-secondary mt-2">{[taskAreas.find(item => item.value === task.area)?.label, task.colleague, task.jiraKey, assigned(task) && "Assigned to you", task.project?.name, ...task.tags.map((item: any) => item.name), task.frequency].filter(Boolean).join(' · ')}</Text></TouchableOpacity>
+        <View className="flex-row flex-wrap mt-3">{chip(task.status === 'DONE' ? 'Reopen' : 'Complete', false, () => mutate('tasks', { status: task.status === 'DONE' ? 'TODO' : 'DONE' }, task.id))}
+        {jiraIssueUrl(data.jiraBaseUrl, task.jiraKey) && chip('Open ' + task.jiraKey, false, () => {
+            const url = jiraIssueUrl(data.jiraBaseUrl, task.jiraKey);
+            if (url) void Linking.openURL(url).catch(() => Alert.alert('Unable to open Jira'));
+        })}{!assigned(task) && chip('Select', selected.includes(task.id), () => toggleSelection(task.id))}{!assigned(task) && chip('Delete', false, () => confirmDelete('tasks', task.id))}</View>
     </View>;
     const changeCalendarMonth = (offset: number) => { setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + offset, 1)); setCalendarDay(''); };
     const calendarDays = useMemo(() => calendarPeriod(calendarMonth, 'month', 0).days
@@ -101,9 +141,39 @@ export default function TasksScreen() {
         }
         return counts;
     }, [filtered, view]);
+    const formContent = <View className={createOnly ? "flex-1 bg-background" : "flex-1 bg-background pt-12"}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20 }}><Text className="text-white text-2xl font-bold mb-5">{editingId ? 'Edit task' : 'New task'}</Text>
+                <TextInput placeholder="Title" placeholderTextColor="#999" maxLength={100} style={fieldStyle} value={form.title} onChangeText={value => setForm({ ...form, title: value })} />
+                <TextInput placeholder="Description" placeholderTextColor="#999" multiline maxLength={1000} style={fieldStyle} value={form.description} onChangeText={value => setForm({ ...form, description: value })} />
+                <Text className="text-gray-300 mb-2">Area</Text><View className="flex-row flex-wrap">{taskAreas.map(item => chip(item.label, form.area === item.value, () => setForm({ ...form, area: item.value })))}</View>
+                {form.area === 'OFFICE' && <>
+                    <TextInput accessibilityLabel="Colleague" placeholder="Colleague name" placeholderTextColor="#999" maxLength={80}
+                        style={fieldStyle} value={form.colleague} onChangeText={value => setForm({ ...form, colleague: value })} />
+                    <TextInput accessibilityLabel="Jira issue key" placeholder="Jira issue key (OPS-142)" placeholderTextColor="#999" autoCapitalize="characters"
+                        style={fieldStyle} value={form.jiraKey} onChangeText={value => setForm({ ...form, jiraKey: value })} />
+                    <TextInput accessibilityLabel="Share with colleague" placeholder="Existing app account email (optional)" placeholderTextColor="#999"
+                        autoCapitalize="none" keyboardType="email-address" style={fieldStyle} value={form.shareWith}
+                        onChangeText={value => setForm({ ...form, shareWith: value })} />
+                    {data.tasks.some(task => task.id === editingId && task.assignedUserId) &&
+                        chip('Remove sharing', removeSharing, () => setRemoveSharing(value => !value))}
+                </>}
+                {!!formError && <Text accessibilityLiveRegion="polite" className="mb-3 text-red-400">{formError}</Text>}
+                <Text className="text-gray-300 mb-2">Status</Text><View className="flex-row flex-wrap">{statuses.map(item => chip(item, form.status === item, () => setForm({ ...form, status: item })))}</View>
+                <Text className="text-gray-300 mb-2">Priority</Text><View className="flex-row flex-wrap">{priorities.map(item => chip(item, form.priority === item, () => setForm({ ...form, priority: item })))}</View>
+                <Text className="text-gray-300 mb-2">Project</Text><View className="flex-row flex-wrap">{chip('None', !form.projectId, () => setForm({ ...form, projectId: '' }))}{data.projects.map(item => chip(item.name, form.projectId === item.id, () => setForm({ ...form, projectId: item.id })))}</View>
+                <Text className="text-gray-300 mb-2">Tags</Text><View className="flex-row flex-wrap">{data.tags.map(item => chip(item.name, form.tagIds.includes(item.id), () => setForm({ ...form, tagIds: form.tagIds.includes(item.id) ? form.tagIds.filter(id => id !== item.id) : [...form.tagIds, item.id] })))}</View>
+                <Text className="text-gray-300 mb-2">Repeat when completed</Text><View className="flex-row flex-wrap">{['', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map(item => chip(item || 'Never', form.frequency === item, () => setForm({ ...form, frequency: item })))}</View>
+                <TextInput placeholder="Start date YYYY-MM-DD (optional)" placeholderTextColor="#999" style={fieldStyle} value={form.startDate} onChangeText={value => setForm({ ...form, startDate: value })} />
+                <TextInput placeholder="Due date YYYY-MM-DD (optional)" placeholderTextColor="#999" style={fieldStyle} value={form.dueDate} onChangeText={value => setForm({ ...form, dueDate: value })} />
+                <View className="flex-row flex-wrap">{chip('Choose start date', false, () => setDateField('startDate'))}{chip('Choose due date', false, () => setDateField('dueDate'))}</View>
+                {dateField && <DateTimePicker mode="date" value={form[dateField] && parseTaskDay(form[dateField]) ? new Date(form[dateField] + 'T12:00:00') : new Date()}
+                    onChange={(event, date) => { if (event.type === 'set' && date) setForm(current => ({ ...current, [dateField]: localTaskDay(date) })); setDateField(null); }} />}
+                <TouchableOpacity disabled={saving} onPress={saveTask} className="bg-accent p-4 rounded-xl"><Text className="text-white text-center font-bold">{saving ? 'Saving…' : 'Save task'}</Text></TouchableOpacity>
+                <TouchableOpacity disabled={saving} onPress={() => createOnly ? onFinish?.() : setFormOpen(false)} className="p-4"><Text className="text-white text-center">Cancel</Text></TouchableOpacity>
+            </ScrollView></View>;
+    if (createOnly) return formContent;
     return <View className="flex-1 bg-background">
-        <View className="pt-12 px-5 pb-4 flex-row items-center justify-between"><View className="flex-row items-center"><SidebarToggle /><Text className="text-text-primary text-2xl font-bold ml-3">Tasks</Text></View><TouchableOpacity disabled={saving} onPress={() => openForm()} className="p-3 bg-accent rounded-xl"><Text className="text-white">Add task</Text></TouchableOpacity></View>
-        <View className="flex-row flex-wrap px-5">{['List', 'Board', 'Calendar', 'Projects & tags'].map(item => chip(item, item === view, () => setView(item)))}</View>
+        <View className={embedded ? "px-5 py-3 flex-row items-center justify-between" : "pt-12 px-5 pb-4 flex-row items-center justify-between"}><View className="flex-row items-center">{!embedded && <SidebarToggle />}<Text className="text-text-primary text-2xl font-bold ml-3">Tasks</Text></View><TouchableOpacity disabled={saving} onPress={() => openForm()} className="p-3 bg-accent rounded-xl"><Text className="text-white">Add task</Text></TouchableOpacity></View>
+        <View className="flex-row flex-wrap px-5">{(embedded ? ['List', 'Board', 'Projects & tags'] : ['List', 'Board', 'Calendar', 'Projects & tags']).map(item => chip(item, item === view, () => setView(item)))}</View>
         <ScrollView contentContainerStyle={{ padding: 20 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
             {!!error && <Text className="text-red-400 mb-4">{error}</Text>}
             {loading && !data.tasks.length && <ActivityIndicator color="#8b5cf6" />}
@@ -116,7 +186,7 @@ export default function TasksScreen() {
             </> : <>
                 <View className="flex-row flex-wrap">{chip('All areas', area === 'all', () => setArea('all'))}{taskAreas.map(item => chip(item.label, area === item.value, () => setArea(item.value)))}</View>
                 <View className="flex-row flex-wrap">{taskPlans.map(item => chip(`${item.label} · ${scoped.filter(task => matchesTaskPlan(task, item.value, new Date())).length}`, plan === item.value, () => { setPlan(item.value); setStatus('All'); }))}</View>
-                <TextInput accessibilityLabel="Search tasks" placeholder="Search tasks" placeholderTextColor="#999" style={fieldStyle} value={search} onChangeText={setSearch} />
+                <TextInput accessibilityLabel="Search tasks by title, colleague or Jira key" placeholder="Search tasks, colleagues or Jira keys" placeholderTextColor="#999" style={fieldStyle} value={search} onChangeText={setSearch} />
                 {chip(showFilters ? 'Hide filters' : 'More filters', showFilters, () => setShowFilters(!showFilters))}
                 {showFilters && <>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>{['All', ...statuses].map(item => chip(item === 'All' ? 'All statuses' : item, status === item, () => { setStatus(item); if (item !== 'All') setPlan('all'); }))}</ScrollView>
@@ -127,7 +197,7 @@ export default function TasksScreen() {
                 </>}
                 <Text className="text-gray-300 mb-3">{filtered.length} tasks · {selected.length} selected</Text>
                 {!!selected.length && <View className="bg-background-surface p-3 mb-4 rounded-xl"><Text className="text-white mb-2">Set selected status</Text><View className="flex-row flex-wrap">{statuses.map(item => chip(item, false, async () => { if (await mutate('bulk', { taskIds: selected, status: item })) setSelected([]); }))}{chip('Clear selection', false, () => setSelected([]))}{chip('Delete selected', false, () => Alert.alert('Delete selected tasks?', 'This cannot be undone.', [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { if (await mutate('bulk', { taskIds: selected }, undefined, 'DELETE')) setSelected([]); } }]))}</View></View>}
-                {view === 'List' && <>{!!filtered.length && chip('Select displayed (up to 200)', false, () => setSelected(filtered.slice(0, 200).map(item => item.id)))}{filtered.map(card)}</>}
+                {view === 'List' && <>{!!filtered.length && chip('Select displayed (up to 200)', false, () => setSelected(filtered.filter(task => !assigned(task)).slice(0, 200).map(item => item.id)))}{filtered.map(card)}</>}
                 {view === 'Board' && <ScrollView horizontal>{statuses.map(item => <View key={item} style={{ width: 280, marginRight: 12 }}><Text className="text-white font-bold mb-3">{item.replace(/_/g, ' ')} ({filtered.filter(task => task.status === item).length})</Text>{filtered.filter(task => task.status === item).map(card)}</View>)}</ScrollView>}
                 {view === 'Calendar' && <>
                     <View className="flex-row justify-between mb-3">{chip('Previous', false, () => changeCalendarMonth(-1))}<Text className="text-white pt-2">{calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>{chip('Next', false, () => changeCalendarMonth(1))}</View>
@@ -145,24 +215,8 @@ export default function TasksScreen() {
                 {!filtered.length && !loading && <Text className="text-gray-400 py-8 text-center">No matching tasks. Add a task or adjust filters.</Text>}
             </>}
         </ScrollView>
-        <Modal visible={formOpen} animationType="slide" onRequestClose={() => setFormOpen(false)}>
-            <View className="flex-1 bg-background pt-12"><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20 }}><Text className="text-white text-2xl font-bold mb-5">{editingId ? 'Edit task' : 'New task'}</Text>
-                <TextInput placeholder="Title" placeholderTextColor="#999" maxLength={100} style={fieldStyle} value={form.title} onChangeText={value => setForm({ ...form, title: value })} />
-                <TextInput placeholder="Description" placeholderTextColor="#999" multiline maxLength={1000} style={fieldStyle} value={form.description} onChangeText={value => setForm({ ...form, description: value })} />
-                <Text className="text-gray-300 mb-2">Area</Text><View className="flex-row flex-wrap">{taskAreas.map(item => chip(item.label, form.area === item.value, () => setForm({ ...form, area: item.value })))}</View>
-                <Text className="text-gray-300 mb-2">Status</Text><View className="flex-row flex-wrap">{statuses.map(item => chip(item, form.status === item, () => setForm({ ...form, status: item })))}</View>
-                <Text className="text-gray-300 mb-2">Priority</Text><View className="flex-row flex-wrap">{priorities.map(item => chip(item, form.priority === item, () => setForm({ ...form, priority: item })))}</View>
-                <Text className="text-gray-300 mb-2">Project</Text><View className="flex-row flex-wrap">{chip('None', !form.projectId, () => setForm({ ...form, projectId: '' }))}{data.projects.map(item => chip(item.name, form.projectId === item.id, () => setForm({ ...form, projectId: item.id })))}</View>
-                <Text className="text-gray-300 mb-2">Tags</Text><View className="flex-row flex-wrap">{data.tags.map(item => chip(item.name, form.tagIds.includes(item.id), () => setForm({ ...form, tagIds: form.tagIds.includes(item.id) ? form.tagIds.filter(id => id !== item.id) : [...form.tagIds, item.id] })))}</View>
-                <Text className="text-gray-300 mb-2">Repeat when completed</Text><View className="flex-row flex-wrap">{['', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].map(item => chip(item || 'Never', form.frequency === item, () => setForm({ ...form, frequency: item })))}</View>
-                <TextInput placeholder="Start date YYYY-MM-DD (optional)" placeholderTextColor="#999" style={fieldStyle} value={form.startDate} onChangeText={value => setForm({ ...form, startDate: value })} />
-                <TextInput placeholder="Due date YYYY-MM-DD (optional)" placeholderTextColor="#999" style={fieldStyle} value={form.dueDate} onChangeText={value => setForm({ ...form, dueDate: value })} />
-                <View className="flex-row flex-wrap">{chip('Choose start date', false, () => setDateField('startDate'))}{chip('Choose due date', false, () => setDateField('dueDate'))}</View>
-                {dateField && <DateTimePicker mode="date" value={form[dateField] && parseTaskDay(form[dateField]) ? new Date(form[dateField] + 'T12:00:00') : new Date()}
-                    onChange={(event, date) => { if (event.type === 'set' && date) setForm(current => ({ ...current, [dateField]: localTaskDay(date) })); setDateField(null); }} />}
-                <TouchableOpacity disabled={saving} onPress={saveTask} className="bg-accent p-4 rounded-xl"><Text className="text-white text-center font-bold">{saving ? 'Saving…' : 'Save task'}</Text></TouchableOpacity>
-                <TouchableOpacity disabled={saving} onPress={() => setFormOpen(false)} className="p-4"><Text className="text-white text-center">Cancel</Text></TouchableOpacity>
-            </ScrollView></View>
+        <Modal visible={formOpen} animationType="slide" onRequestClose={() => !saving && setFormOpen(false)}>
+            {formContent}
         </Modal>
     </View>;
 }

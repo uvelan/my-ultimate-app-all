@@ -14,6 +14,8 @@ interface TaskListProps {
   onDelete: (taskId: string) => void;
   onToggleStatus: (taskId: string, currentStatus: string) => void;
   selectedIds: string[];
+  viewerId?: string;
+  jiraBaseUrl?: string;
   onSelect: (taskId: string) => void;
 }
 
@@ -23,6 +25,8 @@ export function TaskList({
   onDelete, 
   onToggleStatus,
   selectedIds,
+  viewerId,
+  jiraBaseUrl,
   onSelect
 }: TaskListProps) {
   if (tasks.length === 0) {
@@ -38,7 +42,9 @@ export function TaskList({
       {tasks.map(task => (
         <TaskCard 
           key={task.id} 
-          task={task} 
+          task={task}
+          readOnly={!!viewerId && task.userId !== viewerId}
+          jiraBaseUrl={jiraBaseUrl}
           onEdit={onEdit}
           onDelete={onDelete}
           onToggleStatus={onToggleStatus}

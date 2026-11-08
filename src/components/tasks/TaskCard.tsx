@@ -6,6 +6,7 @@ import { CalendarIcon, ClockIcon, CheckCircle2, Circle, MoreVertical, Edit2, Tra
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { jiraIssueUrl } from "@shared/activity-tasks";
 import { matchesTaskPlan, taskAreas, taskDay } from "@/lib/tasks/task-planning";
 
 type TaskWithRelations = Task & {
@@ -21,6 +22,8 @@ interface TaskCardProps {
   isSelected?: boolean;
   onSelect?: (taskId: string) => void;
   isDragOverlay?: boolean;
+  readOnly?: boolean;
+  jiraBaseUrl?: string;
 }
 
 export function TaskCard({
@@ -30,10 +33,13 @@ export function TaskCard({
   onToggleStatus,
   isSelected,
   onSelect,
-  isDragOverlay
+  isDragOverlay,
+  readOnly = false,
+  jiraBaseUrl
 }: TaskCardProps) {
   const [showMenu, setShowMenu] = useState(false);
 
+  const jiraUrl = jiraIssueUrl(jiraBaseUrl, task.jiraKey);
   const isDone = task.status === "DONE";
 
   const priorityColors: Record<string, string> = {
@@ -47,13 +53,13 @@ export function TaskCard({
     <Card 
       className={`p-4 transition-all duration-200 group ${isDragOverlay ? 'shadow-xl scale-105 cursor-grabbing' : 'hover:shadow-md cursor-grab'} ${isSelected ? 'ring-2 ring-accent' : ''}`}
       onClick={(e) => {
-        if (onSelect) {
+        if (onSelect && !readOnly) {
           onSelect(task.id);
         }
       }}
     >
       <div className="flex items-start gap-3">
-        {onSelect && (
+        {onSelect && !readOnly && (
           <input 
             type="checkbox" 
             checked={isSelected} 
@@ -78,7 +84,7 @@ export function TaskCard({
               {task.title}
             </h4>
             
-            <div className="relative">
+            {!readOnly && <div className="relative">
               <button 
                 className="p-1 text-text-muted hover:text-text-primary rounded opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={(e) => {
@@ -122,8 +128,10 @@ export function TaskCard({
                   </div>
                 </>
               )}
-            </div>
+            </div>}
           </div>
+          {(task.colleague || task.jiraKey || readOnly) && <p className="mt-1 text-xs text-text-secondary">{[task.colleague, !jiraUrl && task.jiraKey, readOnly && "Assigned to you"].filter(Boolean).join(" | ")}
+            {jiraUrl && <a className="ml-2 text-accent underline" href={jiraUrl} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>{task.jiraKey}</a>}</p>}
 
           {task.description && (
             <p className="text-small text-text-secondary mt-1 line-clamp-2">

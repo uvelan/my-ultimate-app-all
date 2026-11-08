@@ -1,4 +1,5 @@
 import { verifyAuth } from "@/lib/auth-server";
+import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { getTasks, getProjects, getTags } from "@/lib/tasks/task-service";
 import { TaskManager } from "@/components/tasks/TaskManager";
@@ -11,7 +12,7 @@ export const metadata = {
 export default async function TasksPage() {
   const { isAuthenticated, user } = await verifyAuth();
 
-  if (!isAuthenticated || !user) {
+  if (!isAuthenticated || !user || !await prisma.user.findFirst({ where: { id: user.id, isActive: true }, select: { id: true } })) {
     redirect("/login");
   }
 
@@ -25,6 +26,8 @@ export default async function TasksPage() {
     <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 h-[calc(100vh-4rem)]">
       <TaskManager 
         initialTasks={tasks}
+        viewerId={user.id}
+        jiraBaseUrl={process.env.JIRA_BASE_URL}
         projects={projects}
         tags={tags}
       />

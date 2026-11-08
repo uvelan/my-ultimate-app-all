@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Task, Project, Tag, TaskStatus, Priority, Frequency } from "@prisma/client";
@@ -25,13 +26,15 @@ interface TaskFormProps {
   onSubmit: (data: any) => Promise<void>;
   onCancel: () => void;
   isLoading: boolean;
+  embedded?: boolean;
 }
 
-export function TaskForm({ initialData, initialDate, initialArea, projects, tags, onSubmit, onCancel, isLoading }: TaskFormProps) {
+export function TaskForm({ initialData, initialDate, initialArea, projects, tags, onSubmit, onCancel, isLoading, embedded = false }: TaskFormProps) {
+  const [removeSharing, setRemoveSharing] = useState(false);
   const isEditing = !!initialData;
   const schema = isEditing ? updateTaskSchema : createTaskSchema;
 
-  const { register, handleSubmit, control, formState: { errors } } = useForm<any>({
+  const { register, handleSubmit, control, watch, formState: { errors } } = useForm<any>({
     resolver: zodResolver(schema as any),
     defaultValues: initialData ? {
       id: initialData.id,
@@ -40,6 +43,8 @@ export function TaskForm({ initialData, initialDate, initialArea, projects, tags
       status: initialData.status,
       priority: initialData.priority,
       area: initialData.area || "",
+      colleague: initialData.colleague || "",
+      jiraKey: initialData.jiraKey || "",
       startDate: initialData.startDate ? new Date(initialData.startDate) : null,
       dueDate: initialData.dueDate ? new Date(initialData.dueDate) : null,
       projectId: initialData.projectId || "",
@@ -52,6 +57,8 @@ export function TaskForm({ initialData, initialDate, initialArea, projects, tags
       priority: Priority.MEDIUM,
       frequency: null,
       area: initialArea || "",
+      colleague: "",
+      jiraKey: "",
       startDate: null,
       dueDate: initialDate || null,
       projectId: "",
@@ -59,9 +66,11 @@ export function TaskForm({ initialData, initialDate, initialArea, projects, tags
     }
   });
 
+  const area = watch("area");
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-background rounded-radius-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div className={embedded ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
+      <div className={embedded ? "rounded-xl border border-border bg-secondary" : "bg-background rounded-radius-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"}>
         <div className="flex justify-between items-center p-6 border-b border-border sticky top-0 bg-background z-10">
           <h2 className="text-xl font-semibold">
             {isEditing ? "Edit Task" : "Create Task"}
@@ -71,7 +80,7 @@ export function TaskForm({ initialData, initialDate, initialArea, projects, tags
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+        <form noValidate onSubmit={handleSubmit(values => onSubmit({ ...values, shareWith: removeSharing ? null : values.shareWith || undefined }))} className="p-6 space-y-4">
           <Input 
             label="Title" 
             {...register("title")} 
@@ -107,6 +116,15 @@ export function TaskForm({ initialData, initialDate, initialArea, projects, tags
               {taskAreas.map(area => <option key={area.value} value={area.value}>{area.label}</option>)}
             </Select>
           )} />
+          {area === "OFFICE" && <div className="grid gap-4 sm:grid-cols-2">
+            <Input label="Colleague" placeholder="Name" {...register("colleague")} error={errors.colleague?.message as string} />
+            <Input label="Jira issue key" placeholder="OPS-142" {...register("jiraKey")} error={errors.jiraKey?.message as string} />
+            <Input label="Share with colleague (optional)" type="email" placeholder="Existing app account email"
+              {...register("shareWith")} error={errors.shareWith?.message as string} />
+            {initialData?.assignedUserId && <label className="self-end text-sm text-text-secondary">
+              <input type="checkbox" className="mr-2" checked={removeSharing} onChange={event => setRemoveSharing(event.target.checked)} /> Remove sharing
+            </label>}
+          </div>}
           <div className="grid grid-cols-2 gap-4">
             {(["startDate", "dueDate"] as const).map(name => <Controller key={name} control={control} name={name}
               render={({ field }) => <Input type="date" id={name} label={name === "startDate" ? "Start date" : "Due date"}

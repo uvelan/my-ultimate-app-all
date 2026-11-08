@@ -1,3 +1,4 @@
+import type { DurationMode } from './activity-duration';
 import type { ActivityGroup } from './activity-groups';
 
 export type ReminderPresetFields = {
@@ -5,6 +6,9 @@ export type ReminderPresetFields = {
     message: string;
     group: ActivityGroup;
     durationMinutes: number;
+    durationMode?: DurationMode;
+    kind?: 'TIMER' | 'REMINDER';
+    linkedTaskId?: string | null;
     extensionMinutes: number;
     intervalMinutes: number;
     routineEnabled: boolean;

@@ -1,3 +1,4 @@
+import { countdownText } from './activity-duration';
 import { addDays, dayStart } from './calendar';
 import type { ActivityGroup } from './activity-groups';
 
@@ -28,10 +29,7 @@ export function sessionProgress(session: ReminderSession, now: number) {
     const duration = session.countdownStartedAt === null ? 0 : session.plannedEndAt - session.countdownStartedAt;
     const percent = duration > 0 ? Math.floor(Math.min(100, Math.max(0, (1 - remaining / duration) * 100))) : null;
     const seconds = Math.ceil(remaining / 1000);
-    const hours = Math.floor(seconds / 3600);
-    const minutes = String(Math.floor(seconds / 60) % 60).padStart(2, '0');
-    const rest = String(seconds % 60).padStart(2, '0');
-    return { percent, remaining: hours ? `${hours}:${minutes}:${rest}` : `${minutes}:${rest}`, due: remaining === 0 };
+    return { percent, remaining: countdownText(seconds), due: remaining === 0 };
 }
 
 export function sessionTime(value: number | null) {

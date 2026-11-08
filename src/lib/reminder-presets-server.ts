@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ReminderPreset } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { durationModes, maxWeeklyMinutes, validDuration, durationMode } from '@shared/activity-duration';
 import { activityGroups } from '@shared/activity-groups';
 import type { ReminderCatalogSync, ReminderPresetRecord } from '@shared/reminder-presets';
 
@@ -12,11 +13,15 @@ const mutation = z.object({
     title: z.string().trim().min(1).max(40),
     group: z.enum(activityGroups).optional(),
     message: z.string().trim().min(1).max(180),
-    durationMinutes: z.number().int().min(1).max(5999),
+    durationMinutes: z.number().int().min(1).max(maxWeeklyMinutes),
+    durationMode: z.enum(durationModes).optional(),
+    kind: z.enum(['TIMER', 'REMINDER']).optional(),
+    linkedTaskId: z.string().regex(/^[a-f\d]{24}$/i).nullable().optional(),
     extensionMinutes: z.number().int().refine(value => [5, 10, 15, 30].includes(value)),
     intervalMinutes: z.number().int().min(0),
     routineEnabled: z.boolean(),
-}).refine(value => value.intervalMinutes < value.durationMinutes, 'The interval must be shorter than the duration.');
+}).refine(value => validDuration(value.durationMinutes, value.durationMode), 'Enter a valid daily or weekly duration.')
+    .refine(value => value.intervalMinutes < value.durationMinutes, 'The interval must be shorter than the duration.');
 
 export const reminderCatalogUpload = z.object({
     accountId: z.string().regex(/^[a-f\d]{24}$/i).optional(),
@@ -29,7 +34,8 @@ export const reminderCatalogUpload = z.object({
 function serialize(row: ReminderPreset): ReminderPresetRecord {
     return {
         id: row.presetId, title: row.title, message: row.message, group: row.group ?? 'REMINDERS', durationMinutes: row.durationMinutes,
-        extensionMinutes: row.extensionMinutes, intervalMinutes: row.intervalMinutes, routineEnabled: row.routineEnabled,
+        durationMode: durationMode(row.durationMinutes, row.durationMode === 'WEEKLY' ? 'WEEKLY' : row.durationMode === 'DAILY' ? 'DAILY' : null),
+        kind: row.kind === 'TIMER' ? 'TIMER' : 'REMINDER', linkedTaskId: row.linkedTaskId, extensionMinutes: row.extensionMinutes, intervalMinutes: row.intervalMinutes, routineEnabled: row.routineEnabled,
         version: row.version, operationId: row.operationId, deleted: row.deleted,
     };
 }
@@ -46,6 +52,12 @@ export async function syncReminderPresets(userId: string, mutations: z.infer<typ
     const outcomes: ReminderCatalogSync['outcomes'] = [];
     for (const { id: presetId, expectedVersion, operationId, ...fields } of mutations) {
         const id = `${userId}:${presetId}`;
+        if (!fields.deleted && fields.linkedTaskId && !await prisma.task.findFirst({
+            where: { id: fields.linkedTaskId, OR: [{ userId }, { assignedUserId: userId, area: 'OFFICE' }] }, select: { id: true },
+        })) {
+            // A removed or unshared task must not prevent a timer from being saved.
+            fields.linkedTaskId = null;
+        }
         const data = { ...fields, operationId, version: expectedVersion + 1 };
         let applied = false;
         if (expectedVersion === 0) {

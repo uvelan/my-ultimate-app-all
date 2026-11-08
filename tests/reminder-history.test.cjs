@@ -106,7 +106,7 @@ test('account access tokens are not accepted as background upload grants', async
 
 test('calendar includes a cross-midnight session on both days and progress uses the latest extension', () => {
     const calendar = load('shared/calendar.ts');
-    const { sessionsOnDay, sessionProgress } = load('shared/reminder-calendar.ts', { './calendar': calendar });
+    const { sessionsOnDay, sessionProgress } = load('shared/reminder-calendar.ts', { './calendar': calendar, './activity-duration': load('shared/activity-duration.ts', {}) });
     const started = new Date(2026, 10, 8, 23, 55).getTime();
     const extended = new Date(2026, 10, 9, 0, 5).getTime();
     const planned = new Date(2026, 10, 9, 0, 15).getTime();

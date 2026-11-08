@@ -2,6 +2,8 @@ export const taskAreas = [
   { value: '', label: 'Unassigned' },
   { value: 'OFFICE', label: 'Office' },
   { value: 'PERSONAL', label: 'Personal' },
+  { value: 'HEALTH', label: 'Health' },
+  { value: 'CAREER', label: 'Career' },
 ] as const;
 
 export const taskPlans = [

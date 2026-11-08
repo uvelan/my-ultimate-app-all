@@ -62,6 +62,9 @@ model ReminderPreset {
   group           ActivityGroup?
   message         String
   durationMinutes Int
+  durationMode    String?
+  kind            String?
+  linkedTaskId    String? @db.ObjectId
   extensionMinutes Int
   intervalMinutes Int
   routineEnabled  Boolean
@@ -76,6 +79,8 @@ model ReminderPreset {
 enum ActivityGroup {
   PERSONAL
   OFFICE
+  HEALTH
+  CAREER
   REMINDERS
 }
 
@@ -467,6 +472,9 @@ model Task {
   status      TaskStatus @default(TODO)
   priority    Priority   @default(MEDIUM)
   area        String?
+  colleague   String?
+  jiraKey     String?
+  assignedUserId String? @db.ObjectId
   frequency   Frequency?
   recurrenceAdvanced Boolean?
   startDate   DateTime?
