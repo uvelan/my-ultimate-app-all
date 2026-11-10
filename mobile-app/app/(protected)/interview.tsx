@@ -315,7 +315,7 @@ export default function InterviewScreen() {
 
     return <View style={s.screen}>
         <View style={s.header}><SidebarToggle /><Text style={[s.title, { marginLeft: 12 }]}>Interview preparation</Text></View>
-        <ScrollView horizontal style={{ maxHeight: 54 }} contentContainerStyle={{ paddingHorizontal: 16 }} showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal style={s.tabBar} contentContainerStyle={s.tabBarContent} showsHorizontalScrollIndicator={false}>
             {tabs.map(name => <Button key={name} label={name} onPress={() => switchTab(name)} secondary={tab !== name} />)}
         </ScrollView>
         <ScrollView contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#a78bfa" />} keyboardShouldPersistTaps="handled">
@@ -452,6 +452,8 @@ export default function InterviewScreen() {
 const s = StyleSheet.create({
     screen: { flex: 1, backgroundColor: '#131117' }, modal: { flex: 1, backgroundColor: '#131117', paddingTop: 48, paddingHorizontal: 12 },
     header: { paddingTop: 48, paddingHorizontal: 20, paddingBottom: 16, flexDirection: 'row', alignItems: 'center' },
+    tabBar: { flexGrow: 0, flexShrink: 0 },
+    tabBarContent: { paddingHorizontal: 16, alignItems: 'flex-start' },
     title: { color: '#fff', fontWeight: '700', fontSize: 23, marginBottom: 10, flexShrink: 1 },
     heading: { color: '#f5f3ff', fontWeight: '700', fontSize: 18, marginBottom: 9 },
     label: { color: '#ddd6fe', fontSize: 14, marginBottom: 7 }, body: { color: '#e5e7eb', fontSize: 16, lineHeight: 25 },
