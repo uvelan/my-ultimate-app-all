@@ -118,7 +118,7 @@ export default function InterviewScreen() {
         setBusy(false); setAttachingRecording(false); setTranscribing(false);
     };
     const models = overview.models.filter((model: any) => model.isActive);
-    const chosenModel = form.model || models[0]?.modelId || 'gemini-2.5-flash';
+    const chosenModel = models.find((model: any) => model.modelId === form.model)?.modelId ?? models[0]?.modelId;
     const bulkCount = Number(form.count);
     const validBulkCount = Number.isInteger(bulkCount) && bulkCount >= 1 && bulkCount <= 10;
 

@@ -29,7 +29,7 @@ function harness({ authenticated = true, role = 'USER', questions = [], override
   Object.assign(interview, { getTopics: action('getTopics', [{ id: 'React', name: 'React', count: 3 }]), getQuestions: action('getQuestions', () => [...questions]), getQuestionById: action('getQuestionById', questions[0] || null) });
   let goals = { getGoals: action('getGoals', []), getCompletedQuestions: action('getCompletedQuestions', []),
     ...Object.fromEntries(['addGoal', 'updateGoal', 'deleteGoal', 'toggleQuestionComplete'].map(name => [name, action(name, { completed: true })])) };
-  let ai = { getAiModels: action('getAiModels', [{ id: ID, modelId: 'gemini-2.5-flash', name: 'Gemini', isActive: true }]), getAIJobs: action('getAIJobs', []),
+  let ai = { getAiModels: action('getAiModels', [{ id: ID, modelId: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', isActive: true }]), getAIJobs: action('getAIJobs', []),
     ...Object.fromEntries(['generateQuestionWithAI', 'startBulkBackgroundJob', 'deleteAIJob', 'cancelAIJob', 'addAiModel', 'updateAiModel', 'deleteAiModel'].map(name => [name, action(name, { success: true })])) };
   let mock = { getMockInterviewSessions: action('getMockInterviewSessions', []), getMockInterviewSessionById: action('getMockInterviewSessionById', null),
     ...Object.fromEntries(['submitMockInterview', 'retryMockInterviewAnswer', 'deleteMockInterviewSession'].map(name => [name, action(name, { success: true, sessionId: ID })])) };
@@ -151,9 +151,13 @@ test('mock submission carries reviewed transcript and optional audio in the exis
 });
 test('AI generation requires an active model and model administration requires an administrator', async () => {
   const app = harness();
-  assert.equal((await app.post({ operation: 'generate', prompt: 'Explain closures', model: 'unknown' })).status, 400);
-  assert.equal((await app.post({ operation: 'generate', prompt: 'Explain closures', model: 'gemini-2.5-flash' })).status, 200);
-  assert.deepEqual(app.calls.find(call => call.name === 'generateQuestionWithAI').args, ['Explain closures', undefined, 'gemini-2.5-flash']);
+  assert.equal((await app.post({ operation: 'generate', prompt: 'Explain closures', model: 'gemini-2.5-flash' })).status, 400);
+  assert.equal((await app.post({ operation: 'generate', prompt: 'Explain closures' })).status, 200);
+  assert.equal((await app.post({ operation: 'generate', prompt: 'Explain closures', model: 'gemini-3.6-flash' })).status, 200);
+  assert.deepEqual(app.calls.filter(call => call.name === 'generateQuestionWithAI').map(call => call.args), [
+    ['Explain closures', undefined, 'gemini-3.6-flash'],
+    ['Explain closures', undefined, 'gemini-3.6-flash'],
+  ]);
   assert.equal((await app.post({ operation: 'saveModel', data: { name: 'Model', modelId: 'other' } })).status, 403);
   assert.equal((await app.post({ operation: 'deleteModel', id: ID })).status, 403);
   assert.equal(app.calls.some(call => call.name === 'addAiModel' || call.name === 'deleteAiModel'), false);

@@ -38,12 +38,7 @@ export default function AIJobsPage() {
   };
 
   useEffect(() => {
-    getAiModels().then(fetchedModels => {
-      setModels(fetchedModels);
-      if (fetchedModels.length > 0 && !selectedModel) {
-        setSelectedModel(fetchedModels[0].modelId);
-      }
-    });
+    getAiModels().then(setModels);
     loadJobs();
   }, []);
 
@@ -254,7 +249,8 @@ export default function AIJobsPage() {
                           <button 
                             onClick={() => {
                               setRetryJob(job);
-                              setSelectedModel(job.modelName);
+                              const retryModel = activeModels.find(model => model.modelId === job.modelName) ?? activeModels[0];
+                              setSelectedModel(retryModel?.modelId ?? '');
                             }}
                             className="flex items-center gap-1 px-3 py-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 dark:text-blue-400 rounded-lg transition-colors font-medium text-xs"
                             title="Retry Generation"
@@ -312,14 +308,12 @@ export default function AIJobsPage() {
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="w-full px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
                 >
-                  {models.map(m => (
+                  {activeModels.map(m => (
                     <option key={m.id} value={m.modelId}>
                       {m.name} ({m.modelId})
                     </option>
                   ))}
-                  {models.length === 0 && (
-                    <option value={retryJob.modelName}>{retryJob.modelName}</option>
-                  )}
+                  {!activeModels.length && <option value="">No active AI models</option>}
                 </select>
               </div>
 
@@ -333,7 +327,8 @@ export default function AIJobsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                  disabled={!selectedModel}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
                 >
                   <Play className="w-4 h-4" /> Start Job
                 </button>

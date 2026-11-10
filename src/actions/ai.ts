@@ -203,9 +203,16 @@ class GeminiRateLimitError extends Error {
   }
 }
 
-export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName: string = 'gemini-2.5-flash'): Promise<{success: boolean, jobId?: string, error?: string}> {
+export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName?: string): Promise<{success: boolean, jobId?: string, error?: string}> {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized' };
+
+  const model = await prisma.aiModel.findFirst({
+    where: { isActive: true, ...(modelName ? { modelId: modelName } : {}) },
+    orderBy: { createdAt: 'asc' },
+    select: { modelId: true },
+  });
+  if (!model) return { success: false, error: 'Select an active AI model' };
   
   let finalPromptTitle = prompt;
   if (!finalPromptTitle && updateId) {
@@ -241,14 +248,14 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
     data: {
       userId: user.id,
       prompt: finalPromptTitle || 'Random Topic',
-      modelName,
+      modelName: model.modelId,
       status: 'PENDING',
       questionId: updateId || null,
     }
   });
 
   // Fire and forget
-  processBackgroundAIJob(job.id, prompt, updateId, modelName).catch(console.error);
+  processBackgroundAIJob(job.id, prompt, updateId, model.modelId).catch(console.error);
 
   return { success: true, jobId: job.id };
 }
@@ -720,10 +727,8 @@ export async function getSchemaTemplate(): Promise<string> {
 // ==========================================
 
 const DEFAULT_MODELS = [
-  { modelId: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-  { modelId: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview' },
-  { modelId: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
-  { modelId: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' }
+  { modelId: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
+  { modelId: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite' }
 ];
 
 export async function getAiModels() {

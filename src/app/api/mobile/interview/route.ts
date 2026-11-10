@@ -141,9 +141,9 @@ export async function POST(request: Request) {
                 const prompt = z.string().trim().max(20000).parse(body.prompt || '');
                 const updateId = body.id ? idFrom(body.id) : undefined;
                 if (!prompt && !updateId) return json({ error: 'Enter a question prompt' }, 400);
-                const models = await getAiModels();
-                const model = z.string().min(1).max(200).parse(body.model || 'gemini-2.5-flash');
-                if (!models.some(item => item.modelId === model && item.isActive)) return json({ error: 'Select an active AI model' }, 400);
+                const models = (await getAiModels()).filter(item => item.isActive);
+                const model = body.model ? z.string().min(1).max(200).parse(body.model) : models[0]?.modelId;
+                if (!models.some(item => item.modelId === model)) return json({ error: 'Select an active AI model' }, 400);
                 return result(await generateQuestionWithAI(prompt, updateId, model));
             }
             case 'startBulkGeneration': {
