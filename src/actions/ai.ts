@@ -728,7 +728,9 @@ export async function getSchemaTemplate(): Promise<string> {
 
 const DEFAULT_MODELS = [
   { modelId: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
-  { modelId: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite' }
+  { modelId: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite' },
+  { modelId: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+  { modelId: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' }
 ];
 
 export async function getAiModels() {
