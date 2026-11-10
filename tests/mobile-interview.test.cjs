@@ -8,7 +8,7 @@ const { z } = require('zod');
 const USER = '507f1f77bcf86cd799439011';
 const ID = '507f1f77bcf86cd799439012';
 const OTHER = '507f1f77bcf86cd799439013';
-function load(file, mocks, env = {}) {
+function load(file, mocks, env = {}, fetchMock) {
   const filename = path.resolve(__dirname, '..', file);
   const module = { exports: {} };
   new vm.Script(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -16,7 +16,7 @@ function load(file, mocks, env = {}) {
   }).outputText, { filename }).runInNewContext({
     module, exports: module.exports, process: { env }, Buffer, AbortController, AbortSignal, setTimeout, clearTimeout,
     URL, Request, Response, Headers, console: { error() {}, log() {} },
-    fetch() { throw new Error('External API calls are forbidden in these tests'); },
+    fetch: fetchMock || (() => { throw new Error('External API calls are forbidden in these tests'); }),
     require(name) { if (Object.hasOwn(mocks, name)) return mocks[name]; throw new Error(`Unmocked interview dependency: ${name}`); },
   });
   return module.exports;
@@ -30,7 +30,7 @@ function harness({ authenticated = true, role = 'USER', questions = [], override
   let goals = { getGoals: action('getGoals', []), getCompletedQuestions: action('getCompletedQuestions', []),
     ...Object.fromEntries(['addGoal', 'updateGoal', 'deleteGoal', 'toggleQuestionComplete'].map(name => [name, action(name, { completed: true })])) };
   let ai = { getAiModels: action('getAiModels', [{ id: ID, modelId: 'gemini-2.5-flash', name: 'Gemini', isActive: true }]), getAIJobs: action('getAIJobs', []),
-    ...Object.fromEntries(['generateQuestionWithAI', 'deleteAIJob', 'cancelAIJob', 'addAiModel', 'updateAiModel', 'deleteAiModel'].map(name => [name, action(name, { success: true })])) };
+    ...Object.fromEntries(['generateQuestionWithAI', 'startBulkBackgroundJob', 'deleteAIJob', 'cancelAIJob', 'addAiModel', 'updateAiModel', 'deleteAiModel'].map(name => [name, action(name, { success: true })])) };
   let mock = { getMockInterviewSessions: action('getMockInterviewSessions', []), getMockInterviewSessionById: action('getMockInterviewSessionById', null),
     ...Object.fromEntries(['submitMockInterview', 'retryMockInterviewAnswer', 'deleteMockInterviewSession'].map(name => [name, action(name, { success: true, sessionId: ID })])) };
   if (realScopes) {
@@ -43,7 +43,7 @@ function harness({ authenticated = true, role = 'USER', questions = [], override
     const shared = { '@/lib/prisma': { prisma: db }, '@/lib/auth-server': auth, 'next/cache': { revalidatePath() {} } };
     goals = load('src/actions/goal.ts', shared);
     mock = load('src/actions/mock-interview.ts', { ...shared, './ai': ai });
-    ai = load('src/actions/ai.ts', { ...shared, './interview': interview, '@/lib/utils': { normalizeQuestionTitle: value => value } });
+    ai = load('src/actions/ai.ts', { ...shared, 'next/server': { after() {} }, './interview': interview, '@/lib/utils': { normalizeQuestionTitle: value => value } });
   }
   const route = load('src/app/api/mobile/interview/route.ts', {
     '@/lib/auth-server': auth, zod: { z },
@@ -206,4 +206,81 @@ test('failed, silent, or truncated transcription never replaces reviewed text wi
     assert.equal(body.transcript, undefined);
     assert.equal(JSON.stringify(body).includes('secret'), false);
   }
+});
+
+
+test('mobile starts a bulk generation with the selected model and validated count', async () => {
+  const app = harness({ overrides: { startBulkBackgroundJob: () => ({ success: true, count: 2 }) } });
+  const submit = count => app.post({ operation: 'startBulkGeneration', model: 'selected-model', count });
+  for (const count of [0, 11, 2.5, '2']) assert.equal((await submit(count)).status, 400);
+  assert.equal(app.calls.length, 0);
+  assert.deepEqual(await (await submit(3)).json(), { success: true, count: 2 });
+  assert.deepEqual(app.calls[0].args, ['selected-model', 3]);
+});
+
+test('bulk generation queues only placeholders and saves them sequentially', async () => {
+  const queued = [];
+  const callbacks = [];
+  const questions = [
+    { id: 'a', title: 'First', bestAnswer: 'TODO' },
+    { id: 'b', title: 'Second', bestAnswer: ' ' },
+    { id: 'c', title: 'Answered', bestAnswer: 'A short but valid answer.' },
+    { id: 'd', title: 'Already queued', bestAnswer: '(Please update via UI)' },
+  ].map(item => ({ ...item, updatedAt: new Date(0), problemStatement: item.title }));
+  queued.push({ id: 'existing', userId: OTHER, questionId: 'd', status: 'QUEUED', updatedAt: new Date() });
+
+  const aIGenerationJob = {
+    findMany: async () => queued,
+    createMany: async ({ data }) => {
+      queued.push(...data.map(job => ({ ...job, id: job.questionId, updatedAt: new Date() })));
+      return { count: data.length };
+    },
+    findFirst: async ({ where }) => queued.find(job => job.userId === where.userId && job.status === 'RUNNING')
+      || queued.find(job => job.userId === where.userId && job.status === 'QUEUED'),
+    updateMany: async ({ where, data }) => {
+      const job = queued.find(job => job.id === where.id && job.status === where.status);
+      if (job) Object.assign(job, data);
+      return { count: Number(!!job) };
+    },
+  };
+  const interviewQuestion = {
+    findMany: async () => questions,
+    findUnique: async ({ where }) => questions.find(item => item.id === where.id),
+    updateMany: async ({ where, data }) => {
+      const item = questions.find(item => item.id === where.id && item.updatedAt === where.updatedAt);
+      if (item) Object.assign(item, data);
+      return { count: Number(!!item) };
+    },
+  };
+  const db = { aIGenerationJob, interviewQuestion,
+    aiModel: { findUnique: async ({ where }) => where.modelId === 'selected-model' && where.isActive ? where : null },
+    $transaction: callback => callback(db),
+  };
+  const apiCalls = [];
+  const ai = load('src/actions/ai.ts', {
+    '@/lib/prisma': { prisma: db },
+    '@/lib/auth-server': { verifyAuth: async () => ({ isAuthenticated: true, user: { id: USER } }) },
+    'next/cache': { revalidatePath() {} },
+    'next/server': { after(callback) { callbacks.push(callback); } },
+    './interview': {},
+    '@/lib/utils': {},
+  }, { GEMINI_API_KEY: 'test-key' }, async url => {
+    assert.match(url, /models\/selected-model:generateContent/);
+    const running = queued.filter(job => job.status === 'RUNNING');
+    assert.equal(running.length, 1);
+    apiCalls.push(running[0].questionId);
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ title: 'Generated title', bestAnswer: 'Generated answer.' }) }] } }] });
+  });
+
+  assert.equal((await ai.startBulkBackgroundJob('inactive-model', 3)).success, false);
+  assert.equal((await ai.startBulkBackgroundJob('selected-model', 3)).count, 2);
+  assert.deepEqual(queued.slice(1).map(job => job.status), ['QUEUED', 'QUEUED']);
+  assert.equal(apiCalls.length, 0);
+  await callbacks[0]();
+  assert.deepEqual(apiCalls.sort(), ['a', 'b']);
+  assert.deepEqual(queued.slice(1).map(job => job.status), ['COMPLETED', 'COMPLETED']);
+  assert.deepEqual(questions.map(item => item.bestAnswer), [
+    'Generated answer.', 'Generated answer.', 'A short but valid answer.', '(Please update via UI)',
+  ]);
+  assert.equal(questions[0].title, 'First');
 });

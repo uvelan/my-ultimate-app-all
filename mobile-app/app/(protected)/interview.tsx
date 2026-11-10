@@ -8,6 +8,7 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 
 type Tab = 'Explore' | 'Goals' | 'Flashcards' | 'Mock interviews' | 'Manage' | 'AI jobs';
 const tabs: Tab[] = ['Explore', 'Goals', 'Flashcards', 'Mock interviews', 'Manage', 'AI jobs'];
+const activeJobStatuses = ['PENDING', 'QUEUED', 'RUNNING'];
 const emptyQuestion = { title: '', topic: 'general', difficulty: 'Medium', estimatedTime: '10', frequency: '50', companies: '', tags: '', problemStatement: '', expectation: '', explanation: '', bestAnswer: '', alternativeAnswer: '', realWorldUsage: '', commonMistakes: '', followUpQuestions: '', language: '', code: '', mcqs: '' };
 const errorText = (error: any) => error.response?.data?.error || error.message || 'Please try again.';
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
@@ -40,7 +41,7 @@ export default function InterviewScreen() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [detail, setDetail] = useState<InterviewQuestion | null>(null);
-    const [editor, setEditor] = useState<'question' | 'goal' | 'import' | 'ai' | 'model' | 'models' | null>(null);
+    const [editor, setEditor] = useState<'question' | 'goal' | 'import' | 'ai' | 'bulkAI' | 'model' | 'models' | null>(null);
     const [form, setForm] = useState<any>({});
     const [selected, setSelected] = useState<string[]>([]);
     const [cardIndex, setCardIndex] = useState(0);
@@ -118,6 +119,8 @@ export default function InterviewScreen() {
     };
     const models = overview.models.filter((model: any) => model.isActive);
     const chosenModel = form.model || models[0]?.modelId || 'gemini-2.5-flash';
+    const bulkCount = Number(form.count);
+    const validBulkCount = Number.isInteger(bulkCount) && bulkCount >= 1 && bulkCount <= 10;
 
     const load = useCallback(async () => {
         if (!mounted.current) return;
@@ -143,7 +146,7 @@ export default function InterviewScreen() {
     }, [tab, topic, difficulty, search, page]);
     useEffect(() => { void load(); return () => { requestEpoch.current++; }; }, [load]);
     useEffect(() => {
-        if (!(tab === 'AI jobs' && items.some(item => item.status === 'PENDING') || tab === 'Mock interviews' && items.some(item => item.status === 'EVALUATING'))) return;
+        if (!(tab === 'AI jobs' && items.some(item => activeJobStatuses.includes(item.status)) || tab === 'Mock interviews' && items.some(item => item.status === 'EVALUATING'))) return;
         const timer = setInterval(() => { void load(); }, 10000);
         return () => clearInterval(timer);
     }, [tab, items, load]);
@@ -194,7 +197,10 @@ export default function InterviewScreen() {
             } else if (editor === 'goal') result = await run('saveGoal', { id: form.id, data: { title: form.title, targetCount: Number(form.targetCount), topic: form.topic || undefined, company: form.company || undefined, difficulty: form.difficulty || undefined } });
             else if (editor === 'import') result = await run('bulkUpload', { data: JSON.parse(form.json) });
             else if (editor === 'ai') result = await run('generate', { prompt: form.prompt, id: form.id, model: chosenModel });
-            else if (editor === 'model') result = await run('saveModel', { id: form.id, data: { modelId: form.modelId, name: form.name, isActive: form.isActive ?? true } });
+            else if (editor === 'bulkAI') {
+                result = await run('startBulkGeneration', { model: chosenModel, count: bulkCount });
+                if (result) Alert.alert('Jobs queued', String(result.count) + ' answer generation jobs queued.');
+            } else if (editor === 'model') result = await run('saveModel', { id: form.id, data: { modelId: form.modelId, name: form.name, isActive: form.isActive ?? true } });
             if (result) { setEditor(null); if (form.mergeDeleteId) setSelected([]); if (editor === 'ai') { setTab('AI jobs'); setPage(1); } }
         } catch { Alert.alert('Check JSON', 'The code or question import JSON is invalid.'); }
     };
@@ -363,11 +369,12 @@ export default function InterviewScreen() {
             </>}
             {tab === 'AI jobs' && <>
                 <Button label="Generate a question" onPress={() => { setForm({ prompt: '' }); setEditor('ai'); }} />
+                <Button label="Bulk Auto-Regenerate" disabled={busy} onPress={() => { setForm({ count: '10' }); setEditor('bulkAI'); }} />
                 {overview.canManageModels && <Button label="Manage AI models" secondary onPress={() => setEditor('models')} />}
                 {items.map(job => <View key={job.id} style={s.card}><Text style={s.heading}>{job.prompt}</Text><Text style={s.muted}>{job.status} · {job.modelName}</Text>{!!job.errorReason && <Text style={s.error}>{job.errorReason}</Text>}<View style={s.row}>
                     {job.questionId && <Button label="Open question" secondary onPress={() => { void showQuestion(job.questionId); }} />}
                     {job.status === 'FAILED' && <Button label="Retry" disabled={busy} onPress={() => { setForm({ prompt: job.prompt, id: job.questionId || undefined, model: job.modelName }); setEditor('ai'); }} />}
-                    {job.status === 'PENDING' && <Button label="Cancel job" secondary disabled={busy} onPress={() => { void run('cancelJob', { id: job.id }); }} />}
+                    {activeJobStatuses.includes(job.status) && <Button label="Cancel job" secondary disabled={busy} onPress={() => { void run('cancelJob', { id: job.id }); }} />}
                     <Button label="Delete" danger disabled={busy} onPress={() => confirm('Delete job history?', 'This removes the job record; completed questions are kept.', 'deleteJob', { id: job.id })} />
                 </View></View>)}
                 {!items.length && !loading && <Text style={s.muted}>No AI generation jobs yet.</Text>}
@@ -389,7 +396,7 @@ export default function InterviewScreen() {
 
         <Modal visible={!!editor} animationType="slide" onRequestClose={() => { if (!busy) setEditor(null); }}>
             <KeyboardAvoidingView style={s.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                <View style={s.row}><Button label="Cancel" secondary disabled={busy} onPress={() => setEditor(null)} /><Text style={s.heading}>{editor === 'question' ? form.mergeDeleteId ? 'Merge questions' : form.id ? 'Edit question' : 'New question' : editor === 'goal' ? 'Study goal' : editor === 'import' ? 'Import questions' : editor === 'models' ? 'AI models' : editor === 'model' ? 'Edit AI model' : 'Generate question'}</Text></View>
+                <View style={s.row}><Button label="Cancel" secondary disabled={busy} onPress={() => setEditor(null)} /><Text style={s.heading}>{editor === 'question' ? form.mergeDeleteId ? 'Merge questions' : form.id ? 'Edit question' : 'New question' : editor === 'goal' ? 'Study goal' : editor === 'import' ? 'Import questions' : editor === 'models' ? 'AI models' : editor === 'model' ? 'Edit AI model' : editor === 'bulkAI' ? 'Bulk Auto-Regenerate' : 'Generate question'}</Text></View>
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
                     {editor === 'question' && <>
                         {!!form.mergeDeleteId && <Text style={s.error}>Review the combined content. Saving this merge deletes the duplicate “{form.mergeTitle}” and keeps the question below.</Text>}
@@ -399,10 +406,19 @@ export default function InterviewScreen() {
                     </>}
                     {editor === 'goal' && <>{[['title', 'Goal title'], ['targetCount', 'Target questions'], ['topic', 'Topic (optional)'], ['company', 'Company (optional)'], ['difficulty', 'Difficulty (optional)']].map(([key, label]) => <Field key={key} label={label} value={form[key] || ''} onChange={value => setValue(key, value)} numeric={key === 'targetCount'} />)}</>}
                     {editor === 'import' && <><Text style={s.body}>Paste an array of up to 200 questions with title, topic, difficulty, and problemStatement. Matching titles update existing questions.</Text><Button label="Choose JSON file" secondary onPress={() => { void chooseImport(); }} /><Field label="Questions JSON" value={form.json || ''} onChange={value => setValue('json', value)} multiline /></>}
-                    {editor === 'ai' && <><Field label="Question prompt" value={form.prompt || ''} onChange={value => setValue('prompt', value)} multiline /><Text style={s.label}>AI model</Text>{models.map((model: any) => <Button key={model.id} label={model.name} secondary={chosenModel !== model.modelId} onPress={() => setValue('model', model.modelId)} />)}{!models.length && <Text style={s.error}>No active AI models. Add or enable a model in settings.</Text>}</>}
+                    {editor === 'ai' && <Field label="Question prompt" value={form.prompt || ''} onChange={value => setValue('prompt', value)} multiline />}
+                    {editor === 'bulkAI' && <>
+                        <Text style={s.body}>Randomly select questions with missing or placeholder answers and generate answers one at a time.</Text>
+                        <Field label="Number of questions (1–10)" value={form.count} onChange={value => setValue('count', value)} numeric />
+                    </>}
+                    {(editor === 'ai' || editor === 'bulkAI') && <>
+                        <Text style={s.label}>AI model</Text>
+                        {models.map((model: any) => <Button key={model.id} label={model.name} secondary={chosenModel !== model.modelId} disabled={busy} onPress={() => setValue('model', model.modelId)} />)}
+                        {!models.length && <Text style={s.error}>No active AI models. Add or enable a model in settings.</Text>}
+                    </>}
                     {editor === 'models' && <><Button label="Add AI model" onPress={() => { setForm({ name: '', modelId: '', isActive: true }); setEditor('model'); }} />{overview.models.map((model: any) => <View key={model.id} style={s.card}><Text style={s.heading}>{model.name}</Text><Text style={s.muted}>{model.modelId} · {model.isActive ? 'Active' : 'Inactive'}</Text><View style={s.row}><Button label="Edit" secondary onPress={() => { setForm(model); setEditor('model'); }} /><Button label="Delete" danger disabled={busy} onPress={() => confirm('Delete AI model?', 'Existing generated questions and job history are kept.', 'deleteModel', { id: model.id })} /></View></View>)}</>}
                     {editor === 'model' && <><Field label="Display name" value={form.name || ''} onChange={value => setValue('name', value)} /><Field label="Model identifier" value={form.modelId || ''} onChange={value => setValue('modelId', value)} /><Button label={form.isActive ? 'Active' : 'Inactive'} secondary={!form.isActive} onPress={() => setForm((current: any) => ({ ...current, isActive: !current.isActive }))} /></>}
-                    {editor !== 'models' && <Button label={busy ? 'Saving…' : form.mergeDeleteId ? 'Merge and delete duplicate' : editor === 'ai' ? 'Generate' : editor === 'import' ? 'Import' : 'Save'} disabled={busy || editor === 'ai' && !models.length} onPress={() => { void saveEditor(); }} />}
+                    {editor !== 'models' && <Button label={busy ? 'Saving…' : form.mergeDeleteId ? 'Merge and delete duplicate' : editor === 'ai' ? 'Generate' : editor === 'bulkAI' ? 'Start jobs' : editor === 'import' ? 'Import' : 'Save'} disabled={busy || (editor === 'ai' || editor === 'bulkAI') && !models.length || editor === 'bulkAI' && !validBulkCount} onPress={() => { void saveEditor(); }} />}
                 </ScrollView>
             </KeyboardAvoidingView>
         </Modal>

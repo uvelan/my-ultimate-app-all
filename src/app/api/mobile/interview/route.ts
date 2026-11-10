@@ -4,7 +4,7 @@ import { verifyAuth } from '@/lib/auth-server';
 import { getTopics, getQuestions, getQuestionById, createQuestion, updateQuestion, deleteQuestion, bulkDeleteQuestions, bulkUploadQuestions, mergeQuestions } from '@/actions/interview';
 import { getGoals, addGoal, updateGoal, deleteGoal, getCompletedQuestions, toggleQuestionComplete } from '@/actions/goal';
 import { syncInterviewBook } from '@/actions/interview-book';
-import { getAiModels, getAIJobs, generateQuestionWithAI, deleteAIJob, cancelAIJob, addAiModel, updateAiModel, deleteAiModel } from '@/actions/ai';
+import { getAiModels, getAIJobs, generateQuestionWithAI, startBulkBackgroundJob, deleteAIJob, cancelAIJob, addAiModel, updateAiModel, deleteAiModel } from '@/actions/ai';
 import { getMockInterviewSessions, getMockInterviewSessionById, submitMockInterview, retryMockInterviewAnswer, deleteMockInterviewSession } from '@/actions/mock-interview';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -45,7 +45,9 @@ function result(value: any) {
     if (value?.success !== false) return json(value);
     const safeMessages = ['Unauthorized', 'Administrator access required', 'A model with this ID already exists.',
         'Another model with this ID already exists.', 'Question not found', 'Answer not found', 'Job not found',
-        'Job is not pending', 'No valid questions found to generate a book.'];
+        'Job is not pending', 'No valid questions found to generate a book.',
+        'Choose between 1 and 10 questions.', 'Select an active AI model', 'No available questions with placeholder answers.',
+        'AI generation is unavailable. Configure the Gemini API key.', 'This question already has a bulk generation job.'];
     return json({ error: safeMessages.includes(value.error) ? value.error : 'Unable to complete this action. Please try again.' }, 400);
 }
 
@@ -143,6 +145,11 @@ export async function POST(request: Request) {
                 const model = z.string().min(1).max(200).parse(body.model || 'gemini-2.5-flash');
                 if (!models.some(item => item.modelId === model && item.isActive)) return json({ error: 'Select an active AI model' }, 400);
                 return result(await generateQuestionWithAI(prompt, updateId, model));
+            }
+            case 'startBulkGeneration': {
+                const model = z.string().trim().min(1).max(200).parse(body.model);
+                const count = z.number().int().min(1).max(10).parse(body.count);
+                return result(await startBulkBackgroundJob(model, count));
             }
             case 'deleteJob': return result(await deleteAIJob(idFrom(body.id)));
             case 'cancelJob': return result(await cancelAIJob(idFrom(body.id)));

@@ -38,7 +38,10 @@ function harness(data = {}, options = {}) {
   const defaults = { overview: { topics: [], goals: [], completed: [], models: [], canManageModels: false },
     questions: { items: [], total: 0, page: 1, totalPages: 0 }, goals: [], deck: [], sessions: [], jobs: [] };
   const service = { async read(resource, params) { requests.push({ resource, params }); return data[resource] ?? defaults[resource]; },
-    async act() { throw new Error('Unexpected mutation'); } };
+    async act(operation, values) {
+      if (!options.act) throw new Error('Unexpected mutation');
+      return options.act(operation, values);
+    } };
   const native = Object.fromEntries(['ActivityIndicator', 'KeyboardAvoidingView', 'Modal', 'RefreshControl', 'ScrollView', 'Text', 'TextInput', 'TouchableOpacity', 'View'].map(name => [name, name]));
   native.Platform = { OS: 'android' };
   native.StyleSheet = { create: value => value };
@@ -98,9 +101,16 @@ function harness(data = {}, options = {}) {
     },
     async press(label) {
       const button = nodes(tree).find(node => node.type === 'TouchableOpacity' && text(node) === label);
-      assert.ok(button, `button ${label}`);
+      assert.ok(button, 'button ' + label);
+      assert.equal(Boolean(button.props.disabled), false, 'enabled button ' + label);
       await button.props.onPress();
       await new Promise(resolve => setImmediate(resolve));
+      render();
+    },
+    type(label, value) {
+      const field = nodes(tree).find(node => node.type === 'TextInput' && node.props.accessibilityLabel === label);
+      assert.ok(field, 'field ' + label);
+      field.props.onChangeText(value);
       render();
     },
     text: () => text(tree),
@@ -188,4 +198,31 @@ test('a permission response arriving after Interview unmount never prepares or s
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(screen.nativeCalls.length, 0);
   assert.equal(screen.alerts.length, 0);
+});
+
+
+test('mobile AI jobs submits the chosen count and active model from the bulk editor', async () => {
+  const calls = [];
+  const models = [
+    { id: 'default', name: 'Default model', modelId: 'default-model', isActive: true },
+    { id: 'chosen', name: 'Chosen model', modelId: 'chosen-model', isActive: true },
+    { id: 'disabled', name: 'Disabled model', modelId: 'disabled-model', isActive: false },
+  ];
+  const screen = harness({ overview: { topics: [], goals: [], completed: [], models } }, {
+    async act(operation, values) {
+      calls.push({ operation, model: values.model, count: values.count });
+      return { count: 3 };
+    },
+  });
+  screen.render(); await screen.settle();
+  await screen.press('AI jobs'); await screen.settle();
+  await screen.press('Bulk Auto-Regenerate');
+  assert.equal(screen.visibleModals().length, 1);
+  assert.doesNotMatch(screen.text(), /Disabled model/);
+  screen.type('Number of questions (1–10)', '3');
+  await screen.press('Chosen model');
+  await screen.press('Start jobs');
+  assert.deepEqual(calls, [{ operation: 'startBulkGeneration', model: 'chosen-model', count: 3 }]);
+  assert.equal(screen.visibleModals().length, 0);
+  assert.equal(screen.alerts[0][0], 'Jobs queued');
 });

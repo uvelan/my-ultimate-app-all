@@ -1,6 +1,8 @@
 'use server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth-server';
+import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 
 import { createQuestion, updateQuestion, getQuestionById } from './interview';
 import { normalizeQuestionTitle } from '@/lib/utils';
@@ -188,43 +190,12 @@ function normalizeAIResponse(parsedJson: any): any {
   };
 }
 
-export async function getDummyQuestions() {
-  const { isAuthenticated, user } = await verifyAuth();
-  if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized', questions: [] };
-
-  try {
-    const questions = await prisma.interviewQuestion.findMany({
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const dummyQuestions = questions.filter(q => {
-      if (!q.bestAnswer) return true;
-      if (q.bestAnswer.includes('Please update via UI') || q.bestAnswer.includes('Please provide')) return true;
-      
-      const sentences = q.bestAnswer.split(/[.?!]/).filter(s => s.trim().length > 0);
-      if (sentences.length <= 3) return true;
-
-      return false;
-    }).slice(0, 10);
-
-    return { success: true, questions: dummyQuestions };
-  } catch (error) {
-    console.error("Failed to fetch dummy questions:", error);
-    return { success: false, error: 'Failed to fetch dummy questions', questions: [] };
-  }
+function isPlaceholderAnswer(answer: string | null | undefined) {
+  return !answer?.trim() || /Please update via UI|Please provide|^\s*(?:TODO|TBD|mock answer|dummy answer)\s*$/i.test(answer);
 }
 
-export async function checkJobStatus(jobId: string) {
-  const { isAuthenticated } = await verifyAuth();
-  if (!isAuthenticated) return { success: false, status: 'UNKNOWN' };
-  
-  const job = await prisma.aIGenerationJob.findUnique({
-    where: { id: jobId }
-  });
-  
-  if (!job) return { success: false, status: 'NOT_FOUND' };
-  return { success: true, status: job.status, error: job.errorReason };
-}
+const BULK_ACTIVE_STATUSES = ['QUEUED', 'RUNNING'];
+const BULK_LEASE_MS = 5 * 60 * 1000;
 
 export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName: string = 'gemini-2.5-flash'): Promise<{success: boolean, jobId?: string, error?: string}> {
   const { isAuthenticated, user } = await verifyAuth();
@@ -238,10 +209,16 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
 
   // Ensure we maintain only one record per question (or exact prompt)
   if (updateId) {
+    const bulkJob = await prisma.aIGenerationJob.findFirst({
+      where: { userId: user.id, questionId: updateId, status: { in: BULK_ACTIVE_STATUSES } },
+      select: { id: true },
+    });
+    if (bulkJob) return { success: false, error: 'This question already has a bulk generation job.' };
     await prisma.aIGenerationJob.deleteMany({
       where: {
         userId: user.id,
-        questionId: updateId
+        questionId: updateId,
+        status: { notIn: BULK_ACTIVE_STATUSES },
       }
     });
   } else if (finalPromptTitle) {
@@ -265,25 +242,38 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
   });
 
   // Fire and forget
-  processBackgroundAIJob(job.id, prompt, updateId, modelName, user.id).catch(console.error);
+  processBackgroundAIJob(job.id, prompt, updateId, modelName).catch(console.error);
 
   return { success: true, jobId: job.id };
 }
 
-async function processBackgroundAIJob(jobId: string, prompt: string, updateId: string | undefined, modelName: string, userId: string) {
+async function processBackgroundAIJob(jobId: string, prompt: string, updateId: string | undefined, modelName: string, placeholderOnly = false) {
   const startTime = Date.now();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutes timeout
+  const timeoutMinutes = placeholderOnly ? 3 : 5;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMinutes * 60 * 1000);
+  const status = placeholderOnly ? 'RUNNING' : 'PENDING';
 
   try {
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is missing in environment variables.');
     }
     let finalPrompt = prompt;
-    
+    if (placeholderOnly && !updateId) throw new Error('Question not found');
+    let questionVersion: Date | undefined;
+
     if (updateId) {
-      const existing = await getQuestionById(updateId);
-      if (!existing) return { success: false, error: 'Question not found' };
+      const existing = placeholderOnly
+        ? await prisma.interviewQuestion.findUnique({
+            where: { id: updateId },
+            select: { title: true, problemStatement: true, bestAnswer: true, updatedAt: true },
+          })
+        : await getQuestionById(updateId);
+      if (!existing) throw new Error('Question not found');
+      if (placeholderOnly && !isPlaceholderAnswer(existing.bestAnswer)) {
+        throw new Error('This question already has an answer.');
+      }
+      questionVersion = existing.updatedAt;
       finalPrompt = `Generate a deep-dive module for this interview question: "${existing.title}"\n\nProblem Statement: ${existing.problemStatement}`;
     }
 
@@ -438,6 +428,43 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
 
     const normalized = normalizeAIResponse(parsedJson);
 
+    if (placeholderOnly && updateId) {
+      if (isPlaceholderAnswer(normalized.bestAnswer)) throw new Error('The AI did not provide an answer.');
+
+      const saved = await prisma.$transaction(async tx => {
+        const job = await tx.aIGenerationJob.updateMany({
+          where: { id: jobId, status },
+          data: { status: 'COMPLETED', timeTakenMs: Date.now() - startTime },
+        });
+        if (!job.count) return false;
+
+        const updated = await tx.interviewQuestion.updateMany({
+          where: { id: updateId, updatedAt: questionVersion },
+          data: {
+            bestAnswer: normalized.bestAnswer,
+            alternativeAnswer: normalized.alternativeAnswer,
+            expectation: normalized.expectation,
+            explanation: normalized.explanation,
+            commonMistakes: normalized.commonMistakes,
+            followUpQuestions: normalized.followUpQuestions,
+            realWorldUsage: normalized.realWorldUsage,
+            codeSnippet: normalized.codeSnippet,
+            mcqs: normalized.mcqs,
+            isAiGenerated: true,
+          },
+        });
+        if (!updated.count) throw new Error('This question changed during generation.');
+        return true;
+      });
+      if (saved) {
+        revalidatePath('/interview');
+        revalidatePath('/interview/explore');
+        revalidatePath('/interview/manage');
+        revalidatePath('/interview/question/' + updateId);
+      }
+      return { success: saved };
+    }
+
     let finalQuestionId = updateId;
 
     if (updateId) {
@@ -473,17 +500,15 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       }
     });
 
-    clearTimeout(timeoutId);
     return { success: true };
   } catch (error: any) {
-    clearTimeout(timeoutId);
     console.error('AI Generation error:', error);
     
     const isTimeout = error.name === 'AbortError' || (error.message && error.message.includes('aborted'));
-    const errorMessage = isTimeout ? 'Job cancelled: Exceeded 5 minutes time limit.' : error.message || 'An unexpected error occurred during AI generation';
+    const errorMessage = isTimeout ? 'Job timed out after ' + timeoutMinutes + ' minutes.' : error.message || 'An unexpected error occurred during AI generation';
     
-    await prisma.aIGenerationJob.update({
-      where: { id: jobId },
+    await prisma.aIGenerationJob.updateMany({
+      where: { id: jobId, status },
       data: {
         status: 'FAILED',
         errorReason: errorMessage,
@@ -491,6 +516,8 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       }
     });
     return { success: false, error: errorMessage };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -797,10 +824,15 @@ export async function getAIJobs() {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
   try {
-    return await prisma.aIGenerationJob.findMany({
+    const jobs = await prisma.aIGenerationJob.findMany({
       where: { userId: user.id },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
+    const running = jobs.find(job => job.status === 'RUNNING');
+    if (running ? Date.now() - running.updatedAt.getTime() >= BULK_LEASE_MS : jobs.some(job => job.status === 'QUEUED')) {
+      after(() => processBulkBackgroundSequence(user.id));
+    }
+    return jobs;
   } catch (error) {
     console.error('Failed to get AI jobs:', error);
     return [];
@@ -826,86 +858,94 @@ export async function cancelAIJob(id: string) {
   try {
     const job = await prisma.aIGenerationJob.findUnique({ where: { id, userId: user.id } });
     if (!job) return { success: false, error: 'Job not found' };
-    if (job.status !== 'PENDING') return { success: false, error: 'Job is not pending' };
-    
-    await prisma.aIGenerationJob.update({
-      where: { id },
+    const cancelled = await prisma.aIGenerationJob.updateMany({
+      where: { id, userId: user.id, status: { in: ['PENDING', ...BULK_ACTIVE_STATUSES] } },
       data: {
         status: 'FAILED',
         errorReason: 'Manually cancelled by user'
       }
     });
-    return { success: true };
+    return cancelled.count ? { success: true } : { success: false, error: 'Job is not pending' };
   } catch (error: any) {
     console.error('Failed to cancel AI job:', error);
     return { success: false, error: 'Failed to cancel job' };
   }
 }
 
-export async function startBulkBackgroundJob(modelName: string) {
+export async function startBulkBackgroundJob(modelName: string, count: number) {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized' };
+  if (!Number.isInteger(count) || count < 1 || count > 10) {
+    return { success: false, error: 'Choose between 1 and 10 questions.' };
+  }
 
   try {
-    const res = await getDummyQuestions();
-    if (!res.success || !res.questions || res.questions.length === 0) {
-      return { success: false, error: 'No dummy questions found.' };
+    const model = typeof modelName === 'string'
+      ? await prisma.aiModel.findUnique({ where: { modelId: modelName, isActive: true } })
+      : null;
+    if (!model) return { success: false, error: 'Select an active AI model' };
+    if (!GEMINI_API_KEY) return { success: false, error: 'AI generation is unavailable. Configure the Gemini API key.' };
+
+    const [questions, activeJobs] = await Promise.all([
+      prisma.interviewQuestion.findMany({ select: { id: true, title: true, bestAnswer: true } }),
+      prisma.aIGenerationJob.findMany({
+        where: { status: { in: ['PENDING', ...BULK_ACTIVE_STATUSES] } },
+        select: { questionId: true },
+      }),
+    ]);
+    const activeIds = new Set(activeJobs.map(job => job.questionId));
+    const eligible = questions.filter(question => isPlaceholderAnswer(question.bestAnswer) && !activeIds.has(question.id));
+    const selectedCount = Math.min(count, eligible.length);
+    if (!selectedCount) return { success: false, error: 'No available questions with placeholder answers.' };
+
+    // Sample without replacement from all eligible questions.
+    for (let i = 0; i < selectedCount; i++) {
+      const swap = i + Math.floor(Math.random() * (eligible.length - i));
+      [eligible[i], eligible[swap]] = [eligible[swap], eligible[i]];
     }
 
-    // Fire and forget
-    processBulkBackgroundSequence(res.questions, modelName, user.id).catch(console.error);
-
-    return { success: true, count: res.questions.length };
+    const queued = await prisma.aIGenerationJob.createMany({
+      data: eligible.slice(0, selectedCount).map(question => ({
+        userId: user.id,
+        questionId: question.id,
+        prompt: 'Regenerate: ' + question.title,
+        modelName,
+        status: 'QUEUED',
+      })),
+    });
+    after(() => processBulkBackgroundSequence(user.id));
+    return { success: true, count: queued.count };
   } catch (err) {
-    console.error("Bulk init error", err);
+    console.error('Bulk init error', err);
     return { success: false, error: 'Failed to initialize bulk job' };
   }
 }
 
-async function processBulkBackgroundSequence(questions: any[], modelName: string, userId: string) {
-  for (const q of questions) {
-    let attempt = 1;
-    const maxAttempts = 4;
-    let jobSuccess = false;
-
-    while (attempt <= maxAttempts && !jobSuccess) {
-      try {
-        await prisma.aIGenerationJob.deleteMany({
-          where: { userId, questionId: q.id }
-        });
-
-        const job = await prisma.aIGenerationJob.create({
-          data: {
-            userId,
-            prompt: `Regenerate: ${q.title}`,
-            modelName,
-            status: 'PENDING',
-            questionId: q.id,
-          }
-        });
-
-        await processBackgroundAIJob(job.id, q.title, q.id, modelName, userId);
-
-        const finishedJob = await prisma.aIGenerationJob.findUnique({ where: { id: job.id } });
-        if (finishedJob && finishedJob.status === 'COMPLETED') {
-          jobSuccess = true;
-        } else {
-          jobSuccess = false;
-        }
-      } catch (err) {
-        console.error(`Bulk job error for ${q.title}`, err);
-        jobSuccess = false;
-      }
-
-      if (!jobSuccess) {
-        if (attempt < maxAttempts) {
-          const waitSecs = 5 * Math.pow(2, attempt - 1);
-          await new Promise(r => setTimeout(r, waitSecs * 1000));
-          attempt++;
-        } else {
-          break; // move to next question
-        }
-      }
+async function processBulkBackgroundSequence(userId: string) {
+  const startTime = Date.now();
+  // Leave room for a full attempt before the request's background time limit.
+  // A later job-list request picks up any queued work.
+  while (Date.now() - startTime < 60_000) {
+    const job = await prisma.aIGenerationJob.findFirst({
+      where: { userId, status: { in: BULK_ACTIVE_STATUSES } },
+      orderBy: [{ status: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    });
+    if (!job) return;
+    if (job.status === 'RUNNING') {
+      if (Date.now() - job.updatedAt.getTime() < BULK_LEASE_MS) return;
+      await prisma.aIGenerationJob.updateMany({
+        where: { id: job.id, status: 'RUNNING', updatedAt: job.updatedAt },
+        data: { status: 'FAILED', errorReason: 'Generation was interrupted. Retry this job to run it again.' },
+      });
+      continue;
     }
+
+    const claimed = await prisma.aIGenerationJob.updateMany({
+      where: { id: job.id, status: 'QUEUED' },
+      data: { status: 'RUNNING' },
+    });
+    if (!claimed.count) return;
+
+    await processBackgroundAIJob(job.id, job.prompt, job.questionId ?? undefined, job.modelName, true);
   }
 }

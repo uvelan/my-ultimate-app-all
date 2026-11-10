@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob, getDummyQuestions, checkJobStatus, startBulkBackgroundJob } from '@/actions/ai';
+import { getAIJobs, deleteAIJob, generateQuestionWithAI, getAiModels, cancelAIJob, startBulkBackgroundJob } from '@/actions/ai';
 import { Activity, Trash2, RefreshCw, Clock, Sparkles, Loader2, Play, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
+
+const activeJobStatuses = ['PENDING', 'QUEUED', 'RUNNING'];
 
 export default function AIJobsPage() {
   const router = useRouter();
@@ -17,7 +19,10 @@ export default function AIJobsPage() {
 
   // Bulk Process State
   const [bulkProcessing, setBulkProcessing] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState('');
+  const [bulkModel, setBulkModel] = useState('');
+  const [bulkCount, setBulkCount] = useState('10');
+  const activeModels = models.filter(model => model.isActive);
+  const count = Number(bulkCount);
   const [showBulkModal, setShowBulkModal] = useState(false);
 
   const loadJobs = async (showLoading = true) => {
@@ -46,7 +51,7 @@ export default function AIJobsPage() {
     let interval: NodeJS.Timeout;
     
     // Check if any job is currently pending/generating
-    const hasPending = jobs.some(j => j.status === 'PENDING');
+    const hasPending = jobs.some(j => activeJobStatuses.includes(j.status));
     
     if (hasPending) {
       interval = setInterval(() => loadJobs(false), 5000);
@@ -109,6 +114,9 @@ export default function AIJobsPage() {
         return <span className="px-2 py-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-full text-xs font-semibold">Completed</span>;
       case 'FAILED':
         return <span className="px-2 py-1 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded-full text-xs font-semibold">Failed</span>;
+      case 'QUEUED':
+        return <span className="px-2 py-1 bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 rounded-full text-xs font-semibold">Queued</span>;
+      case 'RUNNING':
       case 'PENDING':
         return (
           <span className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-full text-xs font-semibold">
@@ -121,23 +129,21 @@ export default function AIJobsPage() {
   };
 
   const handleBulkProcess = async () => {
-    setShowBulkModal(false);
     setBulkProcessing(true);
-    setBulkProgress('Starting background job...');
     
     try {
-      const res = await startBulkBackgroundJob(selectedModel);
+      const res = await startBulkBackgroundJob(bulkModel, count);
       if (!res.success) {
         toast.error(res.error || 'Failed to start bulk job.');
       } else {
-        toast.success(`Started bulk generation for ${res.count} questions in the background.`);
-        loadJobs(true);
+        setShowBulkModal(false);
+        toast.success('Queued ' + res.count + ' answer generation jobs.');
+        await loadJobs(false);
       }
     } catch (err) {
       toast.error('Error starting bulk job.');
     } finally {
       setBulkProcessing(false);
-      setBulkProgress('');
     }
   };
 
@@ -158,11 +164,14 @@ export default function AIJobsPage() {
           {bulkProcessing && (
             <div className="text-sm font-medium text-purple-600 dark:text-purple-400 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
-              {bulkProgress}
+              Queuing jobs…
             </div>
           )}
           <button 
-            onClick={() => setShowBulkModal(true)} 
+            onClick={() => {
+              setBulkModel(activeModels[0]?.modelId || '');
+              setShowBulkModal(true);
+            }}
             disabled={bulkProcessing || loading}
             className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-xl shadow-sm hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 text-sm font-medium transition-colors"
           >
@@ -253,7 +262,7 @@ export default function AIJobsPage() {
                             <RefreshCw className="w-3.5 h-3.5" /> Retry
                           </button>
                         )}
-                        {job.status === 'PENDING' && (
+                        {activeJobStatuses.includes(job.status) && (
                           <button 
                             onClick={() => handleCancel(job.id)} 
                             className="flex items-center gap-1 px-3 py-1.5 text-orange-600 bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:hover:bg-orange-900/40 dark:text-orange-400 rounded-lg transition-colors font-medium text-xs"
@@ -342,6 +351,7 @@ export default function AIJobsPage() {
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">Bulk Auto-Regenerate</h3>
               <button 
                 onClick={() => setShowBulkModal(false)}
+                disabled={bulkProcessing}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >
                 <XCircle className="w-5 h-5" />
@@ -349,20 +359,37 @@ export default function AIJobsPage() {
             </div>
             <div className="p-6">
               <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                This will automatically select up to 10 questions from your database that have missing or dummy answers, and regenerate them sequentially.
+                Randomly select questions with missing or placeholder answers and generate answers one at a time.
               </p>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="bulk-count" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Number of questions (1–10)
+                  </label>
+                  <input
+                    id="bulk-count"
+                    type="number"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={bulkCount}
+                    onChange={(e) => setBulkCount(e.target.value)}
+                    className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="bulk-model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Select AI Model
                   </label>
                   <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    id="bulk-model"
+                    value={bulkModel}
+                    onChange={(e) => setBulkModel(e.target.value)}
                     className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-gray-900 dark:text-white"
                   >
-                    {models.map((m: any) => (
+                    {!activeModels.length && <option value="">No active AI models</option>}
+                    {activeModels.map(m => (
                       <option key={m.id || m.modelId} value={m.modelId}>
                         {m.name} ({m.modelId})
                       </option>
@@ -376,15 +403,18 @@ export default function AIJobsPage() {
               <button
                 type="button"
                 onClick={() => setShowBulkModal(false)}
+                disabled={bulkProcessing}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleBulkProcess}
-                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 shadow-sm transition-colors flex items-center gap-2"
+                disabled={bulkProcessing || !bulkModel || !Number.isInteger(count) || count < 1 || count > 10}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 shadow-sm transition-colors flex items-center gap-2"
               >
-                <Play className="w-4 h-4" /> Start Bulk Process
+                <Play className="w-4 h-4" /> {bulkProcessing ? 'Queuing…' : 'Start jobs'}
               </button>
             </div>
           </div>
