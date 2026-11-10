@@ -226,7 +226,7 @@ const generatedAnswer = () => Response.json({
   candidates: [{ content: { parts: [{ text: JSON.stringify({ title: 'Generated title', bestAnswer: 'Generated answer.' }) }] } }],
 });
 
-function bulkHarness(getResponse = generatedAnswer) {
+function generationHarness(getResponse = generatedAnswer) {
   const queued = [];
   const callbacks = [];
   const questions = [
@@ -238,7 +238,13 @@ function bulkHarness(getResponse = generatedAnswer) {
   queued.push({ id: 'existing', userId: OTHER, questionId: 'd', status: 'QUEUED', updatedAt: new Date() });
 
   const aIGenerationJob = {
-    findMany: async () => queued,
+    findMany: async ({ where }) => queued.filter(job => !where.userId || job.userId === where.userId),
+    deleteMany: async () => ({ count: 0 }),
+    create: async ({ data }) => {
+      const job = { ...data, id: data.questionId, updatedAt: new Date() };
+      queued.push(job);
+      return job;
+    },
     createMany: async ({ data }) => {
       queued.push(...data.map(job => ({ ...job, id: job.questionId, updatedAt: new Date() })));
       return { count: data.length };
@@ -246,7 +252,9 @@ function bulkHarness(getResponse = generatedAnswer) {
     findFirst: async ({ where }) => queued.find(job => job.userId === where.userId && job.status === 'RUNNING')
       || queued.find(job => job.userId === where.userId && job.status === 'QUEUED'),
     updateMany: async ({ where, data }) => {
-      const job = queued.find(job => job.id === where.id && job.status === where.status);
+      const job = queued.find(job => job.id === where.id && job.status === where.status
+        && (!where.userId || job.userId === where.userId)
+        && (!where.updatedAt || job.updatedAt === where.updatedAt));
       if (job) Object.assign(job, data);
       return { count: Number(!!job) };
     },
@@ -254,6 +262,7 @@ function bulkHarness(getResponse = generatedAnswer) {
   const interviewQuestion = {
     findMany: async () => questions,
     findUnique: async ({ where }) => questions.find(item => item.id === where.id),
+    update: async ({ where, data }) => Object.assign(questions.find(item => item.id === where.id), data),
     updateMany: async ({ where, data }) => {
       const item = questions.find(item => item.id === where.id && item.updatedAt === where.updatedAt);
       if (item) Object.assign(item, data);
@@ -261,7 +270,10 @@ function bulkHarness(getResponse = generatedAnswer) {
     },
   };
   const db = { aIGenerationJob, interviewQuestion,
-    aiModel: { findUnique: async ({ where }) => where.modelId === 'selected-model' && where.isActive ? where : null },
+    aiModel: {
+      findUnique: async ({ where }) => where.modelId === 'selected-model' && where.isActive ? where : null,
+      findFirst: async () => ({ modelId: 'selected-model' }),
+    },
     $transaction: callback => callback(db),
   };
   const apiCalls = [];
@@ -274,7 +286,7 @@ function bulkHarness(getResponse = generatedAnswer) {
     '@/lib/utils': {},
   }, { GEMINI_API_KEY: 'test-key' }, async url => {
     assert.match(url, /models\/selected-model:generateContent/);
-    const running = queued.filter(job => job.status === 'RUNNING');
+    const running = queued.filter(job => job.status === 'RUNNING' || job.status === 'PENDING');
     assert.equal(running.length, 1);
     apiCalls.push(running[0].questionId);
     return getResponse(apiCalls);
@@ -283,7 +295,7 @@ function bulkHarness(getResponse = generatedAnswer) {
 }
 
 test('bulk generation queues only placeholders and saves them sequentially', async () => {
-  const { ai, queued, callbacks, questions, apiCalls } = bulkHarness();
+  const { ai, queued, callbacks, questions, apiCalls } = generationHarness();
   assert.equal((await ai.startBulkBackgroundJob('inactive-model', 3)).success, false);
   assert.equal((await ai.startBulkBackgroundJob('selected-model', 3)).count, 2);
   assert.deepEqual(queued.slice(1).map(job => job.status), ['QUEUED', 'QUEUED']);
@@ -301,7 +313,7 @@ test('bulk generation queues only placeholders and saves them sequentially', asy
 test('Gemini rate limits fail the current question immediately and the queue advances', async t => {
   for (const stage of ['generation', 'continuation', 'JSON repair']) {
     await t.test(stage, async () => {
-      const { ai, queued, callbacks, apiCalls } = bulkHarness(calls => {
+      const { ai, queued, callbacks, apiCalls } = generationHarness(calls => {
         if (calls.at(-1) !== calls[0]) return generatedAnswer();
         if (calls.length === 1 && stage !== 'generation') {
           return Response.json({
@@ -327,4 +339,51 @@ test('Gemini rate limits fail the current question immediately and the queue adv
       assert.equal(second.status, 'COMPLETED');
     });
   }
+});
+
+
+test('job reads expire stalled workers without expiring queued or recent jobs', async () => {
+  const { ai, queued, callbacks } = generationHarness();
+  const old = new Date(Date.now() - 6 * 60_000);
+  queued.push(
+    { id: 'stale-single', userId: USER, status: 'PENDING', updatedAt: old },
+    { id: 'stale-bulk', userId: USER, status: 'RUNNING', updatedAt: old },
+    { id: 'still-queued', userId: USER, status: 'QUEUED', updatedAt: old },
+    { id: 'recent', userId: USER, status: 'PENDING', updatedAt: new Date() },
+    { id: 'someone-else', userId: OTHER, status: 'PENDING', updatedAt: old },
+  );
+
+  const jobs = await ai.getAIJobs();
+  assert.deepEqual(jobs.map(job => [job.id, job.status, job.errorReason]), [
+    ['stale-single', 'FAILED', 'Job timed out after 5 minutes.'],
+    ['stale-bulk', 'FAILED', 'Job timed out after 3 minutes.'],
+    ['still-queued', 'QUEUED', undefined],
+    ['recent', 'PENDING', undefined],
+  ]);
+  assert.equal(queued.at(-1).status, 'PENDING');
+  assert.equal(callbacks.length, 1);
+});
+
+test('single generation runs after the response and cannot save after its job times out', async () => {
+  const { ai, queued, callbacks, questions, apiCalls } = generationHarness(async () => {
+    const pending = queued.find(job => job.status === 'PENDING');
+    pending.updatedAt = new Date(Date.now() - 6 * 60_000);
+    await ai.getAIJobs();
+    return generatedAnswer();
+  });
+  const started = await ai.generateQuestionWithAI('Generate', 'a', 'selected-model');
+  assert.equal(started.success, true);
+  assert.equal(apiCalls.length, 0);
+
+  await callbacks[0]();
+  assert.equal(queued.find(job => job.id === started.jobId).status, 'FAILED');
+  assert.equal(questions[0].bestAnswer, 'TODO');
+});
+
+test('single generation saves its answer and completes the active job', async () => {
+  const { ai, queued, callbacks, questions } = generationHarness();
+  const started = await ai.generateQuestionWithAI('Generate', 'a', 'selected-model');
+  await callbacks[0]();
+  assert.equal(queued.find(job => job.id === started.jobId).status, 'COMPLETED');
+  assert.equal(questions[0].bestAnswer, 'Generated answer.');
 });

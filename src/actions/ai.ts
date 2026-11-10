@@ -4,7 +4,7 @@ import { verifyAuth } from '@/lib/auth-server';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 
-import { createQuestion, updateQuestion, getQuestionById } from './interview';
+import type { AIGenerationJob } from '@prisma/client';
 import { normalizeQuestionTitle } from '@/lib/utils';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -195,7 +195,24 @@ function isPlaceholderAnswer(answer: string | null | undefined) {
 }
 
 const BULK_ACTIVE_STATUSES = ['QUEUED', 'RUNNING'];
-const BULK_LEASE_MS = 5 * 60 * 1000;
+const SINGLE_TIMEOUT_MS = 5 * 60_000;
+const BULK_TIMEOUT_MS = 3 * 60_000;
+
+function timeoutReason(timeoutMs: number) {
+  return 'Job timed out after ' + timeoutMs / 60_000 + ' minutes.';
+}
+
+function expiredJobTimeout(job: Pick<AIGenerationJob, 'status' | 'updatedAt'>, now: number) {
+  const timeoutMs = job.status === 'PENDING' ? SINGLE_TIMEOUT_MS : job.status === 'RUNNING' ? BULK_TIMEOUT_MS : 0;
+  return timeoutMs && now - job.updatedAt.getTime() >= timeoutMs ? timeoutMs : 0;
+}
+
+function expireGenerationJob(job: Pick<AIGenerationJob, 'id' | 'userId' | 'status' | 'updatedAt'>, timeoutMs: number) {
+  return prisma.aIGenerationJob.updateMany({
+    where: { id: job.id, userId: job.userId, status: job.status, updatedAt: job.updatedAt },
+    data: { status: 'FAILED', errorReason: timeoutReason(timeoutMs), timeTakenMs: timeoutMs },
+  });
+}
 
 class GeminiRateLimitError extends Error {
   constructor() {
@@ -216,7 +233,7 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
   
   let finalPromptTitle = prompt;
   if (!finalPromptTitle && updateId) {
-    const existing = await getQuestionById(updateId);
+    const existing = await prisma.interviewQuestion.findUnique({ where: { id: updateId }, select: { title: true } });
     finalPromptTitle = existing ? `Regenerate: ${existing.title}` : 'Regenerate Question';
   }
 
@@ -254,20 +271,27 @@ export async function generateQuestionWithAI(prompt: string, updateId?: string, 
     }
   });
 
-  // Fire and forget
-  processBackgroundAIJob(job.id, prompt, updateId, model.modelId).catch(console.error);
+  after(async () => { await processBackgroundAIJob(job, prompt); });
 
   return { success: true, jobId: job.id };
 }
 
-async function processBackgroundAIJob(jobId: string, prompt: string, updateId: string | undefined, modelName: string, placeholderOnly = false) {
-  const startTime = Date.now();
+async function processBackgroundAIJob(
+  job: Pick<AIGenerationJob, 'id' | 'questionId' | 'modelName' | 'updatedAt'>,
+  prompt: string,
+  placeholderOnly = false,
+) {
+  const { id: jobId, questionId: updateId, modelName, updatedAt } = job;
+  const startTime = updatedAt.getTime();
   const controller = new AbortController();
-  const timeoutMinutes = placeholderOnly ? 3 : 5;
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMinutes * 60 * 1000);
+  const timeoutMs = placeholderOnly ? BULK_TIMEOUT_MS : SINGLE_TIMEOUT_MS;
+  const remainingMs = startTime + timeoutMs - Date.now();
+  const timeoutId = setTimeout(() => controller.abort(), remainingMs);
   const status = placeholderOnly ? 'RUNNING' : 'PENDING';
 
   try {
+    if (remainingMs <= 0) controller.abort();
+    controller.signal.throwIfAborted();
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is missing in environment variables.');
     }
@@ -276,12 +300,10 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
     let questionVersion: Date | undefined;
 
     if (updateId) {
-      const existing = placeholderOnly
-        ? await prisma.interviewQuestion.findUnique({
-            where: { id: updateId },
-            select: { title: true, problemStatement: true, bestAnswer: true, updatedAt: true },
-          })
-        : await getQuestionById(updateId);
+      const existing = await prisma.interviewQuestion.findUnique({
+        where: { id: updateId },
+        select: { title: true, problemStatement: true, bestAnswer: true, updatedAt: true },
+      });
       if (!existing) throw new Error('Question not found');
       if (placeholderOnly && !isPlaceholderAnswer(existing.bestAnswer)) {
         throw new Error('This question already has an answer.');
@@ -423,23 +445,35 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       }
     } catch (error) {
       if (error instanceof GeminiRateLimitError) throw error;
+      controller.signal.throwIfAborted();
       throw new Error(`The AI produced an invalid response format that could not be repaired. Try a more specific prompt.`);
     }
 
     const normalized = normalizeAIResponse(parsedJson);
+    if (placeholderOnly && isPlaceholderAnswer(normalized.bestAnswer)) {
+      throw new Error('The AI did not provide an answer.');
+    }
 
-    if (placeholderOnly && updateId) {
-      if (isPlaceholderAnswer(normalized.bestAnswer)) throw new Error('The AI did not provide an answer.');
+    let targetId = updateId ?? undefined;
+    if (!targetId) {
+      const titles = await prisma.interviewQuestion.findMany({ select: { id: true, title: true } });
+      const title = normalizeQuestionTitle(normalized.title);
+      targetId = titles.find(question => normalizeQuestionTitle(question.title) === title)?.id;
+    }
 
-      const saved = await prisma.$transaction(async tx => {
-        const job = await tx.aIGenerationJob.updateMany({
-          where: { id: jobId, status },
-          data: { status: 'COMPLETED', timeTakenMs: Date.now() - startTime },
-        });
-        if (!job.count) return false;
+    if (Date.now() - startTime >= timeoutMs) controller.abort();
+    controller.signal.throwIfAborted();
+    const savedQuestionId = await prisma.$transaction(async tx => {
+      // Claim completion before writing the answer so a cancellation or timeout wins atomically.
+      const job = await tx.aIGenerationJob.updateMany({
+        where: { id: jobId, status, updatedAt },
+        data: { status: 'COMPLETED', timeTakenMs: Date.now() - startTime },
+      });
+      if (!job.count) return null;
 
+      if (placeholderOnly && targetId) {
         const updated = await tx.interviewQuestion.updateMany({
-          where: { id: updateId, updatedAt: questionVersion },
+          where: { id: targetId, updatedAt: questionVersion },
           data: {
             bestAnswer: normalized.bestAnswer,
             alternativeAnswer: normalized.alternativeAnswer,
@@ -454,65 +488,42 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
           },
         });
         if (!updated.count) throw new Error('This question changed during generation.');
-        return true;
-      });
-      if (saved) {
-        revalidatePath('/interview');
-        revalidatePath('/interview/explore');
-        revalidatePath('/interview/manage');
-        revalidatePath('/interview/question/' + updateId);
+        return targetId;
       }
-      return { success: saved };
-    }
 
-    let finalQuestionId = updateId;
-
-    if (updateId) {
-      await updateQuestion(updateId, normalized);
-    } else {
-      // Check if a question with the same title already exists
-      const allTitlesDB = await prisma.interviewQuestion.findMany({ select: { id: true, title: true } });
-      const qNormalized = normalizeQuestionTitle(normalized.title);
-      const existingMatch = allTitlesDB.find(t => normalizeQuestionTitle(t.title) === qNormalized);
-      
-      let existing = null;
-      if (existingMatch) {
-        existing = await prisma.interviewQuestion.findUnique({ where: { id: existingMatch.id } });
+      const questionData = {
+        ...normalized,
+        estimatedTime: parseInt(normalized.estimatedTime) || 10,
+        frequency: parseInt(normalized.frequency) || 50,
+      };
+      const question = targetId
+        ? await tx.interviewQuestion.update({ where: { id: targetId }, data: questionData, select: { id: true } })
+        : await tx.interviewQuestion.create({ data: questionData, select: { id: true } });
+      if (!updateId) {
+        await tx.aIGenerationJob.update({ where: { id: jobId }, data: { questionId: question.id } });
       }
-      
-      if (existing) {
-        await updateQuestion(existing.id, normalized);
-        finalQuestionId = existing.id;
-      } else {
-        const res = await createQuestion(normalized);
-        if (res.success && res.id) {
-          finalQuestionId = res.id;
-        }
-      }
-    }
-
-    await prisma.aIGenerationJob.update({
-      where: { id: jobId },
-      data: {
-        status: 'COMPLETED',
-        timeTakenMs: Date.now() - startTime,
-        questionId: finalQuestionId || null
-      }
+      return question.id;
     });
 
-    return { success: true };
+    if (savedQuestionId) {
+      revalidatePath('/interview');
+      revalidatePath('/interview/explore');
+      revalidatePath('/interview/manage');
+      revalidatePath('/interview/question/' + savedQuestionId);
+    }
+    return { success: !!savedQuestionId };
   } catch (error: any) {
     console.error('AI Generation error:', error);
     
-    const isTimeout = error.name === 'AbortError' || (error.message && error.message.includes('aborted'));
-    const errorMessage = isTimeout ? 'Job timed out after ' + timeoutMinutes + ' minutes.' : error.message || 'An unexpected error occurred during AI generation';
+    const isTimeout = controller.signal.aborted;
+    const errorMessage = isTimeout ? timeoutReason(timeoutMs) : error.message || 'An unexpected error occurred during AI generation';
     
     await prisma.aIGenerationJob.updateMany({
-      where: { id: jobId, status },
+      where: { id: jobId, status, updatedAt },
       data: {
         status: 'FAILED',
         errorReason: errorMessage,
-        timeTakenMs: Date.now() - startTime
+        timeTakenMs: isTimeout ? timeoutMs : Date.now() - startTime
       }
     });
     return { success: false, error: errorMessage };
@@ -824,12 +835,21 @@ export async function getAIJobs() {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) throw new Error('Unauthorized');
   try {
-    const jobs = await prisma.aIGenerationJob.findMany({
+    const readJobs = () => prisma.aIGenerationJob.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
     });
-    const running = jobs.find(job => job.status === 'RUNNING');
-    if (running ? Date.now() - running.updatedAt.getTime() >= BULK_LEASE_MS : jobs.some(job => job.status === 'QUEUED')) {
+    let jobs = await readJobs();
+    const now = Date.now();
+    const expirations = jobs.flatMap(job => {
+      const timeoutMs = expiredJobTimeout(job, now);
+      return timeoutMs ? [expireGenerationJob(job, timeoutMs)] : [];
+    });
+    if (expirations.length) {
+      await Promise.all(expirations);
+      jobs = await readJobs();
+    }
+    if (jobs.some(job => job.status === 'QUEUED') && !jobs.some(job => job.status === 'RUNNING')) {
       after(() => processBulkBackgroundSequence(user.id));
     }
     return jobs;
@@ -890,10 +910,11 @@ export async function startBulkBackgroundJob(modelName: string, count: number) {
       prisma.interviewQuestion.findMany({ select: { id: true, title: true, bestAnswer: true } }),
       prisma.aIGenerationJob.findMany({
         where: { status: { in: ['PENDING', ...BULK_ACTIVE_STATUSES] } },
-        select: { questionId: true },
+        select: { questionId: true, status: true, updatedAt: true },
       }),
     ]);
-    const activeIds = new Set(activeJobs.map(job => job.questionId));
+    const now = Date.now();
+    const activeIds = new Set(activeJobs.filter(job => !expiredJobTimeout(job, now)).map(job => job.questionId));
     const eligible = questions.filter(question => isPlaceholderAnswer(question.bestAnswer) && !activeIds.has(question.id));
     const selectedCount = Math.min(count, eligible.length);
     if (!selectedCount) return { success: false, error: 'No available questions with placeholder answers.' };
@@ -932,20 +953,19 @@ async function processBulkBackgroundSequence(userId: string) {
     });
     if (!job) return;
     if (job.status === 'RUNNING') {
-      if (Date.now() - job.updatedAt.getTime() < BULK_LEASE_MS) return;
-      await prisma.aIGenerationJob.updateMany({
-        where: { id: job.id, status: 'RUNNING', updatedAt: job.updatedAt },
-        data: { status: 'FAILED', errorReason: 'Generation was interrupted. Retry this job to run it again.' },
-      });
+      const timeoutMs = expiredJobTimeout(job, Date.now());
+      if (!timeoutMs) return;
+      await expireGenerationJob(job, timeoutMs);
       continue;
     }
 
+    const updatedAt = new Date();
     const claimed = await prisma.aIGenerationJob.updateMany({
       where: { id: job.id, status: 'QUEUED' },
-      data: { status: 'RUNNING' },
+      data: { status: 'RUNNING', updatedAt },
     });
     if (!claimed.count) return;
 
-    await processBackgroundAIJob(job.id, job.prompt, job.questionId ?? undefined, job.modelName, true);
+    await processBackgroundAIJob({ ...job, updatedAt }, job.prompt, true);
   }
 }
