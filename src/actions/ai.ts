@@ -197,6 +197,12 @@ function isPlaceholderAnswer(answer: string | null | undefined) {
 const BULK_ACTIVE_STATUSES = ['QUEUED', 'RUNNING'];
 const BULK_LEASE_MS = 5 * 60 * 1000;
 
+class GeminiRateLimitError extends Error {
+  constructor() {
+    super('Gemini rate limit reached (HTTP 429). Please try again later.');
+  }
+}
+
 export async function generateQuestionWithAI(prompt: string, updateId?: string, modelName: string = 'gemini-2.5-flash'): Promise<{success: boolean, jobId?: string, error?: string}> {
   const { isAuthenticated, user } = await verifyAuth();
   if (!isAuthenticated || !user) return { success: false, error: 'Unauthorized' };
@@ -281,37 +287,36 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
     let res: Response | null = null;
     let data: any = null;
 
-    const makeRequest = async (promptText: string) => {
-      return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
+    const requestGemini = async (body: object) => {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: promptText }] }],
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.4,
-            maxOutputTokens: 65536,
-          }
-        })
+        body: JSON.stringify(body),
       });
+      if (response.status === 429) throw new GeminiRateLimitError();
+      return response;
     };
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      res = await makeRequest(finalPrompt);
-      
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt === MAX_RETRIES) {
-          if (res.status === 429) throw new Error('API quota exhausted after retries. Please try again later.');
-          break;
-        }
-        const waitTime = (res.status === 429 ? 15000 : 5000) * Math.pow(2, attempt - 1);
+      res = await requestGemini({
+        contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.4,
+          maxOutputTokens: 65536,
+        },
+      });
+
+      if (res.status >= 500) {
+        if (attempt === MAX_RETRIES) break;
+        const waitTime = 5000 * Math.pow(2, attempt - 1);
         console.warn(`Gemini API ${res.status} error. Retrying in ${waitTime/1000}s... (Attempt ${attempt}/${MAX_RETRIES})`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
-      
+
       data = await res.json();
       break;
     }
@@ -339,29 +344,21 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
       let contData: any = null;
       
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        contRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
-          method: 'POST',
-          signal: controller.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              { role: 'user', parts: [{ text: finalPrompt }] },
-              { role: 'model', parts: [{ text: textResponse }] },
-              { role: 'user', parts: [{ text: continuationPrompt }] }
-            ],
-            generationConfig: {
-              temperature: 0.4,
-              maxOutputTokens: 65536,
-            }
-          })
+        contRes = await requestGemini({
+          contents: [
+            { role: 'user', parts: [{ text: finalPrompt }] },
+            { role: 'model', parts: [{ text: textResponse }] },
+            { role: 'user', parts: [{ text: continuationPrompt }] }
+          ],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 65536,
+          }
         });
 
-        if (contRes.status === 429 || contRes.status >= 500) {
-          if (attempt === MAX_RETRIES) {
-            if (contRes.status === 429) throw new Error('API quota exhausted.');
-            break;
-          }
-          const waitTime = (contRes.status === 429 ? 15000 : 5000) * Math.pow(2, attempt - 1);
+        if (contRes.status >= 500) {
+          if (attempt === MAX_RETRIES) break;
+          const waitTime = 5000 * Math.pow(2, attempt - 1);
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
@@ -396,20 +393,15 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
           console.warn('Local JSON repair failed. Asking AI to fix the JSON formatting...');
           
           let fixData: any = null;
-          let fixRes: Response | null = null;
           for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            fixRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`, {
-              method: 'POST',
-              signal: controller.signal,
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: "The following JSON string is invalid or truncated. Please fix it, close any open brackets/strings, escape quotes properly, and return ONLY a valid JSON object. Do not wrap in markdown code blocks.\n\n" + cleanedText.substring(0, 25000) }] }],
-                generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
-              })
+            const fixRes = await requestGemini({
+              contents: [{ role: 'user', parts: [{ text: "The following JSON string is invalid or truncated. Please fix it, close any open brackets/strings, escape quotes properly, and return ONLY a valid JSON object. Do not wrap in markdown code blocks.\n\n" + cleanedText.substring(0, 25000) }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
             });
-            if (!fixRes || fixRes.status === 429 || fixRes.status >= 500) {
-               await new Promise(r => setTimeout(r, (fixRes?.status === 429 ? 15000 : 5000) * attempt));
-               continue;
+            if (fixRes.status >= 500) {
+              if (attempt === MAX_RETRIES) break;
+              await new Promise(resolve => setTimeout(resolve, 5000 * attempt));
+              continue;
             }
             fixData = await fixRes.json();
             break;
@@ -422,7 +414,8 @@ async function processBackgroundAIJob(jobId: string, prompt: string, updateId: s
           parsedJson = JSON.parse(fixedText);
         }
       }
-    } catch (e: any) {
+    } catch (error) {
+      if (error instanceof GeminiRateLimitError) throw error;
       throw new Error(`The AI produced an invalid response format that could not be repaired. Try a more specific prompt.`);
     }
 

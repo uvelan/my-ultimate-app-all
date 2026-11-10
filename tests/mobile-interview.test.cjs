@@ -15,7 +15,7 @@ function load(file, mocks, env = {}, fetchMock) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { filename }).runInNewContext({
     module, exports: module.exports, process: { env }, Buffer, AbortController, AbortSignal, setTimeout, clearTimeout,
-    URL, Request, Response, Headers, console: { error() {}, log() {} },
+    URL, Request, Response, Headers, console: { error() {}, log() {}, warn() {} },
     fetch: fetchMock || (() => { throw new Error('External API calls are forbidden in these tests'); }),
     require(name) { if (Object.hasOwn(mocks, name)) return mocks[name]; throw new Error(`Unmocked interview dependency: ${name}`); },
   });
@@ -218,7 +218,11 @@ test('mobile starts a bulk generation with the selected model and validated coun
   assert.deepEqual(app.calls[0].args, ['selected-model', 3]);
 });
 
-test('bulk generation queues only placeholders and saves them sequentially', async () => {
+const generatedAnswer = () => Response.json({
+  candidates: [{ content: { parts: [{ text: JSON.stringify({ title: 'Generated title', bestAnswer: 'Generated answer.' }) }] } }],
+});
+
+function bulkHarness(getResponse = generatedAnswer) {
   const queued = [];
   const callbacks = [];
   const questions = [
@@ -269,9 +273,13 @@ test('bulk generation queues only placeholders and saves them sequentially', asy
     const running = queued.filter(job => job.status === 'RUNNING');
     assert.equal(running.length, 1);
     apiCalls.push(running[0].questionId);
-    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ title: 'Generated title', bestAnswer: 'Generated answer.' }) }] } }] });
+    return getResponse(apiCalls);
   });
+  return { ai, queued, callbacks, questions, apiCalls };
+}
 
+test('bulk generation queues only placeholders and saves them sequentially', async () => {
+  const { ai, queued, callbacks, questions, apiCalls } = bulkHarness();
   assert.equal((await ai.startBulkBackgroundJob('inactive-model', 3)).success, false);
   assert.equal((await ai.startBulkBackgroundJob('selected-model', 3)).count, 2);
   assert.deepEqual(queued.slice(1).map(job => job.status), ['QUEUED', 'QUEUED']);
@@ -283,4 +291,36 @@ test('bulk generation queues only placeholders and saves them sequentially', asy
     'Generated answer.', 'Generated answer.', 'A short but valid answer.', '(Please update via UI)',
   ]);
   assert.equal(questions[0].title, 'First');
+});
+
+
+test('Gemini rate limits fail the current question immediately and the queue advances', async t => {
+  for (const stage of ['generation', 'continuation', 'JSON repair']) {
+    await t.test(stage, async () => {
+      const { ai, queued, callbacks, apiCalls } = bulkHarness(calls => {
+        if (calls.at(-1) !== calls[0]) return generatedAnswer();
+        if (calls.length === 1 && stage !== 'generation') {
+          return Response.json({
+            candidates: [{
+              finishReason: stage === 'continuation' ? 'MAX_TOKENS' : 'STOP',
+              content: { parts: [{ text: 'incomplete response' }] },
+            }],
+          });
+        }
+        return new Response(null, { status: 429 });
+      });
+
+      await ai.startBulkBackgroundJob('selected-model', 2);
+      await callbacks[0]();
+      const [first, second] = queued.slice(1);
+      assert.deepEqual(apiCalls, [
+        first.questionId,
+        ...(stage === 'generation' ? [] : [first.questionId]),
+        second.questionId,
+      ]);
+      assert.equal(first.status, 'FAILED');
+      assert.match(first.errorReason, /HTTP 429/);
+      assert.equal(second.status, 'COMPLETED');
+    });
+  }
 });
