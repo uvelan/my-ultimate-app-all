@@ -2,7 +2,7 @@
   "expo": {
     "name": "uvelan.ultimateapp",
     "slug": "my-ultimate-app",
-    "version": "1.1.42",
+    "version": "1.1.43",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "my-ultimate-app",
@@ -31,7 +31,7 @@
       "permissions": [
         "READ_SMS"
       ],
-      "versionCode": 46
+      "versionCode": 47
     },
     "web": {
       "bundler": "metro",
