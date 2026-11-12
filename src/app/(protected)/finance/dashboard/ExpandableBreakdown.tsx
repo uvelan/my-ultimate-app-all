@@ -59,15 +59,25 @@ export default function ExpandableBreakdown({ groups, categories, view, total, r
   const nodes: Node[] = view === 'CATEGORY'
     ? dashboardCategoryTree(groups.flatMap(group => group.items), categories)
     : groups.map(group => ({ ...group, items: [], children: dashboardCategoryTree(group.items, categories) }))
+  const setAllBranches = (open: boolean) => {
+    section.current?.querySelectorAll<HTMLDetailsElement>('details').forEach(node => { node.open = open })
+  }
+  const buttonStyle = { border: '1px solid var(--ft-outline-variant)', borderRadius: 8, padding: '8px 12px', background: 'var(--ft-surface-low)', color: 'var(--ft-primary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
   return (
     <section ref={section} aria-label="Expandable expense breakdown" style={{ minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
         <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--ft-primary)' }}>Breakdown</h3>
-        <button type="button" aria-label="Export breakdown with selected date range" onClick={() => {
-          const expanded = new Set(Array.from(section.current?.querySelectorAll<HTMLDetailsElement>('details[open]') || []).map(node => node.dataset.imagePath || ''))
-          setSnapshot({ rows: financeBreakdownImageRows(nodes, total, expanded), allRows: financeBreakdownImageRows(nodes, total, 'all'), totalExpense: total,
-            rangeStart, rangeEnd, grouping: view === 'CATEGORY' ? 'category' : 'payment method', hidden })
-        }} style={{ border: '1px solid var(--ft-outline-variant)', borderRadius: 8, padding: '8px 12px', background: 'var(--ft-surface-low)', color: 'var(--ft-primary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Export breakdown</button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {nodes.length > 0 && <>
+            <button type="button" style={buttonStyle} onClick={() => setAllBranches(true)}>Expand all</button>
+            <button type="button" style={buttonStyle} onClick={() => setAllBranches(false)}>Collapse all</button>
+          </>}
+          <button type="button" aria-label="Export breakdown with selected date range" onClick={() => {
+            const expanded = new Set(Array.from(section.current?.querySelectorAll<HTMLDetailsElement>('details[open]') || []).map(node => node.dataset.imagePath || ''))
+            setSnapshot({ rows: financeBreakdownImageRows(nodes, total, expanded), allRows: financeBreakdownImageRows(nodes, total, 'all'), totalExpense: total,
+              rangeStart, rangeEnd, grouping: view === 'CATEGORY' ? 'category' : 'payment method', hidden })
+          }} style={buttonStyle}>Export breakdown</button>
+        </div>
       </div>
       <div className={styles.breakdownList}>
         {nodes.map(node => <BreakdownBranch key={node.id} node={node} total={total} />)}

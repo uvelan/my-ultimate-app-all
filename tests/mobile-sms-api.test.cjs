@@ -22,12 +22,20 @@ const prisma = {
         attempts++;
         const failure = failures.shift();
         if (failure) throw Object.assign(new Error('Internal database detail must never be exposed'), { code: failure });
-        let record, receipt;
-        const result = await callback({ transaction: { create: async ({ data }) => { record = { id: `txn-${++serial}`, ...data }; return record; } }, smsImport: { create: async ({ data }) => { receipt = data; return data; } } });
-        const receiptKey = key(receipt.userId, receipt.fingerprint);
-        if (receipts.has(receiptKey)) throw Object.assign(new Error('Duplicate key'), { code: 'P2002' });
+        let record;
+        const stagedReceipts = new Map();
+        const result = await callback({
+            transaction: { create: async ({ data }) => { record = { id: `txn-${++serial}`, ...data }; return record; } },
+            smsImport: { createMany: async ({ data }) => {
+                for (const receipt of data) stagedReceipts.set(key(receipt.userId, receipt.fingerprint), receipt);
+                return { count: data.length };
+            } },
+        });
+        if ([...stagedReceipts.keys()].some(receiptKey => receipts.has(receiptKey))) {
+            throw Object.assign(new Error('Duplicate key'), { code: 'P2002' });
+        }
         ledger.set(record.id, record);
-        receipts.set(receiptKey, receipt);
+        for (const [receiptKey, receipt] of stagedReceipts) receipts.set(receiptKey, receipt);
         return result;
     },
 };
@@ -141,4 +149,63 @@ test('SMS database failures return generic 503 without writes', async () => {
     assert.equal(attempts, 1);
     assert.equal(ledger.size, 0);
     assert.doesNotMatch(JSON.stringify(result.body), /DATABASE_DOWN|Internal database detail/);
+});
+
+
+const otherFingerprint = 'sms-v1:' + 'b'.repeat(64);
+const thirdFingerprint = 'sms-v1:' + 'c'.repeat(64);
+const combined = fingerprints => {
+    const { fingerprint: unused, ...fields } = valid();
+    return { ...fields, action: 'importCombined', fingerprints, amountPaise: 24690 };
+};
+
+test('combining messages writes one ledger transaction and a receipt for each source message', async () => {
+    const result = await post(combined([fingerprint, otherFingerprint]));
+    assert.equal(result.status, 201);
+    assert.equal(ledger.size, 1);
+    assert.equal(ledger.get(result.body.transactionId).amountPaise, 24690);
+    assert.equal(receipts.size, 2);
+    assert.equal(receipts.get(key(userId, fingerprint)).transactionId, result.body.transactionId);
+    assert.equal(receipts.get(key(userId, otherFingerprint)).transactionId, result.body.transactionId);
+    assert.equal((await post(valid())).body.duplicate, true);
+    const retry = await post(combined([otherFingerprint, fingerprint]));
+    assert.equal(retry.body.duplicate, true);
+    assert.equal(retry.body.transactionId, result.body.transactionId);
+    assert.equal(ledger.size, 1);
+});
+
+test('duplicate or previously imported sources cannot create an overlapping combined transaction', async () => {
+    assert.equal((await post(combined([fingerprint, fingerprint]))).status, 400);
+    await post(combined([fingerprint, otherFingerprint, thirdFingerprint]));
+    const result = await post(combined([fingerprint, otherFingerprint]));
+    assert.equal(result.status, 409);
+    assert.deepEqual(Array.from(result.body.importedFingerprints), [fingerprint, otherFingerprint]);
+    assert.equal(ledger.size, 1);
+    assert.equal(attempts, 1);
+});
+
+test('a concurrent single import and overlapping combined import cannot both commit', async () => {
+    const results = await Promise.all([post(valid()), post(combined([fingerprint, otherFingerprint]))]);
+    assert.equal(results.filter(result => result.status === 201).length, 1);
+    assert.equal(ledger.size, 1);
+    const [record] = ledger.values();
+    assert.equal(receipts.size, record.amountPaise === 24690 ? 2 : 1);
+});
+
+
+test('concurrent overlapping groups save only one transaction and leave the other group reviewable', async () => {
+    const results = await Promise.all([
+        post(combined([fingerprint, otherFingerprint])),
+        post(combined([otherFingerprint, thirdFingerprint])),
+    ]);
+    const saved = results.find(result => result.status === 201);
+    const conflict = results.find(result => result.status === 409);
+    assert.ok(saved);
+    assert.ok(conflict);
+    assert.deepEqual(Array.from(conflict.body.importedFingerprints), [otherFingerprint]);
+    assert.equal(ledger.size, 1);
+    assert.equal(receipts.size, 2);
+    const lookup = await post({ action: 'lookup', fingerprints: [fingerprint, otherFingerprint, thirdFingerprint] });
+    assert.equal(lookup.body.imports.length, 2);
+    assert.ok(lookup.body.imports.every(receipt => receipt.transactionId === saved.body.transactionId));
 });

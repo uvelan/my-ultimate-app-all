@@ -48,6 +48,7 @@ test('web download creates PNG through Canvas and uses the date-range filename',
 
 test('web breakdown export reads open branches and the applied period rather than a viewport screenshot', () => {
  let state = null;
+ const details = [{ open: false, dataset: { imagePath: '["root"]' } }];
  const jsx = (type, props) => ({ type, props });
  const dashboard = load('src/lib/finance-dashboard.ts');
  const module = { exports: {} };
@@ -55,7 +56,7 @@ test('web breakdown export reads open branches and the applied period rather tha
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
  }).outputText;
  const dependencies = {
-  react: { useRef: () => ({ current: { querySelectorAll: () => [{ dataset: { imagePath: '["root"]' } }] } }),
+  react: { useRef: () => ({ current: { querySelectorAll: selector => selector === 'details[open]' ? details.filter(node => node.open) : details } }),
    useState: () => [state, value => { state = value; }] },
   'react/jsx-runtime': { jsx, jsxs: jsx }, '@/lib/finance-dashboard': dashboard,
   '@/lib/finance-image': rows, '@/components/finance/FinanceImageExport': { default: 'ImagePreview' },
@@ -66,10 +67,14 @@ test('web breakdown export reads open branches and the applied period rather tha
  const transaction = { id: 't', categoryId: 'root', amountPaise: 10000, type: 'EXPENSE', description: 'Repair', paymentMethod: 'UPI', transactionDate: '2026-10-30T10:00:00Z' };
  const tree = module.exports.default({ groups: [{ id: 'root', name: 'Utility', color: '#123456', amountPaise: 10000, items: [transaction] }], categories, view: 'CATEGORY', total: 10000, rangeStart: '2026-10-21', rangeEnd: '2026-11-01', hidden: 'Home' });
  function nodes(value) { return !value || typeof value !== 'object' ? [] : Array.isArray(value) ? value.flatMap(nodes) : [value, ...nodes(value.props?.children)]; }
+ nodes(tree).find(node => node.props?.children === 'Expand all' && node.type === 'button').props.onClick();
+ assert.equal(details[0].open, true);
  nodes(tree).find(node => node.props?.['aria-label'] === 'Export breakdown with selected date range').props.onClick();
  assert.equal(state.rangeStart, '2026-10-21'); assert.equal(state.rangeEnd, '2026-11-01');
  assert.equal(state.hidden, 'Home'); assert.equal(state.totalExpense, 10000);
  assert.deepEqual(Array.from(state.rows, row => row.name), ['Utility', 'Repair']);
+ nodes(tree).find(node => node.props?.children === 'Collapse all' && node.type === 'button').props.onClick();
+ assert.equal(details[0].open, false);
 });
 
 

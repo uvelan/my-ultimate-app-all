@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-server';
 import { prisma } from '@/lib/prisma';
@@ -16,6 +17,12 @@ const importSchema = z.object({
     paymentMethod: z.string().trim().min(1).max(50),
 }).strict();
 
+const combinedImportSchema = importSchema.omit({ action: true, fingerprint: true }).extend({
+    action: z.literal('importCombined'),
+    fingerprints: z.array(fingerprint).min(2).max(50)
+        .refine(values => new Set(values).size === values.length),
+});
+
 export async function POST(request: Request) {
     const auth = await verifyAuth();
     if (!auth.isAuthenticated || !auth.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -30,17 +37,31 @@ export async function POST(request: Request) {
             });
             return NextResponse.json({ imports });
         }
-        const input = importSchema.parse(body);
-        const receiptWhere = { userId_fingerprint: { userId, fingerprint: input.fingerprint } };
+        const input = body?.action === 'importCombined' ? combinedImportSchema.parse(body) : importSchema.parse(body);
+        const fingerprints = input.action === 'importCombined' ? [...input.fingerprints].sort() : [input.fingerprint];
+        const sourceId = input.action === 'importCombined'
+            ? 'sms-combined-v1:' + createHash('sha256').update(fingerprints.join('\n')).digest('hex')
+            : input.fingerprint;
         const previousImport = async () => {
-            const receipt = await prisma.smsImport.findUnique({ where: receiptWhere });
-            if (!receipt) return null;
-            const transaction = await prisma.transaction.findFirst({ where: { id: receipt.transactionId, userId } });
-            return { duplicate: true, transactionId: receipt.transactionId,
-                deleted: !transaction || !!transaction.deletedAt };
+            const receipts = input.action === 'importCombined'
+                ? await prisma.smsImport.findMany({ where: { userId, fingerprint: { in: fingerprints } } })
+                : [await prisma.smsImport.findUnique({ where: { userId_fingerprint: { userId, fingerprint: input.fingerprint } } })]
+                    .filter(receipt => receipt !== null);
+            if (!receipts.length) return null;
+            const transactionId = receipts[0].transactionId;
+            if (receipts.length === fingerprints.length && receipts.every(receipt => receipt.transactionId === transactionId)) {
+                const transaction = await prisma.transaction.findFirst({ where: { id: transactionId, userId } });
+                if (input.action === 'import' || transaction?.sourceId === sourceId) {
+                    return NextResponse.json({ duplicate: true, transactionId, deleted: !transaction || !!transaction.deletedAt });
+                }
+            }
+            return NextResponse.json({
+                error: 'Some selected messages were already imported. Review the remaining messages before saving.',
+                importedFingerprints: receipts.map(receipt => receipt.fingerprint),
+            }, { status: 409 });
         };
         const existing = await previousImport();
-        if (existing) return NextResponse.json(existing);
+        if (existing) return existing;
 
         const category = await prisma.category.findFirst({
             where: { id: input.categoryId, userId, type: input.type, isArchived: false },
@@ -54,9 +75,11 @@ export async function POST(request: Request) {
                         userId, type: input.type, amountPaise: input.amountPaise,
                         categoryId: input.categoryId, transactionDate: new Date(input.transactionDate),
                         description: input.description, paymentMethod: input.paymentMethod,
-                        sourceModel: 'SMS', sourceId: input.fingerprint, deletedAt: null,
+                        sourceModel: 'SMS', sourceId, deletedAt: null,
                     } });
-                    await tx.smsImport.create({ data: { userId, fingerprint: input.fingerprint, transactionId: record.id } });
+                    await tx.smsImport.createMany({
+                        data: fingerprints.map(fingerprint => ({ userId, fingerprint, transactionId: record.id })),
+                    });
                     return record;
                 });
                 revalidatePath('/finance', 'layout');
@@ -65,7 +88,7 @@ export async function POST(request: Request) {
                 const code = (error as { code?: string }).code;
                 if (code === 'P2002' || code === 'P2034') {
                     const previous = await previousImport();
-                    if (previous) return NextResponse.json(previous);
+                    if (previous) return previous;
                     if (attempt < 2) continue;
                 }
                 throw error;
