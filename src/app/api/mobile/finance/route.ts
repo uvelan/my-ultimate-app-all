@@ -73,13 +73,11 @@ async function mutate(req: NextRequest) {
             return NextResponse.json({ success: true, result });
         }
         const raw = body.data || {};
-        const categoryId = resource === 'categories' ? raw.parentId : raw.categoryId || existing?.categoryId;
+        const categoryId = resource === 'categories' ? undefined : raw.categoryId || existing?.categoryId;
         if (categoryId) {
             const category = await prisma.category.findFirst({ where: { id: idSchema.parse(categoryId), userId, isArchived: false } });
             const expectedType = raw.type || existing?.type;
             if (!category || (expectedType && category.type !== expectedType) || (resource === 'budgets' && category.type !== 'EXPENSE')) return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
-            if (resource === 'categories' && id === categoryId) return NextResponse.json({ error: 'Category cannot be its own parent' }, { status: 400 });
-            if (resource === 'categories' && category.parentId) return NextResponse.json({ error: 'Choose a top-level parent category' }, { status: 400 });
         }
         let result;
         if (resource === 'transactions') result = req.method === 'PATCH' ? await updateTransaction(id!, transactionSchema.partial().parse(raw)) : await addTransaction(transactionSchema.parse(raw));

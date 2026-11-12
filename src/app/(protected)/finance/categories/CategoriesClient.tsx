@@ -50,7 +50,7 @@ function CategoryModal({
     }
   }, [open, editing])
 
-  const eligibleParents = allCategories.filter(c => c.type === type && c.id !== editing?.id && !c.parentId)
+  const eligibleParents = allCategories.filter(c => c.type === type && c.id !== editing?.id && !c.parentId && (!c.isArchived || c.id === parentId))
 
   function validate() {
     const errs: Record<string, string> = {}
@@ -67,7 +67,6 @@ function CategoryModal({
       name: name.trim(),
       color,
       type,
-      isArchived: false,
       parentId: parentId || null
     }
 
@@ -83,7 +82,7 @@ function CategoryModal({
         router.refresh()
         onClose()
       } catch (err: any) {
-        toast.error(err.message || 'Something went wrong')
+        toast.error(err.issues?.[0]?.message || err.message || 'Something went wrong')
       }
     })
   }
@@ -105,7 +104,7 @@ function CategoryModal({
             <div style={{ display: 'flex', background: 'var(--ft-surface-container)', borderRadius: 14, padding: 4, gap: 4 }}>
               {(['EXPENSE', 'INCOME'] as const).map(t => (
                 <button
-                  key={t} type="button" onClick={() => { setType(t); setParentId(''); }}
+                  key={t} type="button" onClick={() => { if (t !== type) { setType(t); setParentId(''); } }}
                   style={{
                     flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', transition: 'all 0.2s',
                     background: type === t ? (t === 'EXPENSE' ? 'var(--ft-error)' : 'var(--ft-secondary)') : 'transparent',
@@ -121,17 +120,20 @@ function CategoryModal({
               {errors.name && <p style={errStyle}>{errors.name}</p>}
             </div>
             
-            {eligibleParents.length > 0 && (
-              <div>
-                <label style={labelStyle}>Parent Category (Optional)</label>
-                <select value={parentId} onChange={e => setParentId(e.target.value)} style={inputStyle}>
-                  <option value="">None (Top-level)</option>
-                  {eligibleParents.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div>
+              <label htmlFor="category-parent" style={labelStyle}>Parent Category (Optional)</label>
+              <select id="category-parent" value={parentId} onChange={e => setParentId(e.target.value)} style={inputStyle}>
+                <option value="">None (Top-level)</option>
+                {eligibleParents.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}{c.isArchived ? ' (archived)' : ''}</option>
+                ))}
+              </select>
+              {!eligibleParents.length && (
+                <p style={{ fontSize: 12, color: 'var(--ft-on-surface-variant)', marginTop: 6 }}>
+                  To choose a parent, first add an active top-level category of this type.
+                </p>
+              )}
+            </div>
 
             <div>
               <label style={labelStyle}>Color</label>

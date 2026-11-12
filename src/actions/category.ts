@@ -10,9 +10,20 @@ const CategorySchema = z.object({
   name: z.string().min(1, 'Name is required'),
   color: z.string(),
   type: z.nativeEnum(TransactionType),
-  isArchived: z.boolean().default(false),
-  parentId: z.string().optional().nullable()
+  isArchived: z.boolean().optional(),
+  parentId: z.string().regex(/^[a-f\d]{24}$/i, 'Invalid parent category').nullish()
 })
+
+async function validateParent(userId: string, parentId: string | null | undefined, type: TransactionType, id?: string) {
+    if (!parentId) return
+    const parent = parentId !== id && await prisma.category.findFirst({
+        where: { id: parentId, userId, type, isArchived: false },
+        select: { parentId: true }
+    })
+    if (!parent || parent.parentId) {
+        throw new z.ZodError([{ code: 'custom', path: ['parentId'], message: 'Choose an active top-level parent of the same type.' }])
+    }
+}
 
 export async function getCategories(includeArchived = false) {
     const { isAuthenticated, user } = await verifyAuth()
@@ -34,6 +45,7 @@ export async function addCategory(data: z.infer<typeof CategorySchema>) {
     if (!isAuthenticated || !user) throw new Error('Unauthorized')
 
     const validated = CategorySchema.parse(data)
+    await validateParent(user.id, validated.parentId, validated.type)
 
     const newCat = await prisma.category.create({
         data: {
@@ -50,6 +62,17 @@ export async function updateCategory(id: string, data: Partial<z.infer<typeof Ca
     if (!isAuthenticated || !user) throw new Error('Unauthorized')
 
     const validated = CategorySchema.partial().parse(data)
+    if (validated.parentId !== undefined || validated.type !== undefined) {
+        const current = await prisma.category.findUniqueOrThrow({
+            where: { id, userId: user.id },
+            select: { parentId: true, type: true }
+        })
+        const parentId = validated.parentId === undefined ? current.parentId : validated.parentId
+        const type = validated.type ?? current.type
+        if (parentId !== current.parentId || type !== current.type) {
+            await validateParent(user.id, parentId, type, id)
+        }
+    }
 
     const updatedCat = await prisma.category.update({
         where: { id, userId: user.id },
