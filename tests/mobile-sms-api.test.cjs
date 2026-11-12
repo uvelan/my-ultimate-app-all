@@ -14,9 +14,22 @@ const key = (user, fp) => `${user}:${fp}`;
 const prisma = {
     smsImport: {
         findUnique: async ({ where }) => receipts.get(key(where.userId_fingerprint.userId, where.userId_fingerprint.fingerprint)) || null,
-        findMany: async ({ where }) => { lookupQuery = where; return [...receipts.values()].filter(item => item.userId === where.userId && where.fingerprint.in.includes(item.fingerprint)); },
+        findMany: async ({ where }) => { lookupQuery = where; return [...receipts.values()].filter(item => item.userId === where.userId
+            && (where.transactionId ? item.transactionId === where.transactionId : where.fingerprint.in.includes(item.fingerprint))); },
     },
-    transaction: { findFirst: async ({ where }) => { const item = ledger.get(where.id); return item?.userId === where.userId ? item : null; } },
+    transaction: {
+        findFirst: async ({ where }) => {
+            const item = ledger.get(where.id);
+            return item?.userId === where.userId && (!('deletedAt' in where) || !item.deletedAt) ? item : null;
+        },
+        findMany: async ({ where }) => [...ledger.values()].filter(item => item.userId === where.userId && where.id.in.includes(item.id)),
+        updateMany: async ({ where, data }) => {
+            const item = ledger.get(where.id);
+            if (item?.userId !== where.userId || !item.deletedAt) return { count: 0 };
+            ledger.set(where.id, { ...item, ...data });
+            return { count: 1 };
+        },
+    },
     category: { findFirst: async ({ where }) => { categoryQueries.push(where); return validCategory ? { id: categoryId } : null; } },
     $transaction: async callback => {
         attempts++;
@@ -24,17 +37,34 @@ const prisma = {
         if (failure) throw Object.assign(new Error('Internal database detail must never be exposed'), { code: failure });
         let record;
         const stagedReceipts = new Map();
+        const replaced = new Map();
         const result = await callback({
-            transaction: { create: async ({ data }) => { record = { id: `txn-${++serial}`, ...data }; return record; } },
-            smsImport: { createMany: async ({ data }) => {
-                for (const receipt of data) stagedReceipts.set(key(receipt.userId, receipt.fingerprint), receipt);
-                return { count: data.length };
-            } },
+            category: prisma.category,
+            transaction: { ...prisma.transaction, create: async ({ data }) => { record = { id: `txn-${++serial}`, ...data }; return record; } },
+            smsImport: {
+                ...prisma.smsImport,
+                createMany: async ({ data }) => {
+                    for (const receipt of data) stagedReceipts.set(key(receipt.userId, receipt.fingerprint), receipt);
+                    return { count: data.length };
+                },
+                updateMany: async ({ where, data }) => {
+                    for (const [receiptKey, receipt] of receipts) {
+                        if (receipt.userId !== where.userId || receipt.transactionId !== where.transactionId) continue;
+                        replaced.set(receiptKey, receipt.transactionId);
+                        stagedReceipts.set(receiptKey, { ...receipt, ...data });
+                    }
+                    return { count: replaced.size };
+                },
+            },
         });
-        if ([...stagedReceipts.keys()].some(receiptKey => receipts.has(receiptKey))) {
-            throw Object.assign(new Error('Duplicate key'), { code: 'P2002' });
+        for (const [receiptKey] of stagedReceipts) {
+            const current = receipts.get(receiptKey);
+            if (replaced.has(receiptKey) && current?.transactionId !== replaced.get(receiptKey)) {
+                throw Object.assign(new Error('Write conflict'), { code: 'P2034' });
+            }
+            if (!replaced.has(receiptKey) && current) throw Object.assign(new Error('Duplicate key'), { code: 'P2002' });
         }
-        ledger.set(record.id, record);
+        if (record) ledger.set(record.id, record);
         for (const [receiptKey, receipt] of stagedReceipts) receipts.set(receiptKey, receipt);
         return result;
     },
@@ -208,4 +238,43 @@ test('concurrent overlapping groups save only one transaction and leave the othe
     const lookup = await post({ action: 'lookup', fingerprints: [fingerprint, otherFingerprint, thirdFingerprint] });
     assert.equal(lookup.body.imports.length, 2);
     assert.ok(lookup.body.imports.every(receipt => receipt.transactionId === saved.body.transactionId));
+});
+
+
+const resync = fingerprints => ({ ...combined(fingerprints), action: 'resync' });
+const restore = source => post({ action: 'restore', fingerprint: source });
+
+test('SMS lookup identifies a deleted transaction and restoring either source restores the original group', async () => {
+    const saved = await post(combined([fingerprint, otherFingerprint]));
+    const entry = ledger.get(saved.body.transactionId);
+    entry.deletedAt = new Date();
+    const lookup = await post({ action: 'lookup', fingerprints: [fingerprint, otherFingerprint] });
+    assert.ok(lookup.body.imports.every(receipt => receipt.deleted && !receipt.missing));
+    const result = await restore(otherFingerprint);
+    assert.equal(result.body.transactionId, entry.id);
+    assert.equal(ledger.get(entry.id).deletedAt, null);
+    assert.equal(ledger.get(entry.id).amountPaise, entry.amountPaise);
+    assert.equal((await restore(fingerprint)).body.duplicate, true);
+    assert.equal(ledger.size, 1);
+});
+
+test('resync requires every source message and concurrent retries recreate a missing group only once', async () => {
+    const saved = await post(combined([fingerprint, otherFingerprint]));
+    ledger.delete(saved.body.transactionId);
+    const lookup = await post({ action: 'lookup', fingerprints: [fingerprint] });
+    assert.equal(lookup.body.imports[0].missing, true);
+    assert.equal((await restore(fingerprint)).status, 409);
+    assert.equal((await post(resync([fingerprint]))).status, 409);
+    assert.equal(ledger.size, 0);
+
+    const results = await Promise.all([
+        post(resync([fingerprint, otherFingerprint])),
+        post(resync([otherFingerprint, fingerprint])),
+    ]);
+    assert.deepEqual(results.map(result => result.status).sort(), [200, 201]);
+    assert.equal(results[0].body.transactionId, results[1].body.transactionId);
+    assert.equal(ledger.size, 1);
+    assert.equal(receipts.size, 2);
+    assert.equal((await post(valid())).body.duplicate, true);
+    assert.equal((await post(combined([otherFingerprint, fingerprint]))).body.duplicate, true);
 });
