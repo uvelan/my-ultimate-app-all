@@ -5,7 +5,7 @@ export interface InterviewQuestion {
     frequency?: number; companies: string[]; tags: string[]; problemStatement?: string;
     expectation?: string; explanation?: string; bestAnswer?: string; alternativeAnswer?: string;
     commonMistakes?: string[]; followUpQuestions?: string[]; realWorldUsage?: string;
-    codeSnippet?: { language?: string; code?: string } | null; mcqs?: any[] | null; isAiGenerated?: boolean;
+    codeSnippet?: { language?: string; code?: string; beginner?: string; production?: string; antiPattern?: string } | null; mcqs?: any[] | null; isAiGenerated?: boolean;
 }
 export interface InterviewPage { items: InterviewQuestion[]; total: number; page: number; totalPages: number }
 export const interviewService = {

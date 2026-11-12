@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InterviewMarkup, InterviewMarkupProvider } from '@/src/components/interview/InterviewMarkup';
 import { SidebarToggle } from '@/src/components/ui/Sidebar';
 import { interviewService, InterviewPage, InterviewQuestion } from '@/src/services/interview.service';
 import * as DocumentPicker from 'expo-document-picker';
@@ -8,12 +10,13 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 
 type Tab = 'Explore' | 'Goals' | 'Flashcards' | 'Mock interviews' | 'Manage' | 'AI jobs';
 const tabs: Tab[] = ['Explore', 'Goals', 'Flashcards', 'Mock interviews', 'Manage', 'AI jobs'];
+type QuestionSegment = 'Question' | 'Answers' | 'Deep dive' | 'Code' | 'Quiz';
 const activeJobStatuses = ['PENDING', 'QUEUED', 'RUNNING'];
 const emptyQuestion = { title: '', topic: 'general', difficulty: 'Medium', estimatedTime: '10', frequency: '50', companies: '', tags: '', problemStatement: '', expectation: '', explanation: '', bestAnswer: '', alternativeAnswer: '', realWorldUsage: '', commonMistakes: '', followUpQuestions: '', language: '', code: '', mcqs: '' };
 const errorText = (error: any) => error.response?.data?.error || error.message || 'Please try again.';
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 const csv = (value: string) => value.split(',').map(item => item.trim()).filter(Boolean);
-const textContent = (value: unknown) => typeof value === 'string' ? value.replace(/<[^>]*>/g, ' ').replace(/\n{3,}/g, '\n\n').trim() : '';
+const hasText = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
 function Button({ label, onPress, disabled = false, secondary = false, danger = false }: { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; danger?: boolean }) {
     return <TouchableOpacity accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.button, secondary && s.secondary, danger && s.danger, disabled && { opacity: 0.4 }]}><Text style={s.buttonText}>{label}</Text></TouchableOpacity>;
@@ -21,12 +24,53 @@ function Button({ label, onPress, disabled = false, secondary = false, danger = 
 function Field({ label, value, onChange, multiline = false, numeric = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; numeric?: boolean }) {
     return <View style={{ marginBottom: 12 }}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} style={[s.input, multiline && { minHeight: 110, textAlignVertical: 'top' }]} value={value} onChangeText={onChange} multiline={multiline} keyboardType={numeric ? 'number-pad' : 'default'} placeholderTextColor="#777" autoCapitalize={numeric ? 'none' : 'sentences'} /></View>;
 }
-function Section({ title, content }: { title: string; content: unknown }) {
-    const value = Array.isArray(content) ? content.map(String).join('\n\n') : textContent(content);
-    return value ? <View style={{ marginBottom: 20 }}><Text style={s.heading}>{title}</Text><Text selectable style={s.body}>{value}</Text></View> : null;
+function SegmentTabs<T extends string>({ options, selected, onSelect }: {
+    options: readonly T[]; selected: T; onSelect: (value: T) => void;
+}) {
+    return (
+        <View accessibilityRole="tablist" style={s.segments}>
+            {options.map(option => (
+                <TouchableOpacity
+                    key={option}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: selected === option }}
+                    onPress={() => onSelect(option)}
+                    style={[s.segment, selected === option && s.segmentSelected]}
+                >
+                    <Text style={[s.segmentText, selected === option && s.segmentTextSelected]}>{option}</Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
+}
+
+function Section({ title, content, plain = false }: { title: string; content?: string | string[] | null; plain?: boolean }) {
+    if (Array.isArray(content) ? !content.some(hasText) : !hasText(content)) return null;
+    return (
+        <View style={s.section}>
+            <Text accessibilityRole="header" style={s.heading}>{title}</Text>
+            {plain && typeof content === 'string'
+                ? <Text selectable style={s.body}>{content}</Text>
+                : <InterviewMarkup content={content} />}
+        </View>
+    );
+}
+
+function getCodeExamples(snippet: InterviewQuestion['codeSnippet']) {
+    const variants = [
+        { title: 'Beginner example', code: snippet?.beginner },
+        { title: 'Production example', code: snippet?.production },
+        { title: 'Anti-pattern', code: snippet?.antiPattern },
+    ].filter(example => hasText(example.code));
+    if (hasText(snippet?.code) && !variants.some(example => example.code === snippet.code)) {
+        variants.unshift({ title: 'Code example', code: snippet.code });
+    }
+    return variants;
 }
 
 export default function InterviewScreen() {
+    const insets = useSafeAreaInsets();
+    const safeArea = { paddingTop: insets.top, paddingRight: insets.right, paddingBottom: insets.bottom, paddingLeft: insets.left };
     const [tab, setTab] = useState<Tab>('Explore');
     const [overview, setOverview] = useState<any>({ topics: [], goals: [], completed: [], models: [] });
     const [items, setItems] = useState<any[]>([]);
@@ -41,6 +85,7 @@ export default function InterviewScreen() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [detail, setDetail] = useState<InterviewQuestion | null>(null);
+    const [questionSegment, setQuestionSegment] = useState<QuestionSegment>('Question');
     const [editor, setEditor] = useState<'question' | 'goal' | 'import' | 'ai' | 'bulkAI' | 'model' | 'models' | null>(null);
     const [form, setForm] = useState<any>({});
     const [selected, setSelected] = useState<string[]>([]);
@@ -169,7 +214,11 @@ export default function InterviewScreen() {
     };
     const showQuestion = async (id: string) => {
         setBusy(true);
-        try { setDetail(await interviewService.read('question', { id })); }
+        try {
+            const question = await interviewService.read<InterviewQuestion>('question', { id });
+            setQuestionSegment('Question');
+            setDetail(question);
+        }
         catch (err) { Alert.alert('Unable to open question', errorText(err)); }
         finally { setBusy(false); }
     };
@@ -313,20 +362,34 @@ export default function InterviewScreen() {
         ['companies', 'Companies (comma separated)'], ['tags', 'Tags (comma separated)'], ['language', 'Code language'], ['code', 'Code snippet'], ['mcqs', 'Multiple choice questions (JSON array)'],
     ];
 
-    return <View style={s.screen}>
-        <View style={s.header}><SidebarToggle /><Text style={[s.title, { marginLeft: 12 }]}>Interview preparation</Text></View>
-        <ScrollView horizontal style={s.tabBar} contentContainerStyle={s.tabBarContent} showsHorizontalScrollIndicator={false}>
-            {tabs.map(name => <Button key={name} label={name} onPress={() => switchTab(name)} secondary={tab !== name} />)}
-        </ScrollView>
+    const codeExamples = getCodeExamples(detail?.codeSnippet);
+    const quiz = Array.isArray(detail?.mcqs)
+        ? detail.mcqs.filter(mcq => mcq && typeof mcq === 'object' && !Array.isArray(mcq))
+        : [];
+    const questionSegments: QuestionSegment[] = ['Question'];
+    if (hasText(detail?.bestAnswer) || hasText(detail?.alternativeAnswer)) questionSegments.push('Answers');
+    if (hasText(detail?.explanation) || hasText(detail?.realWorldUsage) || detail?.commonMistakes?.some(hasText) || detail?.followUpQuestions?.some(hasText)) {
+        questionSegments.push('Deep dive');
+    }
+    if (codeExamples.length) questionSegments.push('Code');
+    if (quiz.length) questionSegments.push('Quiz');
+
+    return <InterviewMarkupProvider><View style={[s.screen, safeArea]}>
+        <View style={s.header}><SidebarToggle /><Text accessibilityRole="header" style={s.headerTitle}>Interview preparation</Text></View>
+        <View style={s.navigation}><SegmentTabs options={tabs} selected={tab} onSelect={switchTab} /></View>
         <ScrollView contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#a78bfa" />} keyboardShouldPersistTaps="handled">
             {busy && <ActivityIndicator color="#a78bfa" style={{ marginBottom: 10 }} />}
             {!!error && <View style={s.card}><Text accessibilityRole="alert" style={s.error}>{error}</Text><Button label="Retry" onPress={() => { void load(); }} /></View>}
             {['Explore', 'Manage', 'Flashcards', 'Mock interviews'].includes(tab) && <>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-                    <Button label="All topics" secondary={!!topic} onPress={() => { setTopic(''); setPage(1); }} />
-                    {overview.topics.map((item: any) => <Button key={item.id} label={`${item.name} (${item.count})`} secondary={topic !== item.id} onPress={() => { setTopic(item.id); setPage(1); }} />)}
-                </ScrollView>
-                <View style={s.row}>{['', 'Easy', 'Medium', 'Hard'].map(value => <Button key={value || 'all'} label={value || 'All levels'} secondary={difficulty !== value} onPress={() => { setDifficulty(value); setPage(1); }} />)}</View>
+                <View style={s.filterPanel}>
+                    <Text style={s.label}>Topic</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.topicFilters}>
+                        <Button label="All topics" secondary={!!topic} onPress={() => { setTopic(''); setPage(1); }} />
+                        {overview.topics.map((item: any) => <Button key={item.id} label={`${item.name} (${item.count})`} secondary={topic !== item.id} onPress={() => { setTopic(item.id); setPage(1); }} />)}
+                    </ScrollView>
+                    <Text style={s.label}>Difficulty</Text>
+                    <View style={s.filterRow}>{['', 'Easy', 'Medium', 'Hard'].map(value => <Button key={value || 'all'} label={value || 'All levels'} secondary={difficulty !== value} onPress={() => { setDifficulty(value); setPage(1); }} />)}</View>
+                </View>
             </>}
             {(tab === 'Explore' || tab === 'Manage') && <>
                 <Field label="Search questions" value={query} onChange={setQuery} />
@@ -356,7 +419,7 @@ export default function InterviewScreen() {
                 {currentCard ? <View style={s.card}>
                     <Text style={s.muted}>Card {cardIndex + 1} / {items.length} · {currentCard.topic}</Text>
                     <Text style={s.heading}>{currentCard.title}</Text>
-                    <Text selectable style={[s.body, { marginVertical: 16 }]}>{textContent(flipped ? currentCard.bestAnswer || currentCard.explanation || 'No answer has been added yet.' : currentCard.problemStatement || currentCard.title)}</Text>
+                    <InterviewMarkup content={flipped ? currentCard.bestAnswer || currentCard.explanation || 'No answer has been added yet.' : currentCard.problemStatement || currentCard.title} />
                     <Button label={flipped ? 'Show question' : 'Reveal answer'} secondary onPress={() => setFlipped(value => !value)} />
                     {flipped && <View style={s.row}><Button label="Review again" secondary onPress={() => { setCardIndex(value => value + 1); setFlipped(false); }} /><Button label="Knew it" onPress={() => { setKnownCards(value => value + 1); setCardIndex(value => value + 1); setFlipped(false); }} /></View>}
                     <Button label={overview.completed.includes(currentCard.id) ? 'Marked complete' : 'Mark complete'} secondary disabled={overview.completed.includes(currentCard.id) || busy} onPress={() => { void toggleComplete(currentCard.id); }} />
@@ -382,21 +445,85 @@ export default function InterviewScreen() {
         </ScrollView>
 
         <Modal visible={!!detail} animationType="slide" onRequestClose={() => setDetail(null)}>
-            <View style={s.modal}><Button label="Back to questions" secondary onPress={() => setDetail(null)} /><ScrollView contentContainerStyle={s.content}>
-                <Text style={s.title}>{detail?.title}</Text><Text style={s.muted}>{detail?.topic} · {detail?.difficulty}</Text>
-                <View style={s.row}><Button label={overview.completed.includes(detail?.id) ? 'Mark incomplete' : 'Mark complete'} disabled={busy} onPress={() => { if (detail) void toggleComplete(detail.id); }} /><Button label="Edit" secondary onPress={() => { if (detail) editQuestion(detail); }} /><Button label="Improve with AI" secondary onPress={() => { setForm({ prompt: `Improve this interview question: ${detail?.title}`, id: detail?.id }); setDetail(null); setEditor('ai'); }} /></View>
+            <View style={[s.modal, safeArea]}>
                 {detail && <>
-                    <Section title="Problem statement" content={detail.problemStatement} /><Section title="Expectation" content={detail.expectation} /><Section title="Explanation" content={detail.explanation} /><Section title="Best answer" content={detail.bestAnswer} /><Section title="Alternative answer" content={detail.alternativeAnswer} /><Section title="Common mistakes" content={detail.commonMistakes} /><Section title="Follow-up questions" content={detail.followUpQuestions} /><Section title="Real-world usage" content={detail.realWorldUsage} />
-                    {detail.codeSnippet?.code && <View style={s.card}><Text style={s.heading}>{detail.codeSnippet.language || 'Code'}</Text><Text selectable style={[s.body, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{detail.codeSnippet.code}</Text></View>}
-                    {(Array.isArray(detail.mcqs) ? detail.mcqs : []).filter(mcq => mcq && typeof mcq === 'object' && !Array.isArray(mcq)).map((mcq, index) => <View key={index} style={s.card}><Text style={s.heading}>{textContent(mcq.question) || `Question ${index + 1}`}</Text>{(Array.isArray(mcq.options) ? mcq.options : []).map((option: any, optionIndex: number) => <Text key={optionIndex} style={s.body}>{optionIndex + 1}. {typeof option === 'string' ? option : JSON.stringify(option)}</Text>)}<Text style={s.muted}>Answer: {String(mcq.correctAnswer ?? mcq.answer ?? '')}</Text><Text style={s.body}>{textContent(mcq.explanation)}</Text></View>)}
-                    <Button label="Delete question" danger disabled={busy} onPress={() => Alert.alert('Delete question?', 'This removes the shared question and its associated practice links.', [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void run('deleteQuestion', { id: detail.id }).then(result => { if (result) setDetail(null); }); } }])} />
+                    <View style={s.detailHeader}>
+                        <View style={s.filterRow}><Button label="Back to questions" secondary onPress={() => setDetail(null)} /></View>
+                        <SegmentTabs options={questionSegments} selected={questionSegment} onSelect={setQuestionSegment} />
+                    </View>
+                    <ScrollView key={questionSegment} contentContainerStyle={s.content}>
+                        {questionSegment === 'Question' && <>
+                            <Text accessibilityRole="header" style={s.title}>{detail.title}</Text>
+                            <Text style={s.muted}>{[detail.topic, detail.difficulty, detail.estimatedTime && detail.estimatedTime + ' min'].filter(Boolean).join(' · ')}</Text>
+                            <Section title="Problem statement" content={detail.problemStatement} />
+                            <Section title="What the interviewer expects" content={detail.expectation} />
+                            <View style={s.filterRow}>
+                                <Button label={overview.completed.includes(detail.id) ? 'Mark incomplete' : 'Mark complete'} disabled={busy} onPress={() => { void toggleComplete(detail.id); }} />
+                                <Button label="Edit" secondary onPress={() => editQuestion(detail)} />
+                                <Button label="Improve with AI" secondary onPress={() => {
+                                    setForm({ prompt: 'Improve this interview question: ' + detail.title, id: detail.id });
+                                    setDetail(null);
+                                    setEditor('ai');
+                                }} />
+                            </View>
+                            <Button label="Delete question" danger disabled={busy} onPress={() => Alert.alert(
+                                'Delete question?',
+                                'This removes the shared question and its associated practice links.',
+                                [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => {
+                                    void run('deleteQuestion', { id: detail.id }).then(result => { if (result) setDetail(null); });
+                                } }],
+                            )} />
+                        </>}
+                        {questionSegment === 'Answers' && <>
+                            <Section title="Best answer" content={detail.bestAnswer} />
+                            <Section title="Alternative answer" content={detail.alternativeAnswer} />
+                        </>}
+                        {questionSegment === 'Deep dive' && <>
+                            <Section title="Explanation" content={detail.explanation} />
+                            <Section title="Real-world usage" content={detail.realWorldUsage} />
+                            <Section title="Common mistakes" content={detail.commonMistakes} />
+                            <Section title="Follow-up questions" content={detail.followUpQuestions} />
+                        </>}
+                        {questionSegment === 'Code' && codeExamples.map(({ title, code }) => (
+                            <View key={title} style={s.section}>
+                                <Text accessibilityRole="header" style={s.heading}>{title}</Text>
+                                {hasText(detail.codeSnippet?.language) && <Text style={s.muted}>{detail.codeSnippet.language}</Text>}
+                                <ScrollView horizontal>
+                                    <Text selectable style={s.code}>{code}</Text>
+                                </ScrollView>
+                            </View>
+                        ))}
+                        {questionSegment === 'Quiz' && quiz.map((mcq, index) => {
+                            const options = Array.isArray(mcq.options) ? mcq.options : [];
+                            const correctIndex = mcq.correctAnswerIndex;
+                            const answer = Number.isInteger(correctIndex) && correctIndex >= 0 && correctIndex < options.length
+                                ? options[correctIndex] : mcq.correctAnswer ?? mcq.answer;
+                            return (
+                                <View key={index} style={s.section}>
+                                    <Text accessibilityRole="header" style={s.heading}>Question {index + 1}</Text>
+                                    <InterviewMarkup content={hasText(mcq.question) ? mcq.question : undefined} />
+                                    {options.map((option: unknown, optionIndex: number) => (
+                                        <View key={optionIndex} style={s.quizOption}>
+                                            <Text style={s.label}>{optionIndex + 1}.</Text>
+                                            <View style={s.quizText}><InterviewMarkup content={hasText(option) ? option : JSON.stringify(option)} /></View>
+                                        </View>
+                                    ))}
+                                    {answer != null && <>
+                                        <Text style={s.label}>Correct answer</Text>
+                                        <InterviewMarkup content={hasText(answer) ? answer : JSON.stringify(answer)} />
+                                    </>}
+                                    <InterviewMarkup content={hasText(mcq.explanation) ? mcq.explanation : undefined} />
+                                </View>
+                            );
+                        })}
+                    </ScrollView>
                 </>}
-            </ScrollView></View>
+            </View>
         </Modal>
 
         <Modal visible={!!editor} animationType="slide" onRequestClose={() => { if (!busy) setEditor(null); }}>
-            <KeyboardAvoidingView style={s.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                <View style={s.row}><Button label="Cancel" secondary disabled={busy} onPress={() => setEditor(null)} /><Text style={s.heading}>{editor === 'question' ? form.mergeDeleteId ? 'Merge questions' : form.id ? 'Edit question' : 'New question' : editor === 'goal' ? 'Study goal' : editor === 'import' ? 'Import questions' : editor === 'models' ? 'AI models' : editor === 'model' ? 'Edit AI model' : editor === 'bulkAI' ? 'Bulk Auto-Regenerate' : 'Generate question'}</Text></View>
+            <KeyboardAvoidingView style={[s.modal, safeArea]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                <View style={s.modalToolbar}><Button label="Cancel" secondary disabled={busy} onPress={() => setEditor(null)} /><Text style={s.heading}>{editor === 'question' ? form.mergeDeleteId ? 'Merge questions' : form.id ? 'Edit question' : 'New question' : editor === 'goal' ? 'Study goal' : editor === 'import' ? 'Import questions' : editor === 'models' ? 'AI models' : editor === 'model' ? 'Edit AI model' : editor === 'bulkAI' ? 'Bulk Auto-Regenerate' : 'Generate question'}</Text></View>
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
                     {editor === 'question' && <>
                         {!!form.mergeDeleteId && <Text style={s.error}>Review the combined content. Saving this merge deletes the duplicate “{form.mergeTitle}” and keeps the question below.</Text>}
@@ -424,10 +551,10 @@ export default function InterviewScreen() {
         </Modal>
 
         <Modal visible={!!practice.length} animationType="slide" onRequestClose={() => Alert.alert('Leave practice?', 'Your unsubmitted responses will be discarded.', [{ text: 'Continue practice' }, { text: 'Discard', style: 'destructive', onPress: discardPractice }])}>
-            <KeyboardAvoidingView style={s.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <KeyboardAvoidingView style={[s.modal, safeArea]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
                     <Text style={s.title}>Mock interview</Text><Text style={secondsLeft ? s.muted : s.error}>{secondsLeft ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')} remaining` : 'Time is up. Review and submit your completed answers.'}</Text>
-                    <Text style={s.muted}>Question {practiceIndex + 1} of {practice.length}</Text><Text style={s.heading}>{practiceQuestion?.title}</Text><Text style={s.body}>{textContent(practiceQuestion?.problemStatement)}</Text>
+                    <Text style={s.muted}>Question {practiceIndex + 1} of {practice.length}</Text><Text style={s.heading}>{practiceQuestion?.title}</Text><InterviewMarkup content={practiceQuestion?.problemStatement} />
                     <Field label="Your answer" value={answers[practiceQuestion?.id] || ''} onChange={value => setAnswers(current => ({ ...current, [practiceQuestion.id]: value }))} multiline />
                     <Text style={s.muted}>Record up to 5 minutes (5 MB). Review playback locally, then choose Transcribe to send this recording for an editable transcript. Nothing is submitted for scoring until you press Submit.</Text>
                     <Button label={recorderState.isRecording ? `Stop recording (${Math.floor(recorderState.durationMillis / 1000)}s)` : attachingRecording ? 'Preparing recording…' : 'Record answer'} disabled={busy || attachingRecording || transcribing} secondary onPress={() => { void recordAnswer(); }} />
@@ -441,26 +568,43 @@ export default function InterviewScreen() {
         </Modal>
 
         <Modal visible={!!session} animationType="slide" onRequestClose={() => { pauseResultPlayer(); setSession(null); }}>
-            <View style={s.modal}><Button label="Back to sessions" secondary onPress={() => { pauseResultPlayer(); setSession(null); }} /><ScrollView contentContainerStyle={s.content}>
+            <View style={[s.modal, safeArea]}>
+                <View style={s.modalToolbar}><Button label="Back to sessions" secondary onPress={() => { pauseResultPlayer(); setSession(null); }} /></View>
+                <ScrollView contentContainerStyle={s.content}>
                 <Text style={s.title}>Session results</Text><Text style={s.muted}>{session?.status}</Text><Button label="Refresh results" secondary disabled={busy} onPress={() => { if (session) void openSession(session.id); }} />
-                {session?.answers.map((answer: any) => <View key={answer.id} style={s.card}><Text style={s.heading}>{answer.question.title}</Text><Section title="Your response" content={answer.transcript} />{!!answer.audioBase64 && <View style={s.row}><Button label="Play recording" secondary onPress={() => { try { resultPlayer.replace(answer.audioBase64); resultPlayer.play(); } catch { Alert.alert('Playback unavailable', 'This recording could not be played.'); } }} /><Button label="Pause audio" secondary onPress={() => pauseResultPlayer()} /></View>}<Text style={s.body}>{answer.aiScore != null ? `Score: ${answer.aiScore}/100` : answer.status}</Text><Section title="AI feedback" content={answer.aiFeedback} />{!!answer.errorReason && <Text style={s.error}>{answer.errorReason}</Text>}{answer.status === 'FAILED' && <><Text style={s.label}>Retry model</Text>{models.map((model: any) => <Button key={model.id} label={model.name} secondary={chosenModel !== model.modelId} onPress={() => setValue('model', model.modelId)} />)}<Button label="Retry evaluation" disabled={busy || !models.length} onPress={() => { void run('retryAnswer', { id: answer.id, model: chosenModel }).then(result => { if (result && session) void openSession(session.id); }); }} /></>}</View>)}
+                {session?.answers.map((answer: any) => <View key={answer.id} style={s.card}><Text style={s.heading}>{answer.question.title}</Text><Section title="Your response" content={answer.transcript} plain />{!!answer.audioBase64 && <View style={s.row}><Button label="Play recording" secondary onPress={() => { try { resultPlayer.replace(answer.audioBase64); resultPlayer.play(); } catch { Alert.alert('Playback unavailable', 'This recording could not be played.'); } }} /><Button label="Pause audio" secondary onPress={() => pauseResultPlayer()} /></View>}<Text style={s.body}>{answer.aiScore != null ? `Score: ${answer.aiScore}/100` : answer.status}</Text><Section title="AI feedback" content={answer.aiFeedback} />{!!answer.errorReason && <Text style={s.error}>{answer.errorReason}</Text>}{answer.status === 'FAILED' && <><Text style={s.label}>Retry model</Text>{models.map((model: any) => <Button key={model.id} label={model.name} secondary={chosenModel !== model.modelId} onPress={() => setValue('model', model.modelId)} />)}<Button label="Retry evaluation" disabled={busy || !models.length} onPress={() => { void run('retryAnswer', { id: answer.id, model: chosenModel }).then(result => { if (result && session) void openSession(session.id); }); }} /></>}</View>)}
             </ScrollView></View>
         </Modal>
-    </View>;
+    </View></InterviewMarkupProvider>;
 }
 
 const s = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: '#131117' }, modal: { flex: 1, backgroundColor: '#131117', paddingTop: 48, paddingHorizontal: 12 },
-    header: { paddingTop: 48, paddingHorizontal: 20, paddingBottom: 16, flexDirection: 'row', alignItems: 'center' },
-    tabBar: { flexGrow: 0, flexShrink: 0 },
-    tabBarContent: { paddingHorizontal: 16, alignItems: 'flex-start' },
+    screen: { flex: 1, backgroundColor: '#131117' },
+    modal: { flex: 1, backgroundColor: '#131117' },
+    header: { width: '100%', maxWidth: 760, alignSelf: 'center', padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+    headerTitle: { color: '#fff', fontWeight: '700', fontSize: 23, flexShrink: 1 },
+    navigation: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderColor: '#342b3e' },
+    segments: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    segment: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#262030' },
+    segmentSelected: { backgroundColor: '#6030a6' },
+    segmentText: { color: '#d3c8df', fontSize: 14, fontWeight: '600' },
+    segmentTextSelected: { color: '#fff' },
+    filterPanel: { backgroundColor: '#211c29', padding: 12, borderRadius: 12, marginBottom: 16 },
+    filterRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, alignItems: 'center' },
+    topicFilters: { gap: 8, paddingBottom: 4 },
+    modalToolbar: { width: '100%', maxWidth: 760, alignSelf: 'center', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, paddingHorizontal: 16, paddingTop: 16 },
+    detailHeader: { width: '100%', maxWidth: 760, alignSelf: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#342b3e' },
+    section: { backgroundColor: '#211c29', borderRadius: 12, padding: 16, marginBottom: 12 },
+    code: { color: '#eeeaf3', backgroundColor: '#17131e', fontSize: 14, lineHeight: 22, padding: 12, borderRadius: 8, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+    quizOption: { flexDirection: 'row', gap: 8, alignItems: 'baseline' },
+    quizText: { flex: 1 },
     title: { color: '#fff', fontWeight: '700', fontSize: 23, marginBottom: 10, flexShrink: 1 },
     heading: { color: '#f5f3ff', fontWeight: '700', fontSize: 18, marginBottom: 9 },
     label: { color: '#ddd6fe', fontSize: 14, marginBottom: 7 }, body: { color: '#e5e7eb', fontSize: 16, lineHeight: 25 },
     muted: { color: '#aaa2b7', fontSize: 13, lineHeight: 21, marginBottom: 8 }, error: { color: '#fca5a5', marginBottom: 10 },
-    content: { padding: 16, paddingBottom: 48 }, card: { backgroundColor: '#211c29', padding: 17, borderRadius: 14, marginBottom: 15 },
-    row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginVertical: 8 },
-    button: { backgroundColor: '#7c3aed', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 9, marginRight: 8, marginBottom: 8 },
-    secondary: { backgroundColor: '#332b3e' }, danger: { backgroundColor: '#7f1d1d' }, buttonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    content: { width: '100%', maxWidth: 760, alignSelf: 'center', padding: 16, paddingBottom: 32 }, card: { backgroundColor: '#211c29', padding: 17, borderRadius: 14, marginBottom: 15 },
+    row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, marginVertical: 8 },
+    button: { backgroundColor: '#7c3aed', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 9, marginBottom: 8, flexShrink: 1 },
+    secondary: { backgroundColor: '#332b3e' }, danger: { backgroundColor: '#7f1d1d' }, buttonText: { color: '#fff', fontSize: 14, fontWeight: '600', textAlign: 'center' },
     input: { backgroundColor: '#292330', borderWidth: 1, borderColor: '#4c405b', color: '#fff', borderRadius: 8, padding: 12, fontSize: 16 },
 });

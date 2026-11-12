@@ -21,6 +21,13 @@ type Node = ReturnType<typeof dashboardCategoryTree>[number];
 const money = (paise: number) => '₹' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const percentage = (amount: number, total: number) => total > 0 ? (amount / total * 100).toLocaleString('en-IN', { maximumFractionDigits: 1 }) : '0';
 
+function breakdownPaths(nodes: Node[], parent: string[] = []): string[] {
+    return nodes.flatMap(node => {
+        const path = [...parent, node.id];
+        return [JSON.stringify(path), ...breakdownPaths(node.children, path)];
+    });
+}
+
 function BreakdownBranch({ node, total, expanded, onToggle, path = [] }: {
     node: Node; total: number; expanded: ReadonlySet<string>; onToggle(id: string): void; path?: string[];
 }) {
@@ -73,6 +80,10 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
     const tree: Node[] = grouping === 'category'
         ? dashboardCategoryTree(groups.flatMap(group => group.items), categories)
         : groups.map(group => ({ ...group, items: [], children: dashboardCategoryTree(group.items, categories) }));
+    const setAllBranches = (open: boolean) => setExpandedByView(previous => ({
+        ...previous,
+        [view]: open ? new Set([...(previous[view] ?? []), ...breakdownPaths(tree)]) : new Set<string>(),
+    }));
     const exportCsv = async () => {
         setExporting(true);
         try { await shareFinanceCsv(financeCsv(filteredTransactions, categories), 'transactions_' + rangeStart + '_' + rangeEnd + '.csv'); }
@@ -119,7 +130,18 @@ export function FinanceDashboard({ transactions, categories, grouping, onGroupin
                         return <TouchableOpacity key={group.id} accessibilityRole="button" accessibilityLabel={group.name + (hidden ? ', excluded. Tap to restore.' : ', included. Tap to exclude.')} accessibilityState={{ selected: !hidden }} onPress={() => toggleLegend(group.id)} style={[s.legend, hidden && { opacity: 0.5 }]}><View style={[s.dot, { backgroundColor: group.color }]} /><Text numberOfLines={1} style={[s.legendText, hidden && { textDecorationLine: 'line-through' }]}>{group.name}</Text></TouchableOpacity>;
                     })}</View>
                 </View>
-                <View style={{ width: horizontal ? '48%' : '100%' }}><Text style={[s.heading, { fontSize: 16, marginBottom: 8 }]}>Breakdown</Text>
+                <View style={{ width: horizontal ? '48%' : '100%' }}>
+                    <View style={s.headingRow}>
+                        <Text style={[s.heading, { fontSize: 16 }]}>Breakdown</Text>
+                        {tree.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            <TouchableOpacity accessibilityRole="button" style={s.exportButton} onPress={() => setAllBranches(true)}>
+                                <Text style={s.choiceText}>Expand all</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity accessibilityRole="button" style={s.exportButton} onPress={() => setAllBranches(false)}>
+                                <Text style={s.choiceText}>Collapse all</Text>
+                            </TouchableOpacity>
+                        </View>}
+                    </View>
                     {branches}
                 </View>
             </View>

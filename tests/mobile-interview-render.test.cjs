@@ -23,6 +23,7 @@ function harness(data = {}, options = {}) {
       if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
       return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
     },
+    useMemo(factory) { return factory(); },
     useRef(initial) { const index = refIndex++; return refs[index] ||= { current: initial }; },
     useCallback(fn, deps) {
       const index = callbackIndex++;
@@ -55,8 +56,19 @@ function harness(data = {}, options = {}) {
     async prepareToRecordAsync() { if (recorderReleased) throw new Error('Recorder prepared after release'); nativeCalls.push({ name: 'prepare' }); },
     record() { if (recorderReleased) throw new Error('Recorder started after release'); nativeCalls.push({ name: 'record' }); },
     async stop() { if (recorderReleased) throw new Error('Recorder stopped after release'); nativeCalls.push({ name: 'stop' }); } };
+  native.useWindowDimensions = () => ({ width: 360 });
+  native.Linking = { openURL: async () => {} };
   const mocks = {
     react: React, 'react-native': native,
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 24, bottom: 16, left: 0, right: 0 }) },
+    'markdown-it': require('../mobile-app/node_modules/markdown-it'),
+    '@native-html/render': {
+      RenderHTMLSource: props => React.createElement('RenderHTML', props, props.source.html),
+      TRenderEngineProvider: ({ children }) => children,
+      RenderHTMLConfigProvider: ({ children }) => children,
+      HTMLContentModel: { block: 'block' },
+      HTMLElementModel: { fromCustomModel: value => value },
+    },
     '@/src/components/ui/Sidebar': { SidebarToggle: () => null },
     '@/src/services/interview.service': { interviewService: service },
     'expo-document-picker': {}, 'expo-file-system/legacy': {},
@@ -71,18 +83,23 @@ function harness(data = {}, options = {}) {
       async setAudioModeAsync() { if (released) throw new Error('Audio mode changed after unmount'); nativeCalls.push({ name: 'audioMode' }); },
     },
   };
-  const filename = path.resolve(__dirname, '../mobile-app/app/(protected)/interview.tsx');
-  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, esModuleInterop: true },
-  }).outputText;
-  const module = { exports: {} };
-  new vm.Script(source, { filename }).runInNewContext({ module, exports: module.exports,
-    require(name) { if (Object.hasOwn(mocks, name)) return mocks[name]; throw new Error(`Unmocked native screen dependency ${name}`); },
-    AbortController, setInterval: () => 1, clearInterval() {}, setTimeout, clearTimeout, console,
-  });
+  function load(relativePath) {
+    const filename = path.resolve(__dirname, '../mobile-app', relativePath);
+    const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, esModuleInterop: true },
+    }).outputText;
+    const module = { exports: {} };
+    new vm.Script(source, { filename }).runInNewContext({ module, exports: module.exports,
+      require(name) { if (Object.hasOwn(mocks, name)) return mocks[name]; throw new Error('Unmocked native screen dependency ' + name); },
+      AbortController, setInterval: () => 1, clearInterval() {}, setTimeout, clearTimeout, console,
+    });
+    return module.exports;
+  }
+  mocks['@/src/components/interview/InterviewMarkup'] = load('src/components/interview/InterviewMarkup.tsx');
+  const Interview = load('app/(protected)/interview.tsx').default;
   function render() {
     stateIndex = refIndex = effectIndex = callbackIndex = 0;
-    tree = module.exports.default();
+    tree = Interview();
     return tree;
   }
   function nodes(value) {
@@ -180,6 +197,10 @@ test('legacy malformed MCQ entries cannot crash question detail', async () => {
     await screen.press('Open');
     assert.equal(screen.visibleModals().length, 1);
     assert.match(screen.text(), /Explain closures/);
+    if (Array.isArray(mcqs)) {
+      await screen.press('Quiz');
+      assert.match(screen.text(), /Question 1/);
+    }
     screen.unmount();
   }
 });
@@ -225,4 +246,45 @@ test('mobile AI jobs submits the chosen count and active model from the bulk edi
   assert.deepEqual(calls, [{ operation: 'startBulkGeneration', model: 'chosen-model', count: 3 }]);
   assert.equal(screen.visibleModals().length, 0);
   assert.equal(screen.alerts[0][0], 'Jobs queued');
+});
+
+
+test('question details render only the selected segment and preserve Markdown, saved HTML, and quiz answer indexes', async () => {
+  const question = {
+    id: '507f1f77bcf86cd799439012', title: 'Closures', topic: 'JavaScript', difficulty: 'Medium',
+    companies: [], tags: [], problemStatement: 'Explain **closures** and `scope`.',
+    expectation: '<p>Discuss <em>lexical scope</em>.</p>',
+    bestAnswer: 'A closure captures its scope.',
+    explanation: '### Production scenario\n\n1. First step\n2. Second step\n\n```java\nList<String> names;\n```',
+    commonMistakes: ['Confusing scope with **lifetime**'],
+    codeSnippet: { language: 'java', code: 'int value = 1;', production: 'int value = 1;', antiPattern: 'int value = 0;' },
+    mcqs: [{ question: 'Which is **correct**?', options: ['First option', 'Second option'], correctAnswerIndex: 1 }],
+  };
+  const screen = harness({ questions: { items: [question], total: 1, page: 1, totalPages: 1 }, question });
+  screen.render(); await screen.settle();
+  await screen.press('Open');
+  assert.match(screen.text(), /<strong>closures<\/strong> and <code>scope<\/code>/);
+  assert.match(screen.text(), /<em>lexical scope<\/em>/);
+  assert.doesNotMatch(screen.text(), /A closure captures its scope/);
+
+  await screen.press('Answers');
+  assert.match(screen.text(), /A closure captures its scope/);
+  assert.doesNotMatch(screen.text(), /Explain <strong>/);
+
+  await screen.press('Deep dive');
+  assert.match(screen.text(), /<h3>Production scenario<\/h3>/);
+  assert.match(screen.text(), /<ol>\s*<li>First step<\/li>/);
+  assert.match(screen.text(), /List&lt;String&gt; names/);
+  assert.match(screen.text(), /<ul><li><p>Confusing scope with <strong>lifetime<\/strong>/);
+
+  await screen.press('Code');
+  assert.match(screen.text(), /Production example.*int value = 1;/);
+  assert.match(screen.text(), /Anti-pattern.*int value = 0;/);
+  assert.equal(screen.text().match(/int value = 1;/g).length, 1);
+
+  await screen.press('Quiz');
+  assert.match(screen.text(), /Correct answer<p>Second option<\/p>/);
+  await screen.press('Back to questions');
+  await screen.press('Open');
+  assert.match(screen.text(), /Explain <strong>closures<\/strong>/);
 });

@@ -44,9 +44,6 @@ export default function ExpensesScreen() {
     const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddIncomeModalOpen, setIsAddIncomeModalOpen] = useState(false);
-    const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
-    const [newCategoryName, setNewCategoryName] = useState('');
-    const [newCategoryColor, setNewCategoryColor] = useState('#3b82f6');
     const [amount, setAmount] = useState('');
     const [notes, setNotes] = useState('');
     const [incomeSource, setIncomeSource] = useState('');
@@ -255,21 +252,6 @@ export default function ExpensesScreen() {
         }
     };
 
-    const handleAddCategory = async () => {
-        if (!newCategoryName) return;
-        setSubmitting(true);
-        try {
-            await categoryService.addCategory({ name: newCategoryName, color: newCategoryColor });
-            setIsAddCategoryModalOpen(false);
-            setNewCategoryName('');
-            fetchData();
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
     const handleDeleteCategory = async (id: string) => {
         try {
             await categoryService.deleteCategory(id);
@@ -440,7 +422,7 @@ export default function ExpensesScreen() {
                                 <PieIcon size={20} color="#8b5cf6" />
                                 <Text className="text-[#041b3c] font-bold text-xl font-serif">Categories</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(true)} className="bg-accent/30 px-3 py-1.5 rounded-lg flex-row items-center">
+                            <TouchableOpacity onPress={() => router.push('../categories?add=1')} className="bg-accent/30 px-3 py-1.5 rounded-lg flex-row items-center">
                                 <Plus size={16} color="#ffffff" />
                                 <Text className="text-[#041b3c] font-bold ml-1 text-xs">Add</Text>
                             </TouchableOpacity>
@@ -634,52 +616,6 @@ export default function ExpensesScreen() {
                                 <ActivityIndicator color="#ffffff" />
                             ) : (
                                 <Text className="text-[#041b3c] font-bold text-lg">{editingExpenseId ? 'Update Expense' : 'Save Expense'}</Text>
-                            )}
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Add Category Modal */}
-            <Modal visible={isAddCategoryModalOpen} animationType="slide" transparent={true}>
-                <View className="flex-1 justify-end bg-black/50">
-                    <View className="bg-[#f9f9ff] rounded-t-3xl p-6 min-h-[40%] border-t border-border">
-                        <View className="flex-row justify-between items-center mb-6">
-                            <Text className="text-2xl font-bold text-[#041b3c] font-serif">Add Category</Text>
-                            <TouchableOpacity onPress={() => setIsAddCategoryModalOpen(false)}>
-                                <X size={24} color="#a39b98" />
-                            </TouchableOpacity>
-                        </View>
-
-                        <Text className="text-[#444650] font-bold mb-2">Category Name</Text>
-                        <TextInput 
-                            value={newCategoryName}
-                            onChangeText={setNewCategoryName}
-                            className="bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border mb-4 font-bold text-lg"
-                            placeholderTextColor="#6b7280"
-                            placeholder="E.g. Travel, Utilities..."
-                        />
-                        
-                        <Text className="text-[#444650] font-bold mb-2">Color Code (Hex)</Text>
-                        <View className="flex-row items-center mb-6">
-                           <View className="w-10 h-10 rounded-full mr-3 border border-border" style={{ backgroundColor: newCategoryColor }} />
-                           <TextInput 
-                               value={newCategoryColor}
-                               onChangeText={setNewCategoryColor}
-                               className="flex-1 bg-[#f9f9ff] text-[#041b3c] p-4 rounded-xl border border-border font-bold"
-                               placeholderTextColor="#6b7280"
-                           />
-                        </View>
-
-                        <TouchableOpacity 
-                            onPress={handleAddCategory}
-                            disabled={submitting}
-                            className={`p-4 rounded-xl items-center ${submitting ? 'bg-accent/30' : 'bg-accent'}`}
-                        >
-                            {submitting ? (
-                                <ActivityIndicator color="#ffffff" />
-                            ) : (
-                                <Text className="text-[#041b3c] font-bold text-lg">Save Category</Text>
                             )}
                         </TouchableOpacity>
                     </View>

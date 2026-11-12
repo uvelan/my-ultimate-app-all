@@ -8,8 +8,10 @@ import { smsPeriodDates, smsBookingTimestamp, type SmsPeriod } from '@/src/lib/s
 import { parseSmsTransaction, smsPaymentMethod, smsTransactionTotals, type ParsedSmsTransaction } from '@/src/lib/sms-parser';
 import { buildSmsPageArguments, type SmsPageCursor } from '@/src/lib/sms-bridge';
 
-type Transaction = ParsedSmsTransaction;
+type ImportReceipt = { fingerprint: string; transactionId: string; deleted?: boolean; missing?: boolean };
+type Transaction = ParsedSmsTransaction & { receipt?: ImportReceipt };
 type Cursor = SmsPageCursor;
+type Category = { id: string; name: string; type: Transaction['type']; parentId?: string | null; isArchived?: boolean };
 const rupee = '\u20b9';
 const button = 'rounded-xl bg-accent px-4 py-3 items-center';
 const field = 'rounded-xl border border-border bg-background p-3 text-text-primary';
@@ -22,12 +24,16 @@ export default function SpentSyncScreen() {
     const [period, setPeriod] = useState<SmsPeriod>('RANGE');
     const [periodDate, setPeriodDate] = useState(new Date());
     const [transactions, setTransactions] = useState<Transaction[]>([]);
-    const [categories, setCategories] = useState<any[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(false);
     const [scanned, setScanned] = useState(0);
     const [hasMore, setHasMore] = useState(false);
     const [notice, setNotice] = useState('');
     const [filter, setFilter] = useState<'ALL' | 'EXPENSE' | 'INCOME'>('ALL');
+    const [selecting, setSelecting] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [resyncing, setResyncing] = useState(false);
+    const [combinedItems, setCombinedItems] = useState<Transaction[]>([]);
     const [editing, setEditing] = useState<Transaction | null>(null);
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
@@ -41,14 +47,20 @@ export default function SpentSyncScreen() {
 
     useFocusEffect(useCallback(() => {
         let active = true;
-        api.get('/mobile/finance', { params: { resource: 'categories' } })
-            .then(response => { if (active) setCategories(response.data); })
+        api.get<Category[]>('/mobile/finance', { params: { resource: 'categories', includeArchived: true } })
+            .then(({ data }) => {
+                if (!active) return;
+                const parentIds = new Set(data.map(category => category.parentId));
+                setCategories(data.filter(category => !category.isArchived && !parentIds.has(category.id)));
+            })
             .catch((error: any) => { if (active) setNotice(error.response?.data?.error || 'Unable to load categories. Open Finance to create categories, then retry.'); });
         return () => { active = false; generation.current++; };
     }, []));
 
     const resetScan = () => {
         generation.current++; cursor.current = null;
+        setSelectedIds([]);
+        setSelecting(false);
         setHasMore(false); setTransactions([]); setScanned(0); setNotice('');
     };
     const choosePeriod = (value: SmsPeriod, selected = periodDate) => {
@@ -121,15 +133,22 @@ export default function SpentSyncScreen() {
             try {
                 for (let offset = 0; offset < items.length; offset += 500) {
                     const batch = items.slice(offset, offset + 500);
-                    const response = await api.post('/mobile/sms', { action: 'lookup', fingerprints: batch.map(item => item.fingerprint) });
-                    const existing = new Set((response.data.imports || []).map((item: any) => item.fingerprint));
-                    for (const item of batch) item.synced = existing.has(item.fingerprint);
+                    const response = await api.post<{ imports: ImportReceipt[] }>('/mobile/sms', { action: 'lookup', fingerprints: batch.map(item => item.fingerprint) });
+                    const receipts = new Map(response.data.imports.map(receipt => [receipt.fingerprint, receipt]));
+                    for (const item of batch) {
+                        item.receipt = receipts.get(item.fingerprint);
+                        item.synced = !!item.receipt;
+                    }
                 }
             } catch { statusWarning = 'Previous imports could not be checked. Saving will check again.'; }
             if (run !== generation.current) return;
             cursor.current = next;
             setHasMore(more);
             setTransactions(items);
+            if (!append) {
+                setSelectedIds([]);
+                setSelecting(false);
+            }
             setNotice(statusWarning || (items.length ? 'Review each transaction before saving. Full SMS messages stay on this device.' : 'No supported transaction alerts found in these dates.'));
         } catch (error: any) {
             if (run === generation.current) setNotice(error.message || 'Unable to scan the inbox.');
@@ -139,32 +158,118 @@ export default function SpentSyncScreen() {
         }
     };
 
-    const openReview = (item: Transaction) => {
-        if (item.synced) return;
-        setEditing(item); setBookingDate(item.date); setAmount(item.amount.toFixed(2)); setDescription(item.notes); setCategoryId('');
+    const selectedItems = transactions.filter(item => !item.synced && selectedIds.includes(item.fingerprint));
+    const combinedPaise = selectedItems.reduce((total, item) => total + item.amountPaise, 0);
+
+    const toggleSelection = (item: Transaction) => {
+        if (selectedIds.includes(item.fingerprint)) {
+            setSelectedIds(ids => ids.filter(id => id !== item.fingerprint));
+            return;
+        }
+        if (selectedItems.length && selectedItems[0].type !== item.type) {
+            Alert.alert('Choose one transaction type', 'Combine expenses together or income together.');
+            return;
+        }
+        if (selectedItems.length >= 50) {
+            Alert.alert('Selection limit', 'Combine up to 50 transactions at a time.');
+            return;
+        }
+        setSelectedIds(ids => [...ids, item.fingerprint]);
     };
+
+    const openReview = (item: Transaction, group: Transaction[] = [], resync = false) => {
+        if (item.synced && !resync) return;
+        setResyncing(resync);
+        setCombinedItems(group);
+        setEditing(item);
+        setBookingDate(item.date);
+        setAmount(group.length ? (group.reduce((total, source) => total + source.amountPaise, 0) / 100).toFixed(2) : item.amount.toFixed(2));
+        setDescription(group.length ? 'Combined SMS transactions (' + group.length + ')' : item.notes);
+        setCategoryId('');
+    };
+    const resyncImport = (item: Transaction) => {
+        if (!item.receipt?.deleted || saveBusy.current || scanBusy.current) return;
+        const { transactionId, missing } = item.receipt;
+        if (missing) {
+            const group = transactions.filter(source => source.receipt?.transactionId === transactionId);
+            openReview(group[0], group.length > 1 ? group : [], true);
+            return;
+        }
+        Alert.alert('Restore transaction?', 'Restore the saved transaction with its original amount, date, and category.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Restore', onPress: async () => {
+                if (saveBusy.current || scanBusy.current) return;
+                saveBusy.current = true;
+                setSaving(true);
+                try {
+                    await api.post('/mobile/sms', { action: 'restore', fingerprint: item.fingerprint });
+                    setTransactions(previous => previous.map(source => source.receipt?.transactionId === transactionId
+                        ? { ...source, receipt: { ...source.receipt, deleted: false, missing: false } } : source));
+                    setNotice('Transaction restored.');
+                } catch (error: any) {
+                    Alert.alert('Could not restore', error.response?.data?.error || 'Please try again.');
+                } finally {
+                    saveBusy.current = false;
+                    setSaving(false);
+                }
+            } },
+        ]);
+    };
+
+    const matchingCategories = categories.filter(category => category.type === editing?.type);
+
     const saveTransaction = async () => {
-        if (!editing || saveBusy.current) return;
-        const numericAmount = Number(amount);
-        const amountPaise = Math.round(numericAmount * 100);
+        if (!editing || saveBusy.current || scanBusy.current) return;
+        const combined = combinedItems.length > 0;
+        const amountPaise = combined
+            ? combinedItems.reduce((total, item) => total + item.amountPaise, 0)
+            : Math.round(Number(amount) * 100);
+        const numericAmount = combined ? amountPaise / 100 : Number(amount);
         if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isSafeInteger(amountPaise) || amountPaise > 2147483647) {
             Alert.alert('Check amount', 'Enter a valid positive amount.'); return;
         }
-        if (!categoryId) { Alert.alert('Choose a category', 'Select the category for this transaction.'); return; }
+        if (!matchingCategories.some(category => category.id === categoryId)) { Alert.alert('Choose a category', 'Select the category for this transaction.'); return; }
         let transactionDate: string;
         try { transactionDate = smsBookingTimestamp(bookingDate); } catch (error: any) { Alert.alert('Check date', error.message); return; }
         saveBusy.current = true; setSaving(true);
         try {
+            const fingerprints = combined ? combinedItems.map(item => item.fingerprint) : [editing.fingerprint];
+            const methods = new Set((combined ? combinedItems : [editing]).map(smsPaymentMethod));
             const response = await api.post('/mobile/sms', {
-                action: 'import', fingerprint: editing.fingerprint, type: editing.type,
-                amountPaise, categoryId, transactionDate,
+                ...(resyncing ? { action: 'resync', fingerprints }
+                    : combined ? { action: 'importCombined', fingerprints } : { action: 'import', fingerprint: editing.fingerprint }),
+                type: editing.type, amountPaise, categoryId, transactionDate,
                 description: description.trim().slice(0, 500),
-                paymentMethod: smsPaymentMethod(editing),
+                paymentMethod: methods.size === 1 ? smsPaymentMethod(editing) : 'Mixed',
             });
-            setTransactions(previous => previous.map(item => item.fingerprint === editing.fingerprint ? { ...item, synced: true, ...(!response.data.duplicate ? { amount: numericAmount, amountPaise, date: bookingDate, type: editing.type, notes: description.trim() } : {}) } : item));
+            const imported = new Set(fingerprints);
+            setTransactions(previous => previous.map(item => {
+                if (!imported.has(item.fingerprint)) return item;
+                const receipt: ImportReceipt = {
+                    fingerprint: item.fingerprint, transactionId: response.data.transactionId,
+                    deleted: response.data.deleted, missing: response.data.missing,
+                };
+                if (combined || response.data.duplicate) return { ...item, synced: true, receipt };
+                return { ...item, synced: true, receipt, amount: numericAmount, amountPaise, date: bookingDate, type: editing.type, notes: description.trim() };
+            }));
             setEditing(null);
-            setNotice(response.data.duplicate ? 'This message was already imported. No new transaction was added.' : 'Transaction saved. It is available on Android and web.');
-        } catch (error: any) { Alert.alert('Could not save', error.response?.data?.error || 'Please retry. The same message will not be imported twice.'); }
+            if (combined) {
+                setSelectedIds([]);
+                setSelecting(false);
+            }
+            setNotice(resyncing ? 'Transaction resynced.'
+                : response.data.duplicate ? combined ? 'This group was already imported.' : 'This message was already imported. No new transaction was added.'
+                : combined ? fingerprints.length + ' messages saved as one transaction.' : 'Transaction saved. It is available on Android and web.');
+        } catch (error: any) {
+            const data = error.response?.data;
+            if (combined && error.response?.status === 409 && Array.isArray(data?.importedFingerprints)) {
+                const imported = new Set(data.importedFingerprints);
+                setTransactions(previous => previous.map(item => imported.has(item.fingerprint) ? { ...item, synced: true } : item));
+                setSelectedIds(ids => ids.filter(id => !imported.has(id)));
+                setEditing(null);
+            }
+            Alert.alert('Could not save', data?.error || 'Please retry. The same message will not be imported twice.');
+        }
         finally { saveBusy.current = false; setSaving(false); }
     };
 
@@ -211,26 +316,62 @@ export default function SpentSyncScreen() {
             </View>}
             <View className="flex-row gap-2">{(['ALL', 'EXPENSE', 'INCOME'] as const).map(value => <TouchableOpacity key={value} onPress={() => setFilter(value)} className={'rounded-full border px-3 py-2 ' + (filter === value ? 'border-accent bg-accent/20' : 'border-border')}><Text className="text-text-primary">{value === 'ALL' ? 'All' : value === 'EXPENSE' ? 'Expenses' : 'Income'}</Text></TouchableOpacity>)}</View>
         </View>
-        <FlatList data={visible} keyExtractor={item => item.fingerprint} contentContainerStyle={{ padding: 16, paddingTop: 0 }}
+        {(selecting || transactions.some(item => !item.synced)) && (
+            <View className="mx-4 mb-3 flex-row flex-wrap items-center gap-2">
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    disabled={loading || saving}
+                    className={field}
+                    onPress={() => { setSelecting(!selecting); setSelectedIds([]); }}
+                >
+                    <Text className="text-text-primary">{selecting ? 'Cancel selection' : 'Select transactions'}</Text>
+                </TouchableOpacity>
+                {selecting && <TouchableOpacity
+                    accessibilityRole="button"
+                    disabled={selectedItems.length < 2 || loading || saving}
+                    className={button + (selectedItems.length < 2 ? ' opacity-50' : '')}
+                    onPress={() => openReview(selectedItems[0], selectedItems)}
+                >
+                    <Text className="font-bold text-white">Combine {selectedItems.length} · {formatTotal(combinedPaise)}</Text>
+                </TouchableOpacity>}
+            </View>
+        )}
+        <FlatList data={visible} extraData={selectedIds} keyExtractor={item => item.fingerprint} contentContainerStyle={{ padding: 16, paddingTop: 0 }}
             ListEmptyComponent={!loading ? <Text className="py-8 text-center text-text-secondary">Scan a date range to review transaction alerts.</Text> : null}
-            renderItem={({ item }) => <TouchableOpacity disabled={item.synced} onPress={() => openReview(item)} className={'mb-3 rounded-xl border border-border bg-background-surface p-4 ' + (item.synced ? 'opacity-60' : '')}>
+            renderItem={({ item }) => <TouchableOpacity
+                disabled={(item.synced && (selecting || !item.receipt?.deleted)) || loading || saving}
+                accessibilityRole={selecting ? 'checkbox' : 'button'}
+                accessibilityState={selecting ? { checked: selectedIds.includes(item.fingerprint), disabled: !!item.synced || loading || saving } : { disabled: (item.synced && !item.receipt?.deleted) || loading || saving }}
+                onPress={() => selecting ? toggleSelection(item) : item.receipt?.deleted ? resyncImport(item) : openReview(item)}
+                className={'mb-3 rounded-xl border bg-background-surface p-4 '
+                    + (selecting && selectedIds.includes(item.fingerprint) ? 'border-accent ' : 'border-border ')
+                    + (item.synced && (selecting || !item.receipt?.deleted) ? 'opacity-60' : '')}>
                 <View className="flex-row justify-between"><Text className="text-lg font-bold text-text-primary">{item.type === 'INCOME' ? '+' : '-'}{rupee}{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</Text><Text className="text-text-secondary">{item.source}</Text></View>
                 <Text className="mt-1 text-text-primary">{item.notes}</Text><Text className="mt-2 text-xs text-text-secondary">{item.date}{item.account ? ' - account ' + item.account : ''}</Text>
-                <Text className="mt-3 font-semibold text-accent">{item.synced ? 'Already imported' : 'Review and save'}</Text>
+                <Text className="mt-3 font-semibold text-accent">{item.receipt?.deleted ? item.receipt.missing ? 'Resync' : 'Resync · restore transaction' : item.synced ? 'Already imported' : selecting ? selectedIds.includes(item.fingerprint) ? 'Selected' : 'Select' : 'Review and save'}</Text>
             </TouchableOpacity>}
-            ListFooterComponent={hasMore && !loading ? <TouchableOpacity className={button} onPress={() => { void scanInbox(true); }}><Text className="text-white">Scan more messages</Text></TouchableOpacity> : null} />
+            ListFooterComponent={hasMore && !loading && !saving ? <TouchableOpacity className={button} onPress={() => { void scanInbox(true); }}><Text className="text-white">Scan more messages</Text></TouchableOpacity> : null} />
         <Modal visible={!!editing} animationType="slide" onRequestClose={() => { if (!saving) setEditing(null); }}>
             <ScrollView className="flex-1 bg-background" contentContainerStyle={{ padding: 24, paddingTop: 48, gap: 16 }} keyboardShouldPersistTaps="handled">
-                <View className="flex-row justify-between"><Text className="text-xl font-bold text-text-primary">Review transaction</Text><TouchableOpacity disabled={saving} onPress={() => setEditing(null)}><X color="#a78bfa" /></TouchableOpacity></View>
-                <View className="flex-row gap-2">{(['EXPENSE', 'INCOME'] as const).map(type => <TouchableOpacity key={type} onPress={() => { setEditing(item => item ? { ...item, type } : item); setCategoryId(''); }} className={editing?.type === type ? button : field}><Text className="text-text-primary">{type === 'EXPENSE' ? 'Expense' : 'Income'}</Text></TouchableOpacity>)}</View>
-                <Text className="text-text-secondary">Amount ({rupee})</Text><TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" className={field} />
+                <View className="flex-row justify-between"><Text className="text-xl font-bold text-text-primary">{resyncing ? 'Review transaction to resync' : combinedItems.length ? 'Review combined transaction' : 'Review transaction'}</Text><TouchableOpacity disabled={saving} onPress={() => setEditing(null)}><X color="#a78bfa" /></TouchableOpacity></View>
+                {resyncing && <Text className="text-text-secondary">Review the details to recreate this transaction from the SMS.</Text>}
+                {combinedItems.length ? <Text className="text-text-secondary">
+                    {combinedItems.length} {editing?.type === 'INCOME' ? 'income' : 'expense'} messages · {rupee}{amount}
+                </Text> : <View className="flex-row gap-2">{(['EXPENSE', 'INCOME'] as const).map(type => <TouchableOpacity key={type} onPress={() => { setEditing(item => item ? { ...item, type } : item); setCategoryId(''); }} className={editing?.type === type ? button : field}><Text className="text-text-primary">{type === 'EXPENSE' ? 'Expense' : 'Income'}</Text></TouchableOpacity>)}</View>}
+                {!combinedItems.length && <>
+                    <Text className="text-text-secondary">Amount ({rupee})</Text>
+                    <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" className={field} />
+                </>}
                 <Text className="text-text-secondary">Transaction date (YYYY-MM-DD)</Text><TextInput value={bookingDate} onChangeText={setBookingDate} className={field} maxLength={10} />
                 <Text className="text-text-secondary">Description</Text><TextInput value={description} onChangeText={setDescription} maxLength={500} className={field} />
                 <Text className="text-text-secondary">Category</Text>
-                {categories.filter(category => category.type === editing?.type && !category.isArchived).map(category => <TouchableOpacity key={category.id} className={categoryId === category.id ? button : field} onPress={() => setCategoryId(category.id)}><Text className="text-text-primary">{category.name}</Text></TouchableOpacity>)}
-                {!categories.some(category => category.type === editing?.type && !category.isArchived) && <Text className="text-text-secondary">Create a matching category in Finance before importing.</Text>}
-                <Text className="text-text-secondary">Original message (stays on this device)</Text><Text selectable className="rounded-xl bg-background-surface p-4 text-text-secondary">{editing?.rawBody}</Text>
-                <TouchableOpacity disabled={saving} className={button} onPress={() => { void saveTransaction(); }}>{saving ? <ActivityIndicator color="white" /> : <Text className="font-bold text-white">Save transaction</Text>}</TouchableOpacity>
+                {matchingCategories.map(category => <TouchableOpacity key={category.id} className={categoryId === category.id ? button : field} onPress={() => setCategoryId(category.id)}><Text className="text-text-primary">{category.name}</Text></TouchableOpacity>)}
+                {!matchingCategories.length && <Text className="text-text-secondary">Create a matching category in Finance before importing.</Text>}
+                <Text className="text-text-secondary">{combinedItems.length ? 'Selected messages (stay on this device)' : 'Original message (stays on this device)'}</Text>
+                {(combinedItems.length ? combinedItems : editing ? [editing] : []).map(item => (
+                    <Text key={item.fingerprint} selectable className="rounded-xl bg-background-surface p-4 text-text-secondary">{item.rawBody}</Text>
+                ))}
+                <TouchableOpacity disabled={saving} className={button} onPress={() => { void saveTransaction(); }}>{saving ? <ActivityIndicator color="white" /> : <Text className="font-bold text-white">{resyncing ? 'Resync transaction' : combinedItems.length ? 'Save combined transaction' : 'Save transaction'}</Text>}</TouchableOpacity>
             </ScrollView>
         </Modal>
     </View>;

@@ -87,6 +87,24 @@ test('mobile breakdown stacks below the chart and expands to individual items',(
     rendered=app.renderBranch(updated);assert.ok(text(rendered).includes('Lunch'));assert.ok(text(rendered).includes('UPI'));
 });
 
+test('expand and collapse all reaches nested payment-method categories', () => {
+    const app = dashboardHarness();
+    let tree = app.render();
+    nodes(tree).find(node => node.props?.accessibilityRole === 'tab' && text(node) === 'Payment method').props.onPress();
+    tree = app.render();
+    const press = label => nodes(tree).find(node => node.type === 'Button' && text(node) === label).props.onPress();
+    press('Expand all');
+    tree = app.render();
+    let branch = nodes(tree).find(node => typeof node.type === 'function' && node.props?.node?.name === 'UPI');
+    const food = nodes(app.renderBranch(branch)).find(node => typeof node.type === 'function' && node.props?.node?.id === 'food');
+    assert.ok(text(app.renderBranch(food)).includes('Lunch'));
+
+    press('Collapse all');
+    tree = app.render();
+    branch = nodes(tree).find(node => typeof node.type === 'function' && node.props?.node?.name === 'UPI');
+    assert.ok(nodes(app.renderBranch(branch)).some(node => node.props?.accessibilityLabel === 'Expand UPI'));
+});
+
 test('breakdown image snapshots the selected period, current filters, and expanded rows',()=>{
     const app=dashboardHarness();let tree=app.render();
     nodes(tree).find(node=>node.props?.accessibilityLabel?.startsWith('Home, included')).props.onPress();

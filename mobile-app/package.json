@@ -1,7 +1,7 @@
 {
   "name": "mobile-app",
   "main": "index.js",
-  "version": "1.1.44",
+  "version": "1.1.47",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -12,6 +12,7 @@
   "dependencies": {
     "@expo/dom-webview": "55.0.3",
     "@hookform/resolvers": "^5.2.2",
+    "@native-html/render": "^1.0.4",
     "@notifee/react-native": "^9.1.8",
     "@react-native-community/datetimepicker": "8.6.0",
     "@react-native-community/slider": "5.1.2",
@@ -39,6 +40,7 @@
     "expo-symbols": "~55.0.5",
     "expo-web-browser": "~55.0.9",
     "lucide-react-native": "^0.577.0",
+    "markdown-it": "^15.0.3",
     "nativewind": "^4.2.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -58,6 +60,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
     "@types/react": "~19.2.2",
     "autoprefixer": "^10.4.27",
     "babel-plugin-module-resolver": "^5.0.2",
